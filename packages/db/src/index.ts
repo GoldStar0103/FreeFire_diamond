@@ -30,3 +30,4 @@ export * from './adapters/ordering-store.js';
 export * from './adapters/payment-store.js';
 export * from './adapters/catalog-sync-store.js';
 export * from './adapters/admin-queries.js';
+export * from './adapters/storefront-queries.js';
