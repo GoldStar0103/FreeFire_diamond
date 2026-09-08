@@ -1,0 +1,324 @@
+{
+  "info": {
+    "name": "RecargasAmérica API",
+    "description": "Colección oficial de la API REST para revendedores de RecargasAmérica. Base URL: https://panel.recargasamerica.com/api/v1\n\nAutenticación: incluye tu clave en el header `Authorization: Bearer ra_tuClaveAqui` en cada request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://panel.recargasamerica.com/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "ra_tuClaveAqui",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{api_key}}",
+        "type": "string"
+      }
+    ]
+  },
+  "header": [
+    {"key": "Accept", "value": "application/json", "type": "text"},
+    {"key": "Content-Type", "value": "application/json", "type": "text"}
+  ],
+  "item": [
+    {
+      "name": "Billetera",
+      "item": [
+        {
+          "name": "Consultar Saldo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wallet",
+              "host": ["{{base_url}}"],
+              "path": ["wallet"]
+            },
+            "description": "Retorna el saldo disponible en tu billetera."
+          },
+          "response": [
+            {
+              "name": "Éxito",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"balance\": 150.00,\n    \"currency\": \"USD\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Catálogo de Productos",
+      "item": [
+        {
+          "name": "Listar Productos Streaming",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/streaming",
+              "host": ["{{base_url}}"],
+              "path": ["products", "streaming"]
+            },
+            "description": "Retorna los productos de cuentas streaming disponibles con su stock."
+          },
+          "response": [
+            {
+              "name": "Éxito",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"name\": \"Netflix 1 Pantalla\",\n      \"description\": \"Cuenta Netflix pantalla individual\",\n      \"price\": 5.99,\n      \"stock\": 3,\n      \"available\": true\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Listar Paquetes de Juegos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/games",
+              "host": ["{{base_url}}"],
+              "path": ["products", "games"]
+            },
+            "description": "Retorna los paquetes de juegos disponibles con los campos requeridos del jugador (input_fields)."
+          },
+          "response": [
+            {
+              "name": "Éxito",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"game\": \"Free Fire (MY)\",\n      \"package\": \"100 Diamonds\",\n      \"price\": 3.74,\n      \"input_fields\": [\n        {\"name\": \"input1\", \"label\": \"Player ID\"},\n        {\"name\": \"input2\", \"label\": \"Server ID\"}\n      ]\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Listar PINs y Recargas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/products/pins",
+              "host": ["{{base_url}}"],
+              "path": ["products", "pins"]
+            },
+            "description": "Retorna los productos de tipo PIN y recarga disponibles."
+          },
+          "response": [
+            {
+              "name": "Éxito",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"id\": 1,\n      \"sku\": \"FFCH1060\",\n      \"name\": \"Free Fire 1060 Diamonds\",\n      \"type\": \"pin\",\n      \"price\": 12.50\n    }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Compras",
+      "item": [
+        {
+          "name": "Comprar Producto Streaming",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"client_name\": \"Juan Pérez\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{base_url}}/buy/streaming",
+              "host": ["{{base_url}}"],
+              "path": ["buy", "streaming"]
+            },
+            "description": "Adquiere una cuenta de streaming. Se descuenta de tu saldo inmediatamente y recibes las credenciales en la respuesta.\n\n**Campos:**\n- `product_id` (requerido): ID del producto obtenido en /products/streaming\n- `client_name` (opcional): Nombre del cliente final"
+          },
+          "response": [
+            {
+              "name": "Éxito",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"transaction_id\": 42,\n    \"product\": \"Netflix 1 Pantalla\",\n    \"username\": \"user@email.com\",\n    \"password\": \"pass123\",\n    \"amount_charged\": 5.99\n  }\n}"
+            },
+            {
+              "name": "Saldo insuficiente",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": false,\n  \"error\": \"Saldo insuficiente.\",\n  \"code\": \"PURCHASE_FAILED\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Comprar Paquete de Juego",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"package_id\": 1,\n  \"input1\": \"123456789\",\n  \"input2\": \"3001\",\n  \"client_name\": \"Juan\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{base_url}}/buy/games",
+              "host": ["{{base_url}}"],
+              "path": ["buy", "games"]
+            },
+            "description": "Compra diamantes u otros ítems de juego.\n\n**Campos:**\n- `package_id` (requerido): ID del paquete de /products/games\n- `input1`, `input2`, etc. (requeridos según `input_fields` del paquete): datos del jugador\n- `client_name` (opcional): Nombre del cliente\n\n**Nota:** Si `status` es `PENDING`, consulta el estado con `GET /orders/{reference}`."
+          },
+          "response": [
+            {
+              "name": "Éxito - COMPLETED",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"transaction_id\": 43,\n    \"reference\": \"38094W09IPOKW\",\n    \"status\": \"COMPLETED\",\n    \"amount_charged\": 3.74,\n    \"item\": \"Free Fire 100 Diamonds\",\n    \"pins\": []\n  }\n}"
+            },
+            {
+              "name": "Éxito - PENDING",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"transaction_id\": 43,\n    \"reference\": \"38094W09IPOKW\",\n    \"status\": \"PENDING\",\n    \"amount_charged\": 3.74,\n    \"item\": null,\n    \"pins\": []\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Comprar PIN o Recarga",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// type = recharge (ver el ejemplo type = pin en la descripción de este request)\n{\n  \"product_id\": 5,\n  \"redemption_id\": \"7864634\",\n  \"client_name\": \"Juan\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{base_url}}/buy/pins",
+              "host": ["{{base_url}}"],
+              "path": ["buy", "pins"]
+            },
+            "description": "Mismo endpoint para los dos tipos de producto — el body cambia según el `type` que ya viene en GET /products/pins. NUNCA se mandan quantity y redemption_id juntos.\n\n**Si `type=pin`:**\n```\n{ \"product_id\": 1, \"quantity\": 2 }\n```\n\n**Si `type=recharge`:**\n```\n{ \"product_id\": 5, \"redemption_id\": \"7864634\" }\n```\n\n**Campos:**\n- `product_id` (requerido): ID del producto de /products/pins\n- `quantity` (solo para `type=pin`, máx 10): cantidad de PINs\n- `redemption_id` (requerido para `type=recharge`): ID de cuenta/jugador a recargar — es el MISMO dato que `service_user_id` en /pins/validate, solo que se llama distinto en cada endpoint\n- `client_name` (opcional): Nombre del cliente"
+          },
+          "response": [
+            {
+              "name": "Éxito",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"transaction_id\": 44,\n    \"amount_charged\": 25.00,\n    \"api_data\": {}\n  }\n}"
+            },
+            {
+              "name": "Error proveedor",
+              "status": "Bad Gateway",
+              "code": 502,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": false,\n  \"error\": \"El proveedor rechazó la orden.\",\n  \"code\": \"PROVIDER_ERROR\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Validar Cuenta de Recarga (Precheck)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"service_user_id\": \"123456789\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{base_url}}/pins/validate",
+              "host": ["{{base_url}}"],
+              "path": ["pins", "validate"]
+            },
+            "description": "Precheck: valida que el ID de jugador/cuenta exista antes de comprar una recarga, sin descontar saldo. Solo aplica a productos con `type=recharge` (ver /products/pins). Úsalo con el mismo ID que después vas a mandar como `redemption_id` en /buy/pins.\n\n**Campos:**\n- `product_id` (requerido): ID del producto de /products/pins, debe ser type=recharge\n- `service_user_id` (requerido): ID de jugador/cuenta a validar — mismo dato que `redemption_id` en /buy/pins, solo que se llama distinto en cada endpoint"
+          },
+          "response": [
+            {
+              "name": "Cuenta encontrada",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": true,\n    \"account_name\": \"Terminator\"\n  }\n}"
+            },
+            {
+              "name": "Cuenta no encontrada",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"status\": false,\n    \"account_name\": null\n  }\n}"
+            },
+            {
+              "name": "Producto no es de tipo recarga",
+              "status": "Unprocessable Content",
+              "code": 422,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": false,\n  \"error\": \"Este producto no es de tipo recarga.\",\n  \"code\": \"INVALID_PRODUCT_TYPE\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Órdenes",
+      "item": [
+        {
+          "name": "Consultar Estado de Orden",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/orders/38094W09IPOKW",
+              "host": ["{{base_url}}"],
+              "path": ["orders", "38094W09IPOKW"]
+            },
+            "description": "Consulta el estado actualizado de una orden de juego que quedó en estado PENDING.\n\nReemplaza `38094W09IPOKW` por el valor `reference` retornado en la respuesta de /buy/games."
+          },
+          "response": [
+            {
+              "name": "Éxito - COMPLETED",
+              "status": "OK",
+              "code": 200,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"transaction_id\": 43,\n    \"reference\": \"38094W09IPOKW\",\n    \"status\": \"COMPLETED\",\n    \"product\": \"Free Fire — 100 Diamonds\",\n    \"pins\": [\"ABC-123\"]\n  }\n}"
+            },
+            {
+              "name": "No encontrada",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"success\": false,\n  \"error\": \"Orden no encontrada.\",\n  \"code\": \"NOT_FOUND\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

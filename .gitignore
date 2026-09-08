@@ -1,0 +1,28 @@
+# Secrets — provider API key, Conekta credentials, Meta tokens.
+# Never commit these; they live in the environment or the host's .env.
+.env
+.env.*
+!.env.example
+
+# Phase 0 discovery output contains live product IDs, real costs and raw
+# provider responses. Useful locally, not something to publish.
+phase0/out/
+
+node_modules/
+dist/
+build/
+.next/
+out/
+
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local test Postgres cluster (scripts/pg.mjs)
+.pgdata/

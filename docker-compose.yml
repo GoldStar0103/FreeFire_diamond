@@ -1,0 +1,31 @@
+# Local development stack.
+#
+# Postgres only for now — `api`, `worker` and `web` join once they are scaffolded
+# in Phase 2. Production runs the same compose file on the client's own VPS with
+# Caddy in front, so what runs here is what runs there.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: levelup-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-levelup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-levelup_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-levelup}
+      # Deterministic collation so ORDER BY behaves identically everywhere.
+      POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=es-MX'
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # The worker must not start against a database that is not accepting
+      # connections — a half-started fulfilment worker is worse than none.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-levelup} -d ${POSTGRES_DB:-levelup}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

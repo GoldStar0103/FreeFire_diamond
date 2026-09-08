@@ -1,0 +1,15 @@
+# The repo is normalised to LF. Development happens on Windows but the worker
+# and Postgres run on a Linux VPS, and shell scripts with CRLF fail there.
+* text=auto eol=lf
+
+# Never rewrite these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.pdf binary
+
+# Generated migration SQL is reviewed as a whole, not line by line.
+packages/db/migrations/**/*.sql linguist-generated=true
+pnpm-lock.yaml linguist-generated=true

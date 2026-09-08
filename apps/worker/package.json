@@ -1,0 +1,27 @@
+{
+    "name":  "@levelup/worker",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "start":  "tsx src/main.ts",
+                    "dev":  "tsx watch src/main.ts",
+                    "seed-test-order":  "tsx src/seed-test-order.ts",
+                    "typecheck":  "tsc --noEmit",
+                    "test":  "vitest run",
+                    "sync-catalog":  "tsx src/sync-catalog.ts"
+                },
+    "dependencies":  {
+                         "@levelup/db":  "workspace:*",
+                         "@levelup/engine":  "workspace:*",
+                         "@levelup/provider":  "workspace:*",
+                         "@levelup/shared":  "workspace:*",
+                         "drizzle-orm":  "^0.36.0"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "^22",
+                            "tsx":  "^4.19.2",
+                            "typescript":  "^5.6.3",
+                            "vitest":  "^2.1.4"
+                        }
+}
