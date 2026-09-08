@@ -155,7 +155,8 @@ tbody tr:hover td { background: var(--surface-2); }
 .btn.danger:hover { border-color: var(--bad); }
 .btn.sm { padding: 5px 10px; font-size: 13px; }
 
-input[type="text"], input[type="password"], input[type="email"], input[type="number"], select {
+input[type="text"], input[type="password"], input[type="email"], input[type="number"],
+input[type="date"], input[type="file"], input[type="tel"], select {
   font: inherit;
   padding: 8px 11px;
   border-radius: 8px;
@@ -164,6 +165,7 @@ input[type="text"], input[type="password"], input[type="email"], input[type="num
   color: var(--text);
   width: 100%;
 }
+input[readonly] { opacity: 0.65; cursor: not-allowed; }
 input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -189,7 +191,9 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 .login-page { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
 .login-card { width: 100%; max-width: 360px; }
 .field { margin-bottom: 14px; }
-.field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+/* Both shapes are in use: `<div class="field"><label>` on the login form, and
+   `<label class="field"><span>` on the authoring forms. */
+.field label, .field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
 
 /* ── order detail ──────────────────────────────────────────────────────── */
 
@@ -226,3 +230,15 @@ pre.payload-body {
   .kv { grid-template-columns: 1fr; gap: 2px 0; }
   .kv dd { margin-bottom: 10px; }
 }
+
+/* recipe builder */
+.field.grow { flex: 1; min-width: 180px; }
+.recipe { list-style: decimal; margin: 14px 0 0; padding-left: 22px; }
+.recipe li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.recipe li span:first-child { flex: 1; }
+.review { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+.review-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+.review-row span { color: var(--muted); }
+.review-row .bad { color: var(--bad); }
+.review-row .ok { color: var(--ok); }
+.back { color: var(--muted); font-size: 14px; display: inline-block; margin-bottom: 10px; }
