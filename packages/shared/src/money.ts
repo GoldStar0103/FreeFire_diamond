@@ -79,15 +79,42 @@ export const deliveredDiamonds = (base: number, bonusPct = 10): number =>
   (base * (100 + bonusPct)) / 100;
 
 /**
- * A combo must never deliver less than its flyer advertises. Three of the
- * nineteen September combos did; the admin panel blocks publishing on this.
+ * How far below the advertised figure a combo may land and still be sellable.
+ *
+ * The client's rule, not ours: flyer numbers are rounded for visual appeal, and
+ * a handful of diamonds short goes unremarked because most combos over-deliver
+ * by far more. Anything larger is a real discrepancy customers notice and post
+ * about, so it still blocks.
+ */
+export const ACCEPTABLE_SHORTFALL_DIAMONDS = 10;
+
+export interface RecipeCheck {
+  delivered: number;
+  /** Negative means the flyer promises more than the recipe delivers. */
+  gap: number;
+  ok: boolean;
+  /** Short, but inside the rounding tolerance — worth showing, not blocking. */
+  withinTolerance: boolean;
+}
+
+/**
+ * Check what a combo actually delivers against what its flyer promises.
+ *
+ * The admin panel refuses to publish anything this rejects, so the monthly
+ * flyer rotation cannot reintroduce a discrepancy nobody spotted.
  */
 export function checkRecipe(
   advertised: number,
   recipe: readonly number[],
   bonusPct = 10,
-): { delivered: number; gap: number; ok: boolean } {
+  tolerance = ACCEPTABLE_SHORTFALL_DIAMONDS,
+): RecipeCheck {
   const delivered = recipe.reduce((sum, d) => sum + deliveredDiamonds(d, bonusPct), 0);
   const gap = delivered - advertised;
-  return { delivered, gap, ok: gap >= 0 };
+  return {
+    delivered,
+    gap,
+    ok: gap >= -tolerance,
+    withinTolerance: gap < 0 && gap >= -tolerance,
+  };
 }

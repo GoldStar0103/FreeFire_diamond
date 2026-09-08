@@ -26,20 +26,49 @@ describe('diamonds', () => {
 describe('checkRecipe', () => {
   it('accepts a combo that over-delivers', () => {
     // Mega Prime 48k: 5,600 eight times, advertised as 48,800.
-    const r = checkRecipe(48_800, Array(8).fill(5600));
-    expect(r).toEqual({ delivered: 49_280, gap: 480, ok: true });
+    expect(checkRecipe(48_800, Array(8).fill(5600))).toEqual({
+      delivered: 49_280,
+      gap: 480,
+      ok: true,
+      withinTolerance: false,
+    });
+  });
+
+  it('treats exact delivery as acceptable', () => {
+    expect(checkRecipe(110, [100]).ok).toBe(true);
   });
 
   it.each([
     ['Descuentos Chidos 4800', 4800, [2180, 2180], 4796, -4],
     ['Lluvia de Diamantes 2400', 2400, [2180], 2398, -2],
-    ['Pack Good', 3600, [2180, 1060], 3564, -36],
-  ])('flags %s as under-delivering', (_name, advertised, recipe, delivered, gap) => {
-    expect(checkRecipe(advertised, recipe)).toEqual({ delivered, gap, ok: false });
+  ])('allows %s — rounded down by a handful of diamonds', (_n, advertised, recipe, delivered, gap) => {
+    // The client rounds flyer numbers for visual appeal and over-delivers on
+    // most combos, so a few diamonds short is deliberate, not a defect.
+    expect(checkRecipe(advertised, recipe)).toEqual({
+      delivered,
+      gap,
+      ok: true,
+      withinTolerance: true,
+    });
   });
 
-  it('treats exact delivery as acceptable', () => {
-    expect(checkRecipe(110, [100]).ok).toBe(true);
+  it('still blocks a shortfall customers would notice', () => {
+    // Pack Good at 3,600 advertised was 36 diamonds short — the client
+    // relabelled the flyer to 3,500 rather than ship it.
+    expect(checkRecipe(3600, [2180, 1060])).toEqual({
+      delivered: 3564,
+      gap: -36,
+      ok: false,
+      withinTolerance: false,
+    });
+  });
+
+  it('accepts Pack Good at its corrected figure', () => {
+    expect(checkRecipe(3500, [2180, 1060]).ok).toBe(true);
+  });
+
+  it('respects a stricter tolerance when one is given', () => {
+    expect(checkRecipe(4800, [2180, 2180], 10, 0).ok).toBe(false);
   });
 });
 

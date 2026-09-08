@@ -520,8 +520,8 @@ function auditCombos() {
 
   log('');
   log(
-    `  ${pad('COMBO', 26)}${padL('MXN', 7)}${padL('CALLS', 7)}${padL('ADVERT', 9)}` +
-      `${padL('DELIV', 9)}${padL('GAP', 7)}${padL('MERCADO', 10)}${padL('AHORRO', 9)}${padL('%', 7)}`,
+    `  ${pad('COMBO', 26)}${padL('MXN', 7)}${padL('CALLS', 7)}${padL('DELIV', 9)}` +
+      `${padL('GAP', 7)}${padL('COSTO', 9)}${padL('MARGEN', 9)}${padL('%', 7)}${padL('vsMERC', 9)}`,
   );
 
   let currentCampaign = null;
@@ -531,12 +531,15 @@ function auditCombos() {
       log(`  ${currentCampaign}`);
     }
     const flags =
-      (c.shortfall ? ' <-- SHORTFALL' : '') + (c.pricedAboveMarket ? ' <-- OVER MARKET' : '');
+      (c.shortfall ? ' <-- SHORTFALL' : '') +
+      (c.roundedDown ? ' (redondeado)' : '') +
+      (c.pricedAboveMarket ? ' <-- OVER MARKET' : '');
     log(
       `  ${pad('  ' + c.name, 26)}${padL(c.priceMxn, 7)}${padL(c.callCount, 7)}` +
-        `${padL(c.advertised.toLocaleString('en-US'), 9)}${padL(c.delivered.toLocaleString('en-US'), 9)}` +
-        `${padL(c.gap > 0 ? `+${c.gap}` : c.gap, 7)}${padL(money(c.marketMxn), 10)}` +
-        `${padL(money(c.savingMxn), 9)}${padL(money(c.savingPct, 1), 7)}${flags}`,
+        `${padL(c.delivered.toLocaleString('en-US'), 9)}${padL(c.gap > 0 ? `+${c.gap}` : c.gap, 7)}` +
+        `${padL(money(c.costMxn), 9)}${padL(money(c.marginMxn), 9)}` +
+        `${padL(c.marginPct != null ? money(c.marginPct, 1) : '—', 7)}` +
+        `${padL(money(c.savingPct, 1), 9)}${flags}`,
     );
   }
 

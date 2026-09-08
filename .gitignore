@@ -26,3 +26,7 @@ Thumbs.db
 
 # Local test Postgres cluster (scripts/pg.mjs)
 .pgdata/
+
+# Personal Claude Code overrides. Team-wide settings belong in
+# .claude/settings.json, which is committed.
+.claude/settings.local.json

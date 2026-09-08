@@ -11,6 +11,18 @@
 /** Garena applies a standing +10% bonus to each base denomination on delivery. */
 export const BONUS_PCT = 10;
 
+/**
+ * How far below its advertised figure a combo may land and still be sellable.
+ *
+ * The client's rule: flyer numbers are rounded for visual appeal and most
+ * combos over-deliver by far more, so a handful short goes unremarked.
+ *
+ * Must stay in step with ACCEPTABLE_SHORTFALL_DIAMONDS in @levelup/shared —
+ * duplicated because this script is deliberately dependency-free so it can run
+ * before anything is installed.
+ */
+export const ACCEPTABLE_SHORTFALL = 10;
+
 /** The six commodity SKUs every competitor resells. LevelUp's raw material. */
 export const BASE_DENOMINATIONS = [100, 310, 520, 1060, 2180, 5600];
 
@@ -88,7 +100,9 @@ export const CAMPAIGNS = [
     note: 'Client typed names + prices; diamond counts read from the HD flyer.',
     combos: [
       { key: 'pack_huesito', name: 'Pack Huesito', priceMxn: 185, advertised: 1100, advertisedSource: FLYER, recipe: [1060] },
-      { key: 'pack_good', name: 'Pack Good', priceMxn: 455, advertised: 3600, advertisedSource: FLYER, recipe: [2180, 1060] },
+      // Client relabelled the flyer from 3,600 to 3,500 (2026-09-08): the recipe
+      // delivers 3,564, so the original figure was 36 short.
+      { key: 'pack_good', name: 'Pack Good', priceMxn: 455, advertised: 3500, advertisedSource: CLIENT, recipe: [2180, 1060] },
       { key: 'pack_insano', name: 'Pack Insano', priceMxn: 860, advertised: 7200, advertisedSource: FLYER, recipe: [5600, 1060] },
       { key: 'pack_prime', name: 'Pack Prime', priceMxn: 1030, advertised: 8500, advertisedSource: FLYER, recipe: [5600, 2180] },
       // HD flyer reads 10,900 — not the 11,000 an earlier thumbnail suggested.
@@ -114,8 +128,10 @@ export const CAMPAIGNS = [
 
 /**
  * Retired campaign, kept so the recipe knowledge is not lost if it rotates back.
- * The client used it as their worked example; the VIP group announced its final
- * 24 hours, so it is not part of the September catalog.
+ *
+ * The client confirmed on 2026-09-08 that it stays out: the September catalog
+ * is Descuentos Chidos, Lluvia de Diamantes, Super Packs, Packs Mega Prime and
+ * the permanent $10 Mega Oferta.
  *
  *   Recargas Locochonas — 2850 x $385 | 5300 x $660 | 7600 x $915
  *   Known recipe: 2850 = 2180 + 310 + 100  (delivers 2,849)
@@ -150,7 +166,9 @@ export function auditCombo(combo, costUsdByDenomination, fxUsdMxn) {
     callCount: combo.recipe.length,
     delivered,
     gap,
-    shortfall: gap < 0,
+    shortfall: gap < -ACCEPTABLE_SHORTFALL,
+    /** Short, but inside the rounding tolerance — worth showing, not blocking. */
+    roundedDown: gap < 0 && gap >= -ACCEPTABLE_SHORTFALL,
     needsConfirmation: combo.advertisedSource === ESTIMATE,
     marketMxn,
     savingMxn,
