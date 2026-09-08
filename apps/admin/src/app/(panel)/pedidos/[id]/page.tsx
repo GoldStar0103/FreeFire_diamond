@@ -147,21 +147,21 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 </>
               )}
 
-              {order.payment.comprobanteUrl && (
-                <>
-                  <dt>Comprobante</dt>
-                  <dd>
-                    <a
-                      href={order.payment.comprobanteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: 'var(--accent)' }}
-                    >
-                      Abrir
-                    </a>
-                  </dd>
-                </>
-              )}
+              <dt>Comprobante</dt>
+              <dd>
+                {order.payment.hasComprobante ? (
+                  <a
+                    href={`/api/comprobante/${order.payment.paymentId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    Abrir
+                  </a>
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>Sin comprobante</span>
+                )}
+              </dd>
             </>
           )}
 

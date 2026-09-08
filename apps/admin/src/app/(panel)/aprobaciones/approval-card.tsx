@@ -47,16 +47,22 @@ export function ApprovalCard({ approval, display }: Props) {
       {state.error && <div className="alert bad">{state.error}</div>}
       {state.ok && <div className="alert ok">{state.ok}</div>}
 
-      {approval.comprobanteUrl && (
+      {/* Served by payment id through an authenticated route — the storage path
+          never appears in a URL. */}
+      {approval.hasComprobante ? (
         <a
           className="btn sm"
-          href={approval.comprobanteUrl}
+          href={`/api/comprobante/${approval.paymentId}`}
           target="_blank"
           rel="noreferrer"
           style={{ display: 'inline-block', marginBottom: 12 }}
         >
           Ver comprobante
         </a>
+      ) : (
+        <div className="alert warn">
+          Este pedido no tiene comprobante. Pídeselo al cliente por WhatsApp antes de aprobar.
+        </div>
       )}
 
       {!showReject ? (

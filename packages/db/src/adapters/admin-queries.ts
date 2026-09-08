@@ -24,8 +24,10 @@ export interface PendingApproval {
   advertisedDiamonds: number;
   priceMxnCents: number;
   method: string;
+  paymentId: string;
   paymentStatus: string;
-  comprobanteUrl: string | null;
+  /** True when a receipt is on file. Fetched by payment id, never by path. */
+  hasComprobante: boolean;
   amountReceivedCents: number | null;
   /** Set when the customer paid a different amount — needs a human decision. */
   mismatch: boolean;
@@ -54,8 +56,9 @@ export async function listPendingApprovals(
       priceMxnCents: orders.priceMxnCents,
       createdAt: orders.createdAt,
       method: payments.method,
+      paymentId: payments.id,
+      comprobanteKey: payments.comprobanteAssetUrl,
       paymentStatus: payments.status,
-      comprobanteUrl: payments.comprobanteAssetUrl,
       amountReceivedCents: payments.amountReceivedCents,
       amountExpectedCents: payments.amountExpectedCents,
       expiresAt: payments.expiresAt,
@@ -82,8 +85,9 @@ export async function listPendingApprovals(
       advertisedDiamonds: snapshot.advertisedDiamonds ?? 0,
       priceMxnCents: r.priceMxnCents,
       method: r.method,
+      paymentId: r.paymentId,
       paymentStatus: r.paymentStatus,
-      comprobanteUrl: r.comprobanteUrl,
+      hasComprobante: r.comprobanteKey !== null,
       amountReceivedCents: r.amountReceivedCents,
       mismatch:
         r.amountReceivedCents !== null && r.amountReceivedCents !== r.amountExpectedCents,
@@ -241,7 +245,8 @@ export interface OrderDetail {
     status: string;
     amountExpectedCents: number;
     amountReceivedCents: number | null;
-    comprobanteUrl: string | null;
+    /** Served through the authenticated route by payment id, never by path. */
+    hasComprobante: boolean;
     reference: string | null;
     expiresAt: Date | null;
     paidAt: Date | null;
@@ -302,7 +307,7 @@ export async function getOrderDetail(db: Database, orderId: string): Promise<Ord
           status: payment.status,
           amountExpectedCents: payment.amountExpectedCents,
           amountReceivedCents: payment.amountReceivedCents,
-          comprobanteUrl: payment.comprobanteAssetUrl,
+          hasComprobante: payment.comprobanteAssetUrl !== null,
           reference: payment.reference,
           expiresAt: payment.expiresAt,
           paidAt: payment.paidAt,
