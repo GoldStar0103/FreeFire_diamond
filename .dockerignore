@@ -1,0 +1,39 @@
+# Keep secrets out of the image. The build does `COPY . .`, and a .env copied
+# into a layer stays in that layer forever — `rm` in a later step does not
+# remove it, and anyone who can pull the image can read it. Production gets its
+# configuration from the environment, never from a file in the image.
+.env
+.env.*
+!.env.example
+
+# Installed per-platform inside the image. Copying the host's would drop
+# Windows or macOS binaries into a Linux container.
+node_modules
+**/node_modules
+
+# Build output. Stale .next from the host would be copied over and then
+# partially overwritten, which is a genuinely confusing way to fail.
+.next
+**/.next
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Local state that is not part of the application.
+.pgdata
+.uploads
+phase0/out
+
+.git
+.github
+.claude
+.vscode
+.idea
+*.log
+
+# Documentation does not change behaviour, and leaving it out keeps the build
+# cache from being invalidated by a typo fix in the runbook.
+docs
+*.md
+!phase0/README.md

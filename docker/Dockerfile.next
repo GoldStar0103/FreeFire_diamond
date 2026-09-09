@@ -1,0 +1,81 @@
+# Storefront and admin panel.
+#
+# One file for both, because they differ only in which workspace gets built.
+# Pass --build-arg APP=web or APP=admin.
+#
+#   docker build -f docker/Dockerfile.next --build-arg APP=web -t levelup-web .
+#
+# Build context is the repository root: pnpm workspaces need the lockfile and
+# every package manifest to resolve, and the apps import @levelup/* from source.
+
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:24-alpine
+
+# ── base ──────────────────────────────────────────────────────────────────────
+FROM ${NODE_IMAGE} AS base
+# Next's prebuilt binaries are glibc-linked; on Alpine they need this shim.
+RUN apk add --no-cache libc6-compat
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+# ── dependencies ──────────────────────────────────────────────────────────────
+# Manifests only, so this layer is cached until a dependency actually changes.
+# Copying the whole tree here would reinstall on every source edit.
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/web/package.json           apps/web/
+COPY apps/admin/package.json         apps/admin/
+COPY apps/worker/package.json        apps/worker/
+COPY packages/db/package.json        packages/db/
+COPY packages/engine/package.json    packages/engine/
+COPY packages/payments/package.json  packages/payments/
+COPY packages/provider/package.json  packages/provider/
+COPY packages/shared/package.json    packages/shared/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# ── build ─────────────────────────────────────────────────────────────────────
+FROM deps AS build
+ARG APP=web
+COPY . .
+# No build-time secrets. Everything the app reads — DATABASE_URL, the legal
+# identity, the provider key — is read per request, which is why the pages that
+# depend on them are force-dynamic. Baking them in here would mean rebuilding
+# the image to change an RFC.
+RUN pnpm --filter @levelup/${APP} exec next build
+
+# ── runtime ───────────────────────────────────────────────────────────────────
+FROM ${NODE_IMAGE} AS runtime
+RUN apk add --no-cache libc6-compat
+ARG APP=web
+ENV NODE_ENV=production
+# Bind to every interface: the only thing that reaches these ports is Caddy on
+# the compose network, and the default of localhost would refuse it.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+WORKDIR /app
+
+# `output: 'standalone'` traces exactly the files the server needs and writes a
+# self-contained tree, so there is no node_modules and no package manager here.
+COPY --from=build /repo/apps/${APP}/.next/standalone ./
+# Static assets and the public dir are deliberately excluded from the trace and
+# have to be copied separately. Forgetting this is the classic standalone bug:
+# the site boots, serves HTML, and every stylesheet and script 404s.
+COPY --from=build /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
+
+# node:alpine ships an unprivileged `node` user. The app never writes to its own
+# filesystem — uploads go to a mounted volume — so nothing here needs to be
+# owned by it.
+USER node
+
+EXPOSE 3000
+
+# A build ARG does not survive into the running container, so the entrypoint
+# path is frozen into an ENV here. `exec` matters: it replaces the shell rather
+# than leaving it as PID 1, so SIGTERM reaches Next and in-flight requests get
+# drained instead of cut off mid-checkout.
+ENV APP_ENTRY=/app/apps/${APP}/server.js
+CMD ["sh", "-c", "exec node \"$APP_ENTRY\""]

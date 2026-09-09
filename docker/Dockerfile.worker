@@ -1,0 +1,69 @@
+# Fulfilment worker.
+#
+#   docker build -f docker/Dockerfile.worker -t levelup-worker .
+#
+# Unlike the two Next apps this is not a standalone bundle. The worker runs its
+# TypeScript through tsx, which resolves the `.js` specifiers the workspace
+# packages use back to their `.ts` sources — Node's own type stripping does not
+# do that rewriting. So tsx and the workspace dependencies ship in the image.
+#
+# That makes this image larger than the app images. The alternative is a
+# separate compile step for the one process where a subtle build difference
+# would be least visible and most expensive: it is the thing that spends money
+# at the provider. Running exactly the source the tests ran against is worth
+# more than the disk.
+
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:24-alpine
+
+FROM ${NODE_IMAGE} AS base
+RUN apk add --no-cache libc6-compat
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/web/package.json           apps/web/
+COPY apps/admin/package.json         apps/admin/
+COPY apps/worker/package.json        apps/worker/
+COPY packages/db/package.json        packages/db/
+COPY packages/engine/package.json    packages/engine/
+COPY packages/payments/package.json  packages/payments/
+COPY packages/provider/package.json  packages/provider/
+COPY packages/shared/package.json    packages/shared/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+FROM deps AS runtime
+ENV NODE_ENV=production
+
+# Only what the worker actually loads. The Next apps are not copied, so an edit
+# to a storefront page does not rebuild or restart fulfilment.
+COPY packages/ packages/
+COPY apps/worker/ apps/worker/
+COPY scripts/worker-healthcheck.mjs scripts/
+
+# Written by the heartbeat and read by the healthcheck. Owned by `node` because
+# the process drops to that user and still has to write here.
+RUN mkdir -p /var/run/levelup && chown node:node /var/run/levelup
+ENV WORKER_HEARTBEAT_FILE=/var/run/levelup/heartbeat
+
+USER node
+
+# No EXPOSE: the worker listens on nothing. It claims orders from the database
+# and calls the provider, and that is the whole of its interface.
+
+WORKDIR /repo/apps/worker
+
+# Node is PID 1, deliberately.
+#
+# `pnpm start` would spawn tsx as a child, and SIGTERM to pnpm does not reliably
+# reach it — the worker would be killed outright instead of shutting down. That
+# signal is the whole mechanism for finishing the combo in flight before
+# stopping; without it a customer who paid for an eight-call combo can be left
+# with three of them. `--import tsx` loads the loader into this process, and
+# resolves because tsx is installed in this workspace.
+CMD ["node", "--import", "tsx", "src/main.ts"]

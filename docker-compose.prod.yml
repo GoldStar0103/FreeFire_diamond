@@ -1,0 +1,155 @@
+# Production stack for the client's VPS.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Configuration comes from a .env file sitting next to this one, which is never
+# committed. Compose substitutes ${...} below from it and also passes it to each
+# service via env_file, so there is exactly one copy of every value.
+#
+# Only Caddy publishes ports. Postgres, the two apps and the worker talk over
+# the compose network and are unreachable from the internet — worth stating
+# because the admin panel approves payments, and the single most damaging
+# mistake available here is exposing its port "just to check something".
+
+name: levelup
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-levelup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-levelup}
+      POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=es-MX'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-levelup} -d ${POSTGRES_DB:-levelup}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # The first boot initialises the cluster, which takes longer than a normal
+      # start. Without this the stack is declared unhealthy before it is up.
+      start_period: 30s
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.next
+      args:
+        APP: web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      UPLOAD_DIR: /srv/levelup/uploads
+    volumes:
+      # Shared with the panel: the storefront writes comprobantes and serves
+      # flyers, the panel writes flyers and reads comprobantes.
+      - uploads:/srv/levelup/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging: *logging
+
+  admin:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.next
+      args:
+        APP: admin
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      UPLOAD_DIR: /srv/levelup/uploads
+    volumes:
+      - uploads:/srv/levelup/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging: *logging
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      WORKER_HEARTBEAT_FILE: /var/run/levelup/heartbeat
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '/repo/scripts/worker-healthcheck.mjs']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Long enough to finish an eight-call combo before being killed. The default
+    # 10s would cut fulfilment off partway through and leave a paid customer
+    # holding three of the eight recharges they bought.
+    stop_grace_period: 120s
+    # Exactly one. The advisory lock makes a second instance safe but useless —
+    # it would sit blocked — and the wallet-delta reconciliation the whole
+    # fulfilment design rests on assumes one provider call in flight globally.
+    deploy:
+      replicas: 1
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      STORE_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN must be set}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?ADMIN_DOMAIN must be set}
+      TLS_EMAIL: ${TLS_EMAIL:?TLS_EMAIL must be set}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live here. Losing this volume means re-issuing on restart,
+      # and Let's Encrypt rate-limits that.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - admin
+    logging: *logging
+
+volumes:
+  postgres_data:
+  # Comprobantes and flyers. This is the one volume whose loss is not
+  # recoverable from a database dump — back it up alongside Postgres.
+  uploads:
+  caddy_data:
+  caddy_config:

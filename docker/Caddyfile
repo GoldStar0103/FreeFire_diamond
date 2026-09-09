@@ -1,0 +1,88 @@
+# Caddy fronts both apps and terminates TLS.
+#
+# Certificates are obtained and renewed automatically, which is most of why
+# Caddy is here rather than nginx: nobody on this project should be renewing a
+# certificate by hand at 2am, and an expired one on a payments page is the kind
+# of thing that ends a store's reputation in a market built on distrust.
+#
+# Domains come from the environment so this file is the same in every
+# deployment. See docker-compose.prod.yml.
+
+{
+	# Where Let's Encrypt sends expiry warnings if renewal ever stops working.
+	email {$TLS_EMAIL}
+}
+
+(security_headers) {
+	header {
+		# HSTS. Only meaningful once the domain is definitely staying on HTTPS,
+		# which it is — Caddy redirects http to https automatically.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# The apps set their own X-Frame-Options; this is the backstop for
+		# anything that does not, such as a static error page.
+		X-Frame-Options "DENY"
+		-Server
+	}
+}
+
+# ── storefront ────────────────────────────────────────────────────────────────
+{$STORE_DOMAIN} {
+	import security_headers
+
+	encode zstd gzip
+
+	# Flyers are immutable — every key carries a UUID — and they are the
+	# heaviest thing on a page served to phones on mobile data.
+	@media path /media/*
+	header @media Cache-Control "public, max-age=31536000, immutable"
+
+	# Order pages carry a player ID. Never cached anywhere shared.
+	@orders path /pedido/*
+	header @orders Cache-Control "private, no-store"
+
+	reverse_proxy web:3000 {
+		# The apps read x-forwarded-for for rate limiting and trust it because
+		# this proxy is the only thing that can reach them. Caddy overwrites
+		# rather than appends, so a client cannot forge its own address.
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ── admin panel ───────────────────────────────────────────────────────────────
+# A separate hostname rather than a path on the storefront, so a mistake in the
+# storefront's routing can never expose the panel, and so the panel can be
+# firewalled or IP-restricted independently later.
+{$ADMIN_DOMAIN} {
+	import security_headers
+
+	header {
+		# Nothing in the panel should ever be indexed or cached. It shows
+		# customer bank receipts.
+		X-Robots-Tag "noindex, nofollow, noarchive"
+		Cache-Control "private, no-store"
+	}
+
+	encode zstd gzip
+
+	# Uploads are capped at 8MB by the application; rejecting oversized bodies
+	# at the edge keeps them from reaching Node at all.
+	request_body {
+		max_size 12MB
+	}
+
+	reverse_proxy admin:3000 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

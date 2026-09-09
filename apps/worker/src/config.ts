@@ -28,6 +28,11 @@ export interface WorkerConfig {
     batchSize: number;
   };
   telegram: { botToken: string; chatId: string } | null;
+  /**
+   * File touched periodically so a container healthcheck can tell a wedged
+   * worker from a working one. Unset outside containers.
+   */
+  heartbeatFile: string | undefined;
   /** Runs against the simulator instead of the real provider. Never in production. */
   dryRun: boolean;
 }
@@ -83,6 +88,7 @@ export function loadConfig(): WorkerConfig {
       batchSize: number('SWEEP_BATCH_SIZE', 25),
     },
     telegram,
+    heartbeatFile: process.env.WORKER_HEARTBEAT_FILE?.trim() || undefined,
     dryRun,
   };
 }

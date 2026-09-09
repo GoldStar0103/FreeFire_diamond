@@ -16,6 +16,7 @@ import {
 import { RecargasAmericaProvider, ProviderSimulator } from '@levelup/provider';
 import { ConsoleAlerter, TelegramAlerter } from './alerter.js';
 import { loadConfig } from './config.js';
+import { startHeartbeat } from './heartbeat.js';
 import { runFulfillmentLoop, runSweepOnce, ShutdownSignal, type RunnerDeps } from './runner.js';
 
 async function main(): Promise<void> {
@@ -62,9 +63,14 @@ async function main(): Promise<void> {
       `poll ${config.fulfillment.idlePollMs}ms, sweep ${config.sweeps.intervalMs}ms`,
   );
 
+  const heartbeat = startHeartbeat(config.heartbeatFile);
+
   const sweeps = (async () => {
     while (!signal.requested) {
       await runSweepOnce(deps);
+      // A beat per completed sweep, on top of the timer's. The timer proves the
+      // event loop turns; this proves the sweep itself is still coming round.
+      heartbeat.beat();
       // Short slices so shutdown is not held up by a long sweep interval.
       const until = Date.now() + config.sweeps.intervalMs;
       while (Date.now() < until && !signal.requested) {
@@ -73,11 +79,16 @@ async function main(): Promise<void> {
     }
   })();
 
-  const { processed } = await runFulfillmentLoop(deps, signal);
-  await sweeps;
-
-  console.log(`[worker] Stopped after processing ${processed} order(s)`);
-  await client.end({ timeout: 10 });
+  try {
+    const { processed } = await runFulfillmentLoop(deps, signal);
+    await sweeps;
+    console.log(`[worker] Stopped after processing ${processed} order(s)`);
+  } finally {
+    // Stop beating before the connection closes, so a crash cannot leave a
+    // fresh heartbeat behind and keep the container marked healthy.
+    heartbeat.stop();
+    await client.end({ timeout: 10 });
+  }
 }
 
 main().catch(async (err) => {

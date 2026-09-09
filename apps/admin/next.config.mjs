@@ -1,3 +1,5 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadRootEnv } from '../../scripts/load-root-env.mjs';
 
 // The root `.env` is the file `.env.example` tells you to copy; Next would
@@ -7,6 +9,11 @@ loadRootEnv();
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+
+  // See the storefront's config: tracing must start at the workspace root or
+  // the symlinked @levelup/* packages are left out of the standalone bundle.
+  output: 'standalone',
+  outputFileTracingRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
 
   // Workspace packages ship TypeScript source rather than a build artifact,
   // so Next has to compile them alongside the app.
