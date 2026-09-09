@@ -125,6 +125,27 @@ services:
       replicas: 1
     logging: *logging
 
+  # Migrations, seeding, creating an admin user. Never starts with the stack —
+  # `--profile tools` keeps it out of `up`. Migrations are deliberately not
+  # automatic on deploy: a deploy should never silently alter the schema.
+  #
+  #   dc --profile tools run --rm tools pnpm db:migrate
+  tools:
+    profiles: ['tools']
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.tools
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      UPLOAD_DIR: /srv/levelup/uploads
+    volumes:
+      - uploads:/srv/levelup/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

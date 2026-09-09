@@ -1,0 +1,46 @@
+# One-off operational commands: migrations, seeding, creating an admin user.
+#
+#   docker compose -f docker-compose.prod.yml --profile tools run --rm tools pnpm db:migrate
+#
+# The app images are standalone bundles with no package manager and no
+# drizzle-kit, and the worker image carries only the packages the worker loads.
+# Neither can run a migration. Rather than telling the operator to keep a
+# checkout with dev dependencies on the server — which drifts from what is
+# deployed, and is exactly the sort of thing that produces a migration applied
+# from the wrong commit — this image is the same source, same lockfile, run
+# from the same compose file.
+#
+# It never runs as a service. It exists to be `run --rm` and exit.
+
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:24-alpine
+
+FROM ${NODE_IMAGE} AS base
+RUN apk add --no-cache libc6-compat
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/web/package.json           apps/web/
+COPY apps/admin/package.json         apps/admin/
+COPY apps/worker/package.json        apps/worker/
+COPY packages/db/package.json        packages/db/
+COPY packages/engine/package.json    packages/engine/
+COPY packages/payments/package.json  packages/payments/
+COPY packages/provider/package.json  packages/provider/
+COPY packages/shared/package.json    packages/shared/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+FROM deps AS runtime
+# Dev dependencies are the point here: drizzle-kit and tsx are what these
+# commands are.
+COPY . .
+
+# `create-admin` prompts for a password on stdin, so this must stay usable
+# interactively via `run --rm` without -T.
+CMD ["sh"]
