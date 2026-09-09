@@ -22,6 +22,19 @@ describe('siteOrigin', () => {
     expect(siteOrigin('http://127.0.0.1:3000')).toBe('http://127.0.0.1:3000');
   });
 
+  it('defaults a bare local hostname to http, not https', () => {
+    // `localhost:3000` is what anyone writes in a dev .env. Defaulting it to
+    // https made the sitemap and canonical tags point at a URL the dev server
+    // does not serve — caught by the deploy smoke test, not by a person.
+    expect(siteOrigin('localhost:3000')).toBe('http://localhost:3000');
+    expect(siteOrigin('127.0.0.1:3000')).toBe('http://127.0.0.1:3000');
+    expect(siteOrigin('localhost')).toBe('http://localhost');
+  });
+
+  it('does not mistake a real domain that merely starts with "localhost"', () => {
+    expect(siteOrigin('localhost.levelupstore.mx')).toBe('https://localhost.levelupstore.mx');
+  });
+
   it('strips trailing slashes and whitespace', () => {
     expect(siteOrigin('  https://levelupstore.mx/  ')).toBe('https://levelupstore.mx');
     expect(siteOrigin('levelupstore.mx//')).toBe('https://levelupstore.mx');

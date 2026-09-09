@@ -111,6 +111,7 @@ recipe items until that runs.
 | `pnpm db:migrate` / `db:seed` / `db:studio` | schema and data |
 | `pnpm --filter @levelup/worker seed-test-order <combo> --approve` | put a real order through the real path |
 | `node phase0/discover.mjs` | probe the live provider API |
+| `node scripts/smoke.mjs <store-url> [panel-url]` | verify a running deployment — read-only, no credentials |
 
 The 154 tests in `packages/db` run against a real Postgres and **skip silently
 when none is reachable**. `pnpm pg:start` first, or they will pass without

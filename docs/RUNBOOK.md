@@ -69,14 +69,24 @@ prefix the command with a space if the shell is configured to skip those.
 ### Verify before telling anyone it is live
 
 ```bash
-curl -fsS https://$PUBLIC_DOMAIN/api/health   # {"status":"ok"}
-curl -fsS https://$ADMIN_DOMAIN/api/health    # {"status":"ok"}
-curl -fsSI https://$PUBLIC_DOMAIN/            # 200, valid certificate
-dc ps                                          # all services healthy
-dc logs worker --tail 20                       # "[worker] Starting"
+node scripts/smoke.mjs "https://$PUBLIC_DOMAIN" "https://$ADMIN_DOMAIN"
 ```
 
-Then, and this is the one that matters:
+Exits non-zero if anything is wrong, and names what. It is read-only and needs
+no credentials, so it is safe against production and worth re-running after
+every deploy. It checks the failures that are invisible from the outside:
+legal notices still showing `[PENDIENTE]`, flyers 404ing, a sitemap advertising
+the wrong domain, order pages missing `noindex`, the panel readable without a
+session, and — the one that would matter most — comprobantes reachable by URL.
+
+Also confirm the services themselves:
+
+```bash
+dc ps                        # all healthy
+dc logs worker --tail 20     # "[worker] Starting"
+```
+
+Then, and this is the one no script can do:
 
 1. Place a real order for the $10 Mega Oferta through the storefront.
 2. Approve it in the panel.
@@ -92,6 +102,12 @@ Nothing else proves the whole chain works.
 cd /srv/levelup
 git pull
 dc up -d --build
+```
+
+Then re-run the smoke test:
+
+```bash
+node scripts/smoke.mjs "https://$PUBLIC_DOMAIN" "https://$ADMIN_DOMAIN"
 ```
 
 Compose replaces containers one service at a time. The worker gets 120 seconds

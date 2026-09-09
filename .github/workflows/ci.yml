@@ -74,3 +74,42 @@ jobs:
 
       - name: Build the admin panel
         run: pnpm --filter @levelup/admin exec next build
+
+      # Typecheck and unit tests both pass on an app that cannot actually
+      # serve a page. Every runtime bug this project has shipped — a storage
+      # key rendered as an image URL, legal notices frozen at build time, a
+      # module-scope database connection — was invisible until something
+      # started the built artifact and made a request. So CI does that.
+      - name: Smoke-test the built storefront
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+          UPLOAD_DIR: /tmp/levelup-uploads
+          PUBLIC_DOMAIN: localhost:3000
+          HOSTNAME: 127.0.0.1
+          PORT: 3000
+          # Real-looking values: the point is to prove they reach the page, and
+          # a blank one would fail the "no [PENDIENTE]" check for the wrong
+          # reason. None of this is secret — it is printed on the legal pages.
+          LEGAL_BUSINESS_NAME: LevelUp Store CI
+          LEGAL_ENTITY_NAME: Entidad De Prueba
+          LEGAL_RFC: XAXX010101000
+          LEGAL_ADDRESS: Calle de Prueba 1, Ciudad de México
+          LEGAL_CONTACT_EMAIL: ci@example.test
+          WHATSAPP_SUPPORT_NUMBER: '520000000000'
+        run: |
+          mkdir -p "$UPLOAD_DIR"
+          pnpm --filter @levelup/db migrate
+          pnpm --filter @levelup/db seed
+          cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+          node apps/web/.next/standalone/apps/web/server.js &
+          echo $! > /tmp/web.pid
+
+          for i in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:3000/api/health" >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          node scripts/smoke.mjs "http://localhost:3000"
+          status=$?
+          kill "$(cat /tmp/web.pid)" || true
+          exit $status

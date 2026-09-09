@@ -21,7 +21,13 @@ const FALLBACK = 'levelupstore.mx';
 export function siteOrigin(domain: string | undefined = process.env.PUBLIC_DOMAIN): string {
   const raw = domain?.trim().replace(/\/+$/, '') || FALLBACK;
 
-  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  // A bare hostname gets https, except a local one — `localhost:3000` in a dev
+  // .env is the natural thing to write, and defaulting it to https produced a
+  // sitemap and canonical tags pointing at a URL the dev server does not serve.
+  const bareIsLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(raw);
+  const withScheme = /^https?:\/\//i.test(raw)
+    ? raw
+    : `${bareIsLocal ? 'http' : 'https'}://${raw}`;
 
   let parsed: URL;
   try {
