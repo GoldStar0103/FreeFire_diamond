@@ -241,7 +241,12 @@ Log rotation is configured (10MB × 5 per service). Old backups are pruned after
 
 ## 5. Routine operations
 
-These are the owner's, not a developer's. All of them are in the panel:
+These are the owner's, not a developer's, and they are all in the panel.
+
+**The owner's copy is [MANUAL.md](MANUAL.md), in Spanish** — this section was
+written in English for a Mexican client who has to actually use it, which made
+it a document nobody could read. The Spanish version is the real one and goes
+further; what follows is a summary for whoever is maintaining the system.
 
 - **Changing the bank account** — Ajustes. This is where customers are told to
   send their money, so it is the one setting whose being wrong stops every

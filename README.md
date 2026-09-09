@@ -56,6 +56,7 @@ packages/
 phase0/      live API discovery, and the transcribed combo catalog
 docker/      images and the Caddy config
 docs/        RUNBOOK.md — deploy, restore, what to do when something breaks
+             MANUAL.md  — the owner's guide, in Spanish
 ```
 
 `engine` holds the business rules and performs no I/O; `db` provides the
