@@ -200,3 +200,30 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .hero h1 { font-size: 40px; }
   .mega-diamonds { font-size: 52px; }
 }
+
+/* --- page headings shared by the static pages --- */
+.page-title { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.03em; line-height: 1.15; }
+.page-sub { color: var(--muted); margin: 0 0 20px; }
+.section-title { font-size: 15px; letter-spacing: 0.1em; color: var(--muted); margin: 28px 0 10px; }
+.mini-title { font-size: 15px; margin: 0 0 8px; }
+.link { color: var(--accent-2); text-decoration: underline; }
+
+/* --- trust page --- */
+.counter { text-align: center; }
+.counter-value { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; }
+.counter-label { color: var(--muted); font-size: 14px; }
+.trust-grid { display: grid; gap: 12px; }
+.trust-item h2 { font-size: 16px; margin: 8px 0 6px; }
+.trust-item p { color: var(--muted); font-size: 14px; margin: 0; }
+.trust-icon { font-size: 22px; }
+.quote p { margin: 0 0 10px; font-size: 15px; }
+.quote footer { color: var(--muted); font-size: 13px; }
+
+/* --- legal pages --- */
+.legal h2 { font-size: 16px; margin: 26px 0 8px; }
+.legal p, .legal li { color: var(--muted); font-size: 15px; }
+.legal ul { padding-left: 20px; }
+.legal li { margin-bottom: 6px; }
+.legal strong { color: var(--text); }
+
+.footer-links.small { font-size: 12px; margin-top: 4px; }

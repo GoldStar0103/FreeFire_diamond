@@ -36,6 +36,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               Soporte
             </a>
           </div>
+          <div className="footer-links small">
+            <a href="/legal/terminos">Términos y Condiciones</a>
+            <a href="/legal/privacidad">Aviso de Privacidad</a>
+          </div>
+          <div className="footer-note">
+            No afiliado a Garena. Free Fire es marca de sus respectivos dueños.
+          </div>
           <div className="footer-note">Juega más. Domina más.</div>
         </footer>
       </body>

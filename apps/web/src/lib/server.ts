@@ -18,6 +18,8 @@ declare global {
   // eslint-disable-next-line no-var
   var __webValidationLimiter: RateLimiter | undefined;
   // eslint-disable-next-line no-var
+  var __webLookupLimiter: RateLimiter | undefined;
+  // eslint-disable-next-line no-var
   var __webProvider: TopupProvider | undefined;
 }
 
@@ -43,6 +45,22 @@ export const validationLimiter: RateLimiter =
     windowMs: Number(process.env.VALIDATE_RATE_WINDOW_MS ?? 60_000),
   });
 if (process.env.NODE_ENV !== 'production') globalThis.__webValidationLimiter = validationLimiter;
+
+/**
+ * Order lookup is its own limiter, and tighter.
+ *
+ * The order-number-plus-player-ID pairing makes guessing impractical, but an
+ * unlimited endpoint still lets someone grind order numbers against a player
+ * ID they already know. A real customer looks up their order a handful of
+ * times, so a low ceiling costs nothing.
+ */
+export const lookupLimiter: RateLimiter =
+  globalThis.__webLookupLimiter ??
+  createRateLimiter({
+    limit: Number(process.env.LOOKUP_RATE_LIMIT ?? 10),
+    windowMs: Number(process.env.LOOKUP_RATE_WINDOW_MS ?? 300_000),
+  });
+if (process.env.NODE_ENV !== 'production') globalThis.__webLookupLimiter = lookupLimiter;
 
 function buildProvider(): TopupProvider {
   if (process.env.WEB_DRY_RUN === 'true') {
