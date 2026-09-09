@@ -27,6 +27,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * optional surrounding quotes — and nothing else. Multi-line values and shell
  * interpolation are not supported, so a config that needs them fails visibly
  * here rather than being half-parsed.
+ *
+ * @param {string} [file] Path to the env file; defaults to the repo root's.
+ * @returns {Record<string, string>} Everything parsed, whether or not it was
+ *   applied to `process.env` — a variable already set in the real environment
+ *   is reported here but not overwritten there.
  */
 export function loadRootEnv(file = resolve(ROOT, '.env')) {
   let contents;
@@ -38,7 +43,14 @@ export function loadRootEnv(file = resolve(ROOT, '.env')) {
     throw err;
   }
 
+  /** @type {Record<string, string>} */
   const loaded = {};
+
+  // Notepad, `Set-Content -Encoding utf8` on Windows PowerShell, and most
+  // Windows editors prepend a BOM. Left in place it becomes part of the first
+  // key's name, so that one variable — and only that one — silently fails to
+  // load, which is a genuinely horrible thing to debug.
+  if (contents.charCodeAt(0) === 0xfeff) contents = contents.slice(1);
 
   for (const line of contents.split(/\r?\n/)) {
     const trimmed = line.trim();
