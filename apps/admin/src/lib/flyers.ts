@@ -14,7 +14,7 @@ import 'server-only';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve, sep } from 'node:path';
-import { safeStorageKey, validateUpload, type UploadRejection } from '@levelup/shared';
+import { safeStorageKey, uploadRoot, validateUpload, type UploadRejection } from '@levelup/shared';
 
 export type FlyerResult =
   | { ok: true; key: string }
@@ -31,9 +31,6 @@ export async function storeFlyer(campaignKey: string, bytes: Uint8Array): Promis
     };
   }
 
-  const root = process.env.UPLOAD_DIR;
-  if (!root) throw new Error('UPLOAD_DIR is not set');
-
   // Built from values we control; the campaign key is sanitised anyway.
   const safeCampaign = campaignKey.replace(/[^a-z0-9_]/g, '').slice(0, 40) || 'promo';
   const key = `flyers/${safeCampaign}/${randomUUID()}.${validation.extension}`;
@@ -41,7 +38,7 @@ export async function storeFlyer(campaignKey: string, bytes: Uint8Array): Promis
   const checked = safeStorageKey(key);
   if (!checked.ok) throw new Error(`Refusing to store flyer: ${checked.reason}`);
 
-  const rootPath = resolve(root);
+  const rootPath = uploadRoot();
   const target = resolve(join(rootPath, checked.relative));
   if (!target.startsWith(rootPath + sep)) {
     throw new Error('Refusing to store a flyer outside the upload root');

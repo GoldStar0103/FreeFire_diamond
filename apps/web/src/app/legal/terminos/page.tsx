@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+/** Per request, for the reason spelled out in the aviso de privacidad page. */
+export const dynamic = 'force-dynamic';
+
 /**
  * Terms of service.
  *

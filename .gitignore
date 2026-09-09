@@ -30,6 +30,12 @@ Thumbs.db
 # Local test Postgres cluster (scripts/pg.mjs)
 .pgdata/
 
+# Uploads. Comprobantes are customer bank receipts and flyers are large
+# binaries the client re-uploads through the panel — neither belongs in git.
+# The real location is UPLOAD_DIR, which must be absolute; this covers the
+# common local choice of putting it inside the repo.
+.uploads/
+
 # Personal Claude Code overrides. Team-wide settings belong in
 # .claude/settings.json, which is committed.
 .claude/settings.local.json

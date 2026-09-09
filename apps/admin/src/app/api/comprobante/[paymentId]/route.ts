@@ -13,7 +13,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { payments } from '@levelup/db';
-import { contentTypeForKey, safeStorageKey } from '@levelup/shared';
+import { contentTypeForKey, safeStorageKey, uploadRoot } from '@levelup/shared';
 import { db } from '../../../../lib/db';
 import { getSession } from '../../../../lib/session';
 
@@ -51,13 +51,14 @@ export async function GET(
   const contentType = contentTypeForKey(safe.relative);
   if (!contentType) return new Response('Tipo de archivo no soportado', { status: 415 });
 
-  const root = process.env.UPLOAD_DIR;
-  if (!root) {
-    console.error('[comprobante] UPLOAD_DIR is not set');
+  let rootPath: string;
+  try {
+    rootPath = uploadRoot();
+  } catch (err) {
+    console.error(`[comprobante] ${err instanceof Error ? err.message : String(err)}`);
     return new Response('Almacenamiento no configurado', { status: 500 });
   }
 
-  const rootPath = resolve(root);
   const filePath = resolve(join(rootPath, safe.relative));
 
   // Belt and braces after safeStorageKey: symlinks and odd volume mappings can

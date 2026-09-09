@@ -7,6 +7,18 @@ export const metadata: Metadata = {
 };
 
 /**
+ * Rendered per request, not prerendered.
+ *
+ * The identity below comes from the environment, and a static page would bake
+ * in whatever was set at BUILD time. A Docker image built without the LEGAL_*
+ * variables — the normal case, since those are runtime configuration — would
+ * ship a privacy notice reading "[PENDIENTE: RFC]" that no restart could fix.
+ * This page is read a handful of times a month; rendering it per request costs
+ * nothing worth having.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Aviso de Privacidad Simplificado, per the LFPDPPP.
  *
  * Written to match what this system actually collects and does — a boilerplate

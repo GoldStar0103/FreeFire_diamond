@@ -14,17 +14,11 @@ import 'server-only';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
-import { comprobantePath, validateUpload, type UploadRejection } from '@levelup/shared';
+import { comprobantePath, uploadRoot, validateUpload, type UploadRejection } from '@levelup/shared';
 
 export type StoreResult =
   | { ok: true; key: string; byteLength: number }
   | { ok: false; rejection: UploadRejection };
-
-function uploadRoot(): string {
-  const dir = process.env.UPLOAD_DIR;
-  if (!dir) throw new Error('UPLOAD_DIR is not set');
-  return resolve(dir);
-}
 
 /**
  * Resolve a storage key to an absolute path, refusing anything that escapes

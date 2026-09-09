@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { countCompletedOrders, listStorefront } from '@levelup/db';
 import { db } from '../lib/server';
 import { diamonds, mxn } from '../lib/format';
+import { flyerUrl } from '../lib/assets';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,28 +46,40 @@ export default async function HomePage() {
         </p>
       )}
 
-      {(hero?.permanent ? rest : campaigns).map((campaign) => (
-        <section key={campaign.key} className="campaign">
-          <h2>{campaign.name}</h2>
+      {(hero?.permanent ? rest : campaigns).map((campaign) => {
+        // What the database holds is a storage key, not a URL. Rendering it
+        // straight into `src` is what made every uploaded flyer a broken image.
+        const flyer = flyerUrl(campaign.flyerAssetUrl);
 
-          {campaign.flyerAssetUrl && (
-            // The flyer is the brand — it is also what they post on social, so
-            // it stays. The purchasable combos are real cards beneath it, never
-            // text baked into the image.
-            <img className="flyer" src={campaign.flyerAssetUrl} alt={campaign.name} />
-          )}
+        return (
+          <section key={campaign.key} className="campaign">
+            <h2>{campaign.name}</h2>
 
-          <div className="combo-grid">
-            {campaign.combos.map((combo) => (
-              <Link key={combo.key} href={`/comprar/${combo.key}`} className="card combo">
-                <div className="combo-diamonds">{diamonds(combo.advertisedDiamonds)} 💎</div>
-                <div className="combo-name">{combo.name}</div>
-                <div className="combo-price">{mxn(combo.priceMxnCents)}</div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
+            {flyer && (
+              // The flyer is the brand — it is also what they post on social, so
+              // it stays. The purchasable combos are real cards beneath it, never
+              // text baked into the image.
+              <img
+                className="flyer"
+                src={flyer}
+                alt={campaign.name}
+                loading="lazy"
+                decoding="async"
+              />
+            )}
+
+            <div className="combo-grid">
+              {campaign.combos.map((combo) => (
+                <Link key={combo.key} href={`/comprar/${combo.key}`} className="card combo">
+                  <div className="combo-diamonds">{diamonds(combo.advertisedDiamonds)} 💎</div>
+                  <div className="combo-name">{combo.name}</div>
+                  <div className="combo-price">{mxn(combo.priceMxnCents)}</div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        );
+      })}
 
       {campaigns.length === 0 && (
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>

@@ -11,6 +11,8 @@
  * on Linux stays readable if the panel ever runs on Windows.
  */
 
+import { isAbsolute, resolve } from 'node:path';
+
 /** Segments that must never appear in a key, however they arrive. */
 const TRAVERSAL = /(^|[\\/])\.\.([\\/]|$)/;
 
@@ -45,6 +47,35 @@ export function safeStorageKey(key: string): KeyResolution {
   if (segments.some((s) => s === '..')) return { ok: false, reason: 'traversal segment' };
 
   return { ok: true, relative: segments.join('/') };
+}
+
+/**
+ * The upload root, which must be an absolute path.
+ *
+ * A relative UPLOAD_DIR resolves against each process's working directory, and
+ * the two apps never share one: the panel writes flyers from `apps/admin`, the
+ * storefront serves them from `apps/web`, and in production they are separate
+ * containers. `./uploads` therefore means two different directories that both
+ * exist and neither of which is the other — the panel reports a successful
+ * upload and every flyer is a broken image, with nothing in any log to say why.
+ *
+ * Refusing at startup costs one clear error. The alternative costs an afternoon.
+ */
+export function uploadRoot(value: string | undefined = process.env.UPLOAD_DIR): string {
+  const dir = value?.trim();
+  if (!dir) throw new Error('UPLOAD_DIR is not set');
+
+  // Deliberately the platform-specific check: this is a local filesystem path,
+  // so `C:\uploads` is absolute on Windows and `/srv/uploads` on Linux.
+  if (!isAbsolute(dir)) {
+    throw new Error(
+      `UPLOAD_DIR must be an absolute path, got "${dir}". ` +
+        'A relative path resolves differently in each app and silently splits ' +
+        'uploads across two directories.',
+    );
+  }
+
+  return resolve(dir);
 }
 
 /** Content type for a stored file, from its extension. Allowlist only. */

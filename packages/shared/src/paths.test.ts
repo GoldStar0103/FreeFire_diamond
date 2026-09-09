@@ -1,5 +1,38 @@
+import { isAbsolute, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { contentTypeForKey, safeStorageKey } from './paths.js';
+import { contentTypeForKey, safeStorageKey, uploadRoot } from './paths.js';
+
+describe('uploadRoot', () => {
+  /** An absolute path that is correct on whichever platform runs the tests. */
+  const ABSOLUTE = resolve(sep, 'srv', 'levelup', 'uploads');
+
+  it('accepts an absolute path', () => {
+    expect(uploadRoot(ABSOLUTE)).toBe(ABSOLUTE);
+    expect(isAbsolute(uploadRoot(ABSOLUTE))).toBe(true);
+  });
+
+  it('trims what an operator pastes into an env file', () => {
+    expect(uploadRoot(`  ${ABSOLUTE}  `)).toBe(ABSOLUTE);
+  });
+
+  it.each([undefined, '', '   '])('refuses a missing value (%p)', (value) => {
+    expect(() => uploadRoot(value)).toThrow(/UPLOAD_DIR is not set/);
+  });
+
+  it.each(['./uploads', 'uploads', '../uploads', '.uploads'])(
+    'refuses the relative path %s',
+    (value) => {
+      // The failure this prevents is silent: the panel resolves it against
+      // apps/admin and the storefront against apps/web, so an upload "succeeds"
+      // into a directory the other app will never look in.
+      expect(() => uploadRoot(value)).toThrow(/absolute/);
+    },
+  );
+
+  it('names the offending value so the error is actionable', () => {
+    expect(() => uploadRoot('./.uploads')).toThrow(/"\.\/\.uploads"/);
+  });
+});
 
 describe('safeStorageKey', () => {
   it('accepts a key we generated', () => {
