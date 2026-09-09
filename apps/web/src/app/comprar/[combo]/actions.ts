@@ -2,7 +2,12 @@
 
 import { eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
-import { baseProducts, DrizzleOrderingStore, getStorefrontCombo } from '@levelup/db';
+import {
+  baseProducts,
+  DrizzleOrderingStore,
+  getPaymentDetails,
+  getStorefrontCombo,
+} from '@levelup/db';
 import { createOrder, type CreateOrderFailure } from '@levelup/engine';
 import { ValidationUnsupportedError } from '@levelup/provider';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
@@ -166,6 +171,16 @@ export async function placeOrder(
 
   const combo = await getStorefrontCombo(getDb(), comboKey);
   if (!combo) return { error: 'Esta promoción ya no está disponible.' };
+
+  // Re-checked server-side for the same reason the player ID is: the form is a
+  // UX gate and a crafted POST can skip it. An order created while no account
+  // is configured is a customer who believes they have bought something and a
+  // payment that can never arrive.
+  if (!(await getPaymentDetails(getDb()))) {
+    return {
+      error: 'Estamos actualizando nuestros datos de pago. Escríbenos por WhatsApp para completar tu compra.',
+    };
+  }
 
   if (!(comprobante instanceof File) || comprobante.size === 0) {
     return { error: 'Sube la foto de tu comprobante de pago.' };

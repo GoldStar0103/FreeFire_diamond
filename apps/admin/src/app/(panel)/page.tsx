@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getDashboardStats } from '@levelup/db';
+import { getDashboardStats, getPaymentDetails } from '@levelup/db';
 import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { mxn } from '../../lib/format';
@@ -8,15 +8,33 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   await requireSession();
-  const stats = await getDashboardStats(getDb());
+  const [stats, payTo] = await Promise.all([
+    getDashboardStats(getDb()),
+    getPaymentDetails(getDb()),
+  ]);
 
   return (
     <>
       <h1>Inicio</h1>
       <p className="subtitle">Resumen de hoy.</p>
 
-      {/* Both of these mean money is not being made right now, so they sit
+      {/* All of these mean money is not being made right now, so they sit
           above the numbers rather than below them. */}
+      {!payTo && (
+        // First, because it is the only one that stops every sale outright.
+        // The storefront will not show payment details it does not have, so
+        // until this is set nobody can complete a purchase.
+        <div className="alert bad">
+          <strong>La tienda no puede recibir pagos.</strong> No hay una cuenta configurada, así
+          que los clientes ven un aviso para escribirte por WhatsApp en lugar de los datos de
+          pago.{' '}
+          <Link href="/ajustes" style={{ textDecoration: 'underline' }}>
+            Configúrala en Ajustes
+          </Link>
+          .
+        </div>
+      )}
+
       {stats.missingProducts.length > 0 && (
         <div className="alert bad">
           <strong>Faltan productos del proveedor:</strong>{' '}

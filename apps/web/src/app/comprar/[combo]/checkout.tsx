@@ -8,13 +8,26 @@ import {
   type ValidateState,
 } from './actions';
 
+interface PayTo {
+  bank: string;
+  clabe: string;
+  holder: string;
+  oxxo: string | null;
+}
+
 interface Props {
   comboKey: string;
   comboName: string;
   price: string;
   diamonds: string;
-  bankDetails: { bank: string; clabe: string; holder: string; oxxo: string };
+  /** Null when nobody has configured where the money goes. */
+  payTo: PayTo | null;
+  supportNumber: string;
 }
+
+/** 18 digits read as three groups, the way a bank statement prints them. */
+const groupClabe = (clabe: string): string =>
+  clabe.replace(/^(\d{3})(\d{3})(\d{11})(\d)$/, '$1 $2 $3 $4');
 
 /**
  * Two steps, and the gate between them matters: the customer cannot reach the
@@ -22,7 +35,14 @@ interface Props {
  * Diamonds sent to a wrong ID are unrecoverable, so this ordering is the
  * product working correctly, not a UX preference.
  */
-export function Checkout({ comboKey, comboName, price, diamonds, bankDetails }: Props) {
+export function Checkout({
+  comboKey,
+  comboName,
+  price,
+  diamonds,
+  payTo,
+  supportNumber,
+}: Props) {
   const [validation, validateAction, validating] = useActionState<ValidateState, FormData>(
     validatePlayer,
     { status: 'idle' },
@@ -114,21 +134,50 @@ export function Checkout({ comboKey, comboName, price, diamonds, bankDetails }: 
 
         {!confirmed ? (
           <p className="hint">Primero confirma tu ID de Free Fire.</p>
+        ) : !payTo ? (
+          /* No configured account. Showing the box with a blank CLABE would
+             leave someone holding their phone with nowhere to send the money —
+             so say so plainly and hand them a human. Their order is not
+             created, because an order nobody can pay for is just a customer
+             who thinks they bought something. */
+          <div className="alert warn">
+            <strong>Estamos actualizando nuestros datos de pago.</strong>
+            <p style={{ margin: '6px 0 0' }}>
+              Escríbenos por WhatsApp y te pasamos los datos al momento para completar tu compra.
+            </p>
+            {supportNumber && (
+              <a
+                className="btn primary wide"
+                style={{ marginTop: 12 }}
+                href={`https://wa.me/${supportNumber}?text=${encodeURIComponent(
+                  `Hola, quiero comprar ${comboName} (${price}) y no aparecen los datos de pago.`,
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Pedir los datos por WhatsApp
+              </a>
+            )}
+          </div>
         ) : (
           <>
             <div className="pay-box">
               <div className="pay-row">
-                <span>Transferencia {bankDetails.bank}</span>
-                <strong className="mono">{bankDetails.clabe}</strong>
+                <span>Transferencia {payTo.bank}</span>
+                <strong className="mono">{groupClabe(payTo.clabe)}</strong>
               </div>
               <div className="pay-row">
                 <span>A nombre de</span>
-                <strong>{bankDetails.holder}</strong>
+                <strong>{payTo.holder}</strong>
               </div>
-              <div className="pay-row">
-                <span>Depósito OXXO</span>
-                <strong className="mono">{bankDetails.oxxo}</strong>
-              </div>
+              {/* Only when there is one. An empty OXXO row taught customers to
+                  distrust the rest of the box. */}
+              {payTo.oxxo && (
+                <div className="pay-row">
+                  <span>Depósito OXXO</span>
+                  <strong className="mono">{payTo.oxxo}</strong>
+                </div>
+              )}
               <div className="pay-row total">
                 <span>Monto exacto</span>
                 <strong>{price}</strong>

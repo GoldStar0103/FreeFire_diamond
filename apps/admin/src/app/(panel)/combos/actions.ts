@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
-import { campaigns, DrizzleCatalogAdminStore } from '@levelup/db';
+import { campaigns, DrizzleCatalogAdminStore, getFxRate } from '@levelup/db';
 import {
   reviewCampaignDraft,
   reviewComboDraft,
@@ -28,10 +28,16 @@ export interface CampaignFormState {
 
 const store = () => new DrizzleCatalogAdminStore(getDb());
 
-async function fxRate(): Promise<number> {
-  const rate = Number(process.env.FX_USD_MXN ?? 18.5);
-  return Number.isFinite(rate) && rate > 0 ? rate : 18.5;
-}
+/**
+ * From the settings row the owner edits under Ajustes.
+ *
+ * This used to read FX_USD_MXN directly, while the seed wrote an `fx_usd_mxn`
+ * settings row that nothing ever read — so the panel showed margins based on a
+ * rate only a developer could change, and there was a dead row beside it
+ * pretending otherwise. `getFxRate` still falls back to the environment, so
+ * nothing breaks before the owner saves anything.
+ */
+const fxRate = (): Promise<number> => getFxRate(getDb());
 
 /** Recipe arrives as a comma-separated list of denominations, in call order. */
 function parseRecipe(raw: string): number[] {

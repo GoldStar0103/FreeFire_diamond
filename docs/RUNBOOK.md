@@ -33,6 +33,7 @@ Edit `.env`. Everything is documented there; these must be right:
 | `RA_API_KEY` | RecargasAmérica |
 | `PUBLIC_DOMAIN`, `ADMIN_DOMAIN`, `TLS_EMAIL` | must match DNS |
 | `LEGAL_*` | printed verbatim on the legal pages |
+| `PAY_*` | optional — a bootstrap only. Set the bank account in the panel under Ajustes instead; leaving these blank simply means the storefront cannot take payments until you do |
 | `ADMIN_SESSION_SECRET` | long and random |
 | `TELEGRAM_*` | **the worker refuses to start without these.** Alerts are how a human learns an order needs review; running blind defeats the design |
 | `UPLOAD_DIR` | leave as `/srv/levelup/uploads` — it is a path inside the container |
@@ -242,6 +243,12 @@ Log rotation is configured (10MB × 5 per service). Old backups are pruned after
 
 These are the owner's, not a developer's. All of them are in the panel:
 
+- **Changing the bank account** — Ajustes. This is where customers are told to
+  send their money, so it is the one setting whose being wrong stops every
+  sale. The CLABE's check digit is validated on save, so a mistyped one is
+  caught here rather than by a customer whose transfer bounces. If nothing is
+  configured the storefront refuses to show payment details at all — it offers
+  WhatsApp instead — and the dashboard carries a red banner until it is fixed.
 - **Rotating the monthly flyer** — Combos → the campaign → upload the image.
 - **Turning a combo on or off** — Combos → the combo. A combo that would
   deliver less than it advertises is refused; that is not a bug.

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getStorefrontCombo } from '@levelup/db';
+import { getPaymentDetails, getStorefrontCombo } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
 import { Checkout } from './checkout';
@@ -44,8 +44,25 @@ export async function generateMetadata({
 
 export default async function BuyPage({ params }: { params: Promise<{ combo: string }> }) {
   const { combo: comboKey } = await params;
-  const combo = await getStorefrontCombo(getDb(), comboKey);
+
+  const [combo, payTo] = await Promise.all([
+    getStorefrontCombo(getDb(), comboKey),
+    getPaymentDetails(getDb()),
+  ]);
+
   if (!combo) notFound();
+
+  // Null means nobody has configured where the money goes. Previously these
+  // were environment variables defaulting to empty strings, so an
+  // unconfigured deployment rendered a blank account number to a customer who
+  // had just confirmed their Free Fire ID and was reaching for their banking
+  // app. Say so instead, and log it where an operator will see it.
+  if (!payTo) {
+    console.error(
+      '[checkout] No payment details configured. Set them in the admin panel ' +
+        'under Ajustes — the storefront cannot take bank transfers until then.',
+    );
+  }
 
   return (
     <main className="page narrow">
@@ -58,12 +75,8 @@ export default async function BuyPage({ params }: { params: Promise<{ combo: str
         comboName={combo.name}
         price={mxn(combo.priceMxnCents)}
         diamonds={diamonds(combo.advertisedDiamonds)}
-        bankDetails={{
-          bank: process.env.PAY_BANK ?? 'BBVA',
-          clabe: process.env.PAY_CLABE ?? '',
-          holder: process.env.PAY_HOLDER ?? 'LEVELUP STORE',
-          oxxo: process.env.PAY_OXXO ?? '',
-        }}
+        payTo={payTo}
+        supportNumber={process.env.WHATSAPP_SUPPORT_NUMBER ?? ''}
       />
     </main>
   );

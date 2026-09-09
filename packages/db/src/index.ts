@@ -33,3 +33,4 @@ export * from './adapters/admin-queries.js';
 export * from './adapters/storefront-queries.js';
 export * from './adapters/catalog-admin-store.js';
 export * from './adapters/testimonials.js';
+export * from './adapters/payment-settings.js';
