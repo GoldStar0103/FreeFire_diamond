@@ -46,7 +46,13 @@ export default async function OrdersPage({
 
   return (
     <>
-      <h1>Pedidos</h1>
+      <div className="row">
+        <h1 style={{ marginBottom: 0 }}>Pedidos</h1>
+        <div className="spacer" />
+        <Link className="btn primary" href="/pedidos/nuevo">
+          Nuevo pedido manual
+        </Link>
+      </div>
       <p className="subtitle">{total} pedido(s)</p>
 
       <form className="row" style={{ marginBottom: 14 }}>

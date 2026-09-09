@@ -89,6 +89,11 @@ async function seed() {
         })
         .onConflictDoUpdate({
           target: combos.key,
+          // `active` is deliberately absent: once the admin panel exists, an
+          // operator's decision to switch a combo off outranks a re-seed.
+          // Note the consequence — a combo this seeder once deactivated stays
+          // off even after the reason is fixed, and has to be turned back on
+          // from the panel.
           set: {
             name: combo.name,
             priceMxnCents: pesosToCentavos(combo.priceMxn),
