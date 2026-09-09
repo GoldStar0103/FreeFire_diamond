@@ -2,16 +2,27 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProviderSimulator } from '@levelup/provider';
 import { InMemoryLock } from '@levelup/engine';
 import { MemoryAlerter, MemoryStore, buildOrder } from '@levelup/engine/testing';
-import type { RecoveryStore, StalledItem } from '@levelup/engine';
+import type {
+  ExpiryStore,
+  OverduePayment,
+  RecoveryStore,
+  StalledItem,
+} from '@levelup/engine';
 import { loadConfig } from './config.js';
 import { checkWallet, runFulfillmentLoop, ShutdownSignal, type RunnerDeps } from './runner.js';
 
-class QueueStore extends MemoryStore implements RecoveryStore {
+class QueueStore extends MemoryStore implements RecoveryStore, ExpiryStore {
   async findPendingProviderItems(): Promise<StalledItem[]> {
     return [];
   }
   async findStalledSendingItems(): Promise<StalledItem[]> {
     return [];
+  }
+  async findOverduePayments(): Promise<OverduePayment[]> {
+    return [];
+  }
+  async expirePayment(): Promise<void> {
+    return undefined;
   }
 }
 

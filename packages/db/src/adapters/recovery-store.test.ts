@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
-import { baseProducts, campaigns, combos, orderItems, orders } from '../schema.js';
+import { baseProducts, campaigns, combos, orderItems, orders, payments } from '../schema.js';
 import { DrizzleRecoveryStore } from './recovery-store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -119,6 +119,141 @@ async function seedItem(options: {
 
   return { orderId: order!.id, itemId: item!.id };
 }
+
+/** An order with a payment, positioned relative to its deadline. */
+async function seedPayment(options: {
+  orderNumber: string;
+  paymentStatus: 'pending' | 'under_review' | 'paid';
+  orderStatus?: 'pending_payment' | 'payment_confirmed' | 'cancelled';
+  /** Negative is overdue. Null leaves the column empty, as pre-existing rows are. */
+  expiresInSeconds: number | null;
+  comboKey?: string;
+}) {
+  const [order] = await db
+    .insert(orders)
+    .values({
+      orderNumber: options.orderNumber,
+      playerId: '7288567050',
+      comboKey: options.comboKey ?? 'mega_10',
+      comboSnapshot: { name: 'Mega Oferta 110' },
+      priceMxnCents: 1_000,
+      status: options.orderStatus ?? 'pending_payment',
+    })
+    .returning();
+
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      orderId: order!.id,
+      method: 'transfer_manual',
+      status: options.paymentStatus,
+      amountExpectedCents: 1_000,
+      expiresAt:
+        options.expiresInSeconds === null
+          ? null
+          : raw`now() + make_interval(secs => ${options.expiresInSeconds})`,
+    })
+    .returning();
+
+  return { orderId: order!.id, paymentId: payment!.id };
+}
+
+describe.skipIf(!PG_AVAILABLE)('findOverduePayments', () => {
+  const store = () => new DrizzleRecoveryStore(db);
+
+  it('finds an unpaid order past its deadline', async () => {
+    const { orderId } = await seedPayment({
+      orderNumber: 'LU-1',
+      paymentStatus: 'pending',
+      expiresInSeconds: -60,
+    });
+
+    const found = await store().findOverduePayments(new Date(), 25);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.orderId).toBe(orderId);
+    expect(found[0]?.orderNumber).toBe('LU-1');
+  });
+
+  it('leaves an order alone before its deadline', async () => {
+    await seedPayment({ orderNumber: 'LU-1', paymentStatus: 'pending', expiresInSeconds: 3600 });
+    expect(await store().findOverduePayments(new Date(), 25)).toHaveLength(0);
+  });
+
+  it('NEVER expires a payment under review, however overdue', async () => {
+    // The single most important condition here. `under_review` means a
+    // comprobante was uploaded — somebody has already sent real money and is
+    // waiting on the panel. Expiring one of these cancels a paid order.
+    await seedPayment({
+      orderNumber: 'LU-1',
+      paymentStatus: 'under_review',
+      expiresInSeconds: -86_400,
+    });
+    expect(await store().findOverduePayments(new Date(), 25)).toHaveLength(0);
+  });
+
+  it('never expires a payment already paid', async () => {
+    await seedPayment({
+      orderNumber: 'LU-1',
+      paymentStatus: 'paid',
+      orderStatus: 'payment_confirmed',
+      expiresInSeconds: -86_400,
+    });
+    expect(await store().findOverduePayments(new Date(), 25)).toHaveLength(0);
+  });
+
+  it('ignores rows written before payments had deadlines', async () => {
+    // A null expires_at is unknown, not infinitely overdue.
+    await seedPayment({ orderNumber: 'LU-1', paymentStatus: 'pending', expiresInSeconds: null });
+    expect(await store().findOverduePayments(new Date(), 25)).toHaveLength(0);
+  });
+
+  it('skips an order that is no longer pending_payment', async () => {
+    await seedPayment({
+      orderNumber: 'LU-1',
+      paymentStatus: 'pending',
+      orderStatus: 'cancelled',
+      expiresInSeconds: -60,
+    });
+    expect(await store().findOverduePayments(new Date(), 25)).toHaveLength(0);
+  });
+
+  it('respects the batch size and takes the most overdue first', async () => {
+    await seedPayment({ orderNumber: 'LU-1', paymentStatus: 'pending', expiresInSeconds: -60 });
+    await seedPayment({
+      orderNumber: 'LU-2',
+      paymentStatus: 'pending',
+      expiresInSeconds: -600,
+      comboKey: 'pack_insano',
+    });
+
+    const found = await store().findOverduePayments(new Date(), 1);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.orderNumber).toBe('LU-2');
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('expirePayment', () => {
+  it('frees a blocked Mega Oferta slot', async () => {
+    // The whole point. The one-per-player index counts every order that is not
+    // cancelled or expired, so an abandoned attempt used to lock a customer out
+    // of the entry offer permanently.
+    const { orderId, paymentId } = await seedPayment({
+      orderNumber: 'LU-1',
+      paymentStatus: 'pending',
+      expiresInSeconds: -60,
+    });
+
+    await new DrizzleRecoveryStore(db).expirePayment({ orderId, paymentId });
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order?.status).toBe('payment_expired');
+
+    // The index permits a second attempt now.
+    await expect(
+      seedPayment({ orderNumber: 'LU-2', paymentStatus: 'pending', expiresInSeconds: 3600 }),
+    ).resolves.toBeDefined();
+  });
+});
 
 describe.skipIf(!PG_AVAILABLE)('findPendingProviderItems', () => {
   it('finds an item that has been PENDING long enough', async () => {

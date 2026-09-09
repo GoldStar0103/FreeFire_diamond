@@ -6,15 +6,20 @@
  * exercised in production otherwise.
  */
 
-import { fulfillOrder, recoverStalledItems, pollPendingOrders } from '@levelup/engine';
-import type { Alerter, AdvisoryLock, RecoveryStore } from '@levelup/engine';
+import {
+  expireOverduePayments,
+  fulfillOrder,
+  recoverStalledItems,
+  pollPendingOrders,
+} from '@levelup/engine';
+import type { Alerter, AdvisoryLock, ExpiryStore, RecoveryStore } from '@levelup/engine';
 import type { TopupProvider, UsdTenK } from '@levelup/provider';
 import type { DrizzleOrderQueue } from '@levelup/db';
 import type { WorkerConfig } from './config.js';
 
 export interface RunnerDeps {
   queue: Pick<DrizzleOrderQueue, 'claimNext' | 'depth'>;
-  store: RecoveryStore;
+  store: RecoveryStore & ExpiryStore;
   provider: TopupProvider;
   lock: AdvisoryLock;
   alerter: Alerter;
@@ -145,6 +150,20 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
     }
   } catch (err) {
     console.error(`[sweep] Recovery failed: ${String(err)}`);
+  }
+
+  try {
+    // Retires orders nobody ever paid for. Cheap, and it is what frees a Mega
+    // Oferta slot that an abandoned attempt would otherwise hold forever.
+    const expiry = await expireOverduePayments({
+      store,
+      config: { batchSize: config.sweeps.batchSize },
+    });
+    if (expiry.expired > 0 || expiry.failed > 0) {
+      console.log(`[sweep] expired ${expiry.expired} unpaid order(s), ${expiry.failed} failed`);
+    }
+  } catch (err) {
+    console.error(`[sweep] Expiry failed: ${String(err)}`);
   }
 
   await checkWallet(deps);

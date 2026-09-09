@@ -4,5 +4,6 @@ export * from './fulfillment.js';
 export * from './poller.js';
 export * from './ordering.js';
 export * from './payments.js';
+export * from './expiry.js';
 export * from './catalog-sync.js';
 export * from './catalog-admin.js';

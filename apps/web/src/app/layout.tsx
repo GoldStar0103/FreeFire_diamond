@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { siteOrigin } from '../lib/site';
+import { supportUrl } from '../lib/support';
 import './globals.css';
 
 const DESCRIPTION =
@@ -57,6 +58,8 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const support = supportUrl();
+
   return (
     <html lang="es-MX">
       <body>
@@ -68,14 +71,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/pedidos">Mis pedidos</a>
             <a href="/confianza">Confianza</a>
             {/* Support lives here and on a failed order — never as a floating
-                button. The client's market is full of curious children. */}
-            <a
-              href={`https://wa.me/${process.env.WHATSAPP_SUPPORT_NUMBER ?? ''}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Soporte
-            </a>
+                button. The client's market is full of curious children.
+                Hidden entirely when no number is configured, rather than
+                linking to `https://wa.me/`, which opens an error page. */}
+            {support && (
+              <a href={support} target="_blank" rel="noreferrer">
+                Soporte
+              </a>
+            )}
           </div>
           <div className="footer-links small">
             <a href="/legal/terminos">Términos y Condiciones</a>

@@ -24,8 +24,27 @@ const UNIQUE_VIOLATION = '23505';
 const isUniqueViolation = (err: unknown): boolean =>
   typeof err === 'object' && err !== null && (err as { code?: string }).code === UNIQUE_VIOLATION;
 
+/**
+ * How long an unpaid order holds its place.
+ *
+ * The column existed and was read in five places, but nothing ever wrote it —
+ * so every payment had a null deadline, `expirePayment` was unreachable, and an
+ * order that was never paid stayed `pending_payment` forever. That is not
+ * merely untidy: the Mega Oferta's one-per-player index counts pending orders,
+ * so a single abandoned attempt permanently consumed a customer's entry offer.
+ *
+ * Two days is deliberately generous. The storefront attaches the comprobante
+ * as the order is created, so a pending order usually means something went
+ * wrong for someone who has already paid, and expiry is recoverable anyway —
+ * the panel can still approve an expired payment with "forzar".
+ */
+export const DEFAULT_PAYMENT_TTL_MS = 48 * 60 * 60 * 1000;
+
 export class DrizzleOrderingStore implements OrderingStore {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly paymentTtlMs: number = DEFAULT_PAYMENT_TTL_MS,
+  ) {}
 
   async findComboForOrder(comboKey: string): Promise<ComboForOrder | null> {
     const [row] = await this.db
@@ -164,6 +183,7 @@ export class DrizzleOrderingStore implements OrderingStore {
             method: order.paymentMethod,
             status: 'pending',
             amountExpectedCents: order.priceMxnCents,
+            expiresAt: new Date(Date.now() + this.paymentTtlMs),
           });
 
           return created;

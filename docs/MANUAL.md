@@ -54,6 +54,19 @@ automático que si hubiera comprado en la página, y queda registrada igual.
 Puedes usar esto aunque un combo esté apagado. Es a propósito: sirve para
 cuando alguien pagó por una promoción que ya terminó.
 
+### Pedidos que nadie pagó
+
+Un pedido que se queda esperando pago **se vence solo a las 48 horas** y pasa a
+"Pago vencido". No tienes que hacer nada.
+
+Esto importa por la oferta de $10: como es una por cuenta de Free Fire, un
+intento que quedó a medias bloqueaba al cliente para siempre. Al vencerse, su
+lugar se libera y puede volver a intentarlo.
+
+Un pedido con comprobante subido **nunca se vence** — ése ya te pagó y está
+esperando que tú lo apruebes. Y si un pedido se venció pero resulta que el
+cliente sí había pagado, todavía puedes aprobarlo con "forzar".
+
 ### Revisar pedidos
 
 **Pedidos** los lista todos. Puedes buscar por número de pedido o por ID de

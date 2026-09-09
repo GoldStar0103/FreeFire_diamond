@@ -5,6 +5,7 @@ import { findCustomerOrder, type CustomerOrderStatus } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
+import { supportUrl } from '../../../lib/support';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,9 +73,9 @@ export default async function OrderPage({
       ? 0
       : Math.min(100, (order.deliveredDiamonds / order.advertisedDiamonds) * 100);
 
-  const supportUrl = `https://wa.me/${process.env.WHATSAPP_SUPPORT_NUMBER ?? ''}?text=${encodeURIComponent(
+  const helpUrl = supportUrl(
     `Hola, tengo un problema con mi pedido ${order.orderNumber} (ID ${order.playerId}).`,
-  )}`;
+  );
 
   // Only once the diamonds are actually in their account. Inviting someone to
   // the VIP group while their order is still processing would read as a sales
@@ -120,8 +121,8 @@ export default async function OrderPage({
       {/* Support appears only when an order actually needs a human. The client
           does not want a floating WhatsApp button in a market full of curious
           children — this is the one place it shows up. */}
-      {order.needsSupport && (
-        <a className="btn primary wide" href={supportUrl} target="_blank" rel="noreferrer">
+      {order.needsSupport && helpUrl && (
+        <a className="btn primary wide" href={helpUrl} target="_blank" rel="noreferrer">
           Escríbenos por WhatsApp
         </a>
       )}

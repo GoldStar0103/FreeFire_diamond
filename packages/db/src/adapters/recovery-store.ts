@@ -11,11 +11,11 @@
  * currently handling this" a safe inference.
  */
 
-import { and, asc, eq, isNotNull, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
 import { parseUsd } from '@levelup/provider';
-import type { RecoveryStore, StalledItem } from '@levelup/engine';
+import type { ExpiryStore, OverduePayment, RecoveryStore, StalledItem } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { orderItems, orders } from '../schema.js';
+import { orderItems, orders, payments } from '../schema.js';
 import { DrizzleFulfillmentStore } from './fulfillment-store.js';
 
 /** Orders nobody should be spending money on, whatever their items say. */
@@ -46,7 +46,10 @@ function toStalledItem(row: SweepRow): StalledItem {
   };
 }
 
-export class DrizzleRecoveryStore extends DrizzleFulfillmentStore implements RecoveryStore {
+export class DrizzleRecoveryStore
+  extends DrizzleFulfillmentStore
+  implements RecoveryStore, ExpiryStore
+{
   constructor(private readonly database: Database) {
     super(database);
   }
@@ -122,5 +125,50 @@ export class DrizzleRecoveryStore extends DrizzleFulfillmentStore implements Rec
       .limit(limit);
 
     return rows.map(toStalledItem);
+  }
+
+  /**
+   * Unpaid orders past their deadline.
+   *
+   * Three conditions, and every one of them is load-bearing:
+   *
+   *   - `payments.status = 'pending'` — the moment a comprobante is uploaded
+   *     this becomes `under_review`, which means somebody has already sent real
+   *     money. Expiring one of those would cancel a paid order.
+   *   - `orders.status = 'pending_payment'` — belt and braces on the same idea.
+   *   - a deadline that has actually passed. Rows written before payments had
+   *     deadlines have a null `expires_at` and are left alone rather than
+   *     treated as infinitely overdue.
+   */
+  async findOverduePayments(now: Date, limit: number): Promise<OverduePayment[]> {
+    return this.database
+      .select({
+        orderId: orders.id,
+        paymentId: payments.id,
+        orderNumber: orders.orderNumber,
+      })
+      .from(payments)
+      .innerJoin(orders, eq(orders.id, payments.orderId))
+      .where(
+        and(
+          eq(payments.status, 'pending'),
+          eq(orders.status, 'pending_payment'),
+          isNotNull(payments.expiresAt),
+          lt(payments.expiresAt, now),
+        ),
+      )
+      .orderBy(asc(payments.expiresAt))
+      .limit(limit);
+  }
+
+  /** Mirrors `DrizzlePaymentStore.expirePayment`; the sweep needs it here. */
+  async expirePayment(input: { orderId: string; paymentId: string }): Promise<void> {
+    await this.database.transaction(async (tx) => {
+      await tx.update(payments).set({ status: 'expired' }).where(eq(payments.id, input.paymentId));
+      await tx
+        .update(orders)
+        .set({ status: 'payment_expired', updatedAt: new Date() })
+        .where(eq(orders.id, input.orderId));
+    });
   }
 }

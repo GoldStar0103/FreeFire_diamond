@@ -9,6 +9,7 @@ import {
   getStorefrontCombo,
 } from '@levelup/db';
 import { createOrder, type CreateOrderFailure } from '@levelup/engine';
+import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
 import { storeComprobante } from '../../../lib/storage';
@@ -198,6 +199,25 @@ export async function placeOrder(
   const confirmed = await confirmPlayer(playerId);
   if (!confirmed.ok) return { error: confirmed.message };
 
+  /**
+   * Check the file BEFORE the order exists.
+   *
+   * This used to run after `createOrder`, so a rejected comprobante — an
+   * unsupported format, or a photo over 8MB — left a real order sitting in
+   * `pending_payment`. The customer then retried with a better photo and, for
+   * the Mega Oferta, was refused: the one-per-player index counts pending
+   * orders, so their own abandoned attempt had permanently consumed the entry
+   * offer they had just paid for.
+   *
+   * Validation is pure and needs nothing from the order, so there is no reason
+   * for it to happen second. Nothing is written to disk here either, so the
+   * original point of the old ordering — never leave an orphan file — still
+   * holds.
+   */
+  const bytes = new Uint8Array(await comprobante.arrayBuffer());
+  const validation = validateUpload(bytes);
+  if (!validation.ok) return { error: validation.rejection.message };
+
   const created = await createOrder(
     { store: new DrizzleOrderingStore(getDb()) },
     {
@@ -212,16 +232,20 @@ export async function placeOrder(
 
   if (!created.ok) return { error: explain(created.failure) };
 
-  // Stored after the order exists so the file is keyed to a real order number,
-  // and an upload that fails validation cannot leave an orphan on disk.
-  const stored = await storeComprobante(
-    created.order.orderNumber,
-    new Uint8Array(await comprobante.arrayBuffer()),
-  );
+  // Written after the order exists, so the file is keyed to a real order
+  // number. The bytes were already validated above; `storeComprobante` checks
+  // them again, which is cheap and keeps it safe to call from anywhere.
+  const stored = await storeComprobante(created.order.orderNumber, bytes);
 
   if (!stored.ok) {
-    // The order stands — it is simply waiting for a readable comprobante, and
-    // the customer can send one over WhatsApp using the order number.
+    // Only reachable now if the disk itself refused the write, since the bytes
+    // passed validation moments ago. The order stands and the customer can send
+    // the file over WhatsApp with their order number; the alternative — losing
+    // an order somebody has already paid for — is worse.
+    console.error(
+      `[checkout] ${created.order.orderNumber}: could not store a valid comprobante`,
+      stored.rejection,
+    );
     return { error: stored.rejection.message };
   }
 

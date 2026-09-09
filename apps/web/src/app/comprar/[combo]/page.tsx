@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { getPaymentDetails, getStorefrontCombo } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
+import { supportNumber } from '../../../lib/support';
 import { Checkout } from './checkout';
 
 export const dynamic = 'force-dynamic';
@@ -76,7 +77,7 @@ export default async function BuyPage({ params }: { params: Promise<{ combo: str
         price={mxn(combo.priceMxnCents)}
         diamonds={diamonds(combo.advertisedDiamonds)}
         payTo={payTo}
-        supportNumber={process.env.WHATSAPP_SUPPORT_NUMBER ?? ''}
+        supportNumber={supportNumber() ?? ''}
       />
     </main>
   );
