@@ -53,11 +53,17 @@ dc --profile tools run --rm tools pnpm db:migrate
 dc --profile tools run --rm tools pnpm db:seed
 ```
 
-Create the first admin user. This prompts for a password, so no `-T`:
+Create the first admin user. There is no sign-up page — this panel approves
+payments, so accounts are made from the server:
 
 ```bash
-dc --profile tools run --rm tools pnpm --filter @levelup/admin create-admin
+dc --profile tools run --rm tools \
+  pnpm --filter @levelup/admin create-admin jose@levelupstore.mx 'una contraseña larga'
 ```
+
+Re-running it for an existing email resets that password, which is the
+account-recovery path. Note the password appears in shell history; clear it, or
+prefix the command with a space if the shell is configured to skip those.
 
 ### Verify before telling anyone it is live
 
@@ -244,6 +250,11 @@ These are the owner's, not a developer's. All of them are in the panel:
 - **Recording a WhatsApp sale** — Pedidos → Nuevo pedido manual. It goes
   through the same fulfilment path as a storefront order, with the same audit
   trail.
+- **Adding testimonials** — Testimonios. They appear on the storefront's
+  Confianza page immediately. Use real messages from real customers; if there
+  are none the section simply does not render, which is the right outcome.
+  Invented reviews on a page about trustworthiness are the opposite of the
+  thing being claimed, and in this market they get spotted.
 
 Nothing here requires a developer, which is the point.
 

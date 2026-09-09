@@ -41,6 +41,6 @@ FROM deps AS runtime
 # commands are.
 COPY . .
 
-# `create-admin` prompts for a password on stdin, so this must stay usable
-# interactively via `run --rm` without -T.
+# Every real use overrides this with the command to run. A shell is the useful
+# default for poking around when something is wrong.
 CMD ["sh"]

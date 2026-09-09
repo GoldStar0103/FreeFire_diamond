@@ -155,8 +155,13 @@ tbody tr:hover td { background: var(--surface-2); }
 .btn.danger:hover { border-color: var(--bad); }
 .btn.sm { padding: 5px 10px; font-size: 13px; }
 
+/* `input:not([type])` is load-bearing. An attribute selector matches the
+   attribute, not the effective type, and the forms here write `<input name="…">`
+   without one — so every text field in the panel was falling back to the
+   browser's default styling on a dark background. */
+input:not([type]),
 input[type="text"], input[type="password"], input[type="email"], input[type="number"],
-input[type="date"], input[type="file"], input[type="tel"], select {
+input[type="date"], input[type="file"], input[type="tel"], textarea, select {
   font: inherit;
   padding: 8px 11px;
   border-radius: 8px;
@@ -165,8 +170,9 @@ input[type="date"], input[type="file"], input[type="tel"], select {
   color: var(--text);
   width: 100%;
 }
+textarea { resize: vertical; line-height: 1.45; }
 input[readonly] { opacity: 0.65; cursor: not-allowed; }
-input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
