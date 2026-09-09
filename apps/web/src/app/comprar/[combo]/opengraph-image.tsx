@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { getStorefrontCombo } from '@levelup/db';
-import { db } from '../../../lib/server';
+import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
 
 /**
@@ -45,7 +45,7 @@ const WORDMARK = { fontSize: 28, letterSpacing: 10, color: '#8b91b5', fontWeight
 
 export default async function Image({ params }: { params: Promise<{ combo: string }> }) {
   const { combo: comboKey } = await params;
-  const combo = await getStorefrontCombo(db, comboKey);
+  const combo = await getStorefrontCombo(getDb(), comboKey);
 
   // An unknown or retired key still gets a valid, on-brand image. A scraper
   // that receives an error makes the whole link look dead.

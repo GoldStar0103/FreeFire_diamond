@@ -1,5 +1,5 @@
 import { listTestimonials } from '@levelup/db';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { TestimonialsForm } from './testimonials-form';
 
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export default async function TestimonialsPage() {
   await requireSession();
 
-  const existing = await listTestimonials(db);
+  const existing = await listTestimonials(getDb());
 
   return (
     <>

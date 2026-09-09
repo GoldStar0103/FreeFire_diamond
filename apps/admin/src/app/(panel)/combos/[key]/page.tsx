@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { DrizzleCatalogAdminStore } from '@levelup/db';
 import type { ComboDraft } from '@levelup/engine';
-import { db } from '../../../../lib/db';
+import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 import { ComboForm } from './combo-form';
 
@@ -31,7 +31,7 @@ export default async function ComboEditorPage({
   const { key } = await params;
   const { motivo } = await searchParams;
 
-  const store = new DrizzleCatalogAdminStore(db);
+  const store = new DrizzleCatalogAdminStore(getDb());
   const [campaigns, products] = await Promise.all([
     store.listCampaignOptions(),
     store.listAvailableProducts(),

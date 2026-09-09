@@ -10,7 +10,7 @@ import {
   type ComboDraftReview,
   type DraftIssue,
 } from '@levelup/engine';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { storeFlyer } from '../../../lib/flyers';
 import { requireSession } from '../../../lib/session';
 
@@ -26,7 +26,7 @@ export interface CampaignFormState {
   ok?: string;
 }
 
-const store = () => new DrizzleCatalogAdminStore(db);
+const store = () => new DrizzleCatalogAdminStore(getDb());
 
 async function fxRate(): Promise<number> {
   const rate = Number(process.env.FX_USD_MXN ?? 18.5);
@@ -92,7 +92,7 @@ export async function saveCombo(
     };
   }
 
-  const [campaign] = await db
+  const [campaign] = await getDb()
     .select({ id: campaigns.id })
     .from(campaigns)
     .where(eq(campaigns.key, campaignKey))

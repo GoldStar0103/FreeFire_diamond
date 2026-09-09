@@ -115,6 +115,15 @@ The 154 tests in `packages/db` run against a real Postgres and **skip silently
 when none is reachable**. `pnpm pg:start` first, or they will pass without
 having tested anything.
 
+CI (`.github/workflows/ci.yml`) runs typecheck, the full suite against a
+Postgres service, and a production build of both apps. It runs
+`packages/db/scripts/require-pg.mjs` *before* the tests, so a database that is
+unreachable fails the build instead of silently skipping 154 tests — which is
+the whole reason for running them there. That check opens a real connection and
+issues a query rather than probing the port: Postgres accepts connections while
+still in crash recovery and rejects every query with "the database system is
+starting up".
+
 ## Configuration
 
 Every setting is documented in `.env.example`. Two rules:

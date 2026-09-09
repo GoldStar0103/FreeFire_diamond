@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { listCombosForAdmin } from '@levelup/db';
 import { ACCEPTABLE_SHORTFALL_DIAMONDS } from '@levelup/engine';
-import { db } from '../../../../lib/db';
+import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 import { diamonds, mxn } from '../../../../lib/format';
 import { NewOrderForm } from './new-order-form';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function NewOrderPage() {
   await requireSession();
-  const combos = await listCombosForAdmin(db);
+  const combos = await listCombosForAdmin(getDb());
 
   // A combo that under-delivers cannot be sold through any door, including
   // this one. One that is merely switched off still can — that is the point.

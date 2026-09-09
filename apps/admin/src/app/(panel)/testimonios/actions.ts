@@ -1,7 +1,7 @@
 'use server';
 
 import { reviewTestimonials, saveTestimonials, type Testimonial } from '@levelup/db';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 
 export interface TestimonialsFormState {
@@ -38,7 +38,7 @@ export async function saveTestimonialsAction(
     return { issues: issues.map((i) => i.message), draft: drafts };
   }
 
-  await saveTestimonials(db, items);
+  await saveTestimonials(getDb(), items);
 
   // No revalidation call: the storefront is a separate Next process, so this
   // app's cache has nothing to invalidate for it. /confianza is force-dynamic

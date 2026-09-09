@@ -7,13 +7,13 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    await db.execute(sql`select 1`);
+    await getDb().execute(sql`select 1`);
   } catch {
     return Response.json(
       { status: 'degraded', database: 'unreachable' },

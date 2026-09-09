@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { findCustomerOrder, type CustomerOrderStatus } from '@levelup/db';
-import { db } from '../../../lib/server';
+import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
 
@@ -63,7 +63,7 @@ export default async function OrderPage({
   // authorisation model, so both must be present.
   if (!id) notFound();
 
-  const order = await findCustomerOrder(db, orderNumber, id);
+  const order = await findCustomerOrder(getDb(), orderNumber, id);
   if (!order) notFound();
 
   const status = STATUS[order.status];

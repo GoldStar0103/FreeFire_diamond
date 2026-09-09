@@ -21,8 +21,25 @@ function connect() {
   return createDb(url, { max: 5 });
 }
 
-const handle = globalThis.__levelupDb ?? connect();
-if (process.env.NODE_ENV !== 'production') globalThis.__levelupDb = handle;
+let handle: ReturnType<typeof createDb> | undefined;
 
-export const db = handle.db;
-export const sqlClient = handle.client;
+/**
+ * Opened on first use, not at import.
+ *
+ * `next build` evaluates every route's modules to collect page data, so
+ * connecting at import made DATABASE_URL a *build-time* requirement — and the
+ * container image builds with no environment at all, so `docker build` would
+ * have failed on it, as would CI. Building should not need infrastructure.
+ *
+ * The module-level `handle` is the real singleton; the `globalThis` copy exists
+ * only to survive the module reloads Next does on every edit in development,
+ * which would otherwise leak a pool per save.
+ */
+function getHandle(): ReturnType<typeof createDb> {
+  handle ??= globalThis.__levelupDb ?? connect();
+  if (process.env.NODE_ENV !== 'production') globalThis.__levelupDb = handle;
+  return handle;
+}
+
+export const getDb = (): ReturnType<typeof createDb>['db'] => getHandle().db;
+export const getSqlClient = (): ReturnType<typeof createDb>['client'] => getHandle().client;

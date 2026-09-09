@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { baseProducts, DrizzleOrderingStore, DrizzlePaymentStore } from '@levelup/db';
 import { approvePayment, createOrder, type CreateOrderFailure } from '@levelup/engine';
-import { db } from '../../../../lib/db';
+import { getDb } from '../../../../lib/db';
 import { provider } from '../../../../lib/provider';
 import { requireSession } from '../../../../lib/session';
 
@@ -22,7 +22,7 @@ export interface CreateState {
 
 /** Any recharge-type product validates the same account; validation is free. */
 async function validationProductId(): Promise<string | null> {
-  const [row] = await db
+  const [row] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
     .where(eq(baseProducts.canValidate, true))
@@ -115,7 +115,7 @@ export async function createManualOrder(
   }
 
   const created = await createOrder(
-    { store: new DrizzleOrderingStore(db) },
+    { store: new DrizzleOrderingStore(getDb()) },
     {
       comboKey,
       playerId,
@@ -135,7 +135,7 @@ export async function createManualOrder(
     // same audit entry, the same idempotency and the same enqueue as every
     // other payment.
     const approval = await approvePayment(
-      { store: new DrizzlePaymentStore(db) },
+      { store: new DrizzlePaymentStore(getDb()) },
       { orderId: created.order.id, adminUserId: session.adminUserId, reference },
     );
 

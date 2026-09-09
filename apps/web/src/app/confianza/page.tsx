@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countCompletedOrders, listTestimonials } from '@levelup/db';
-import { db } from '../../lib/server';
+import { getDb } from '../../lib/server';
 
 // The brand is appended by the root layout's title template, so it is not
 // repeated here.
@@ -15,8 +15,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function TrustPage() {
   const [delivered, testimonials] = await Promise.all([
-    countCompletedOrders(db),
-    listTestimonials(db),
+    countCompletedOrders(getDb()),
+    listTestimonials(getDb()),
   ]);
 
   return (

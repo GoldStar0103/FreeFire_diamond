@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { listOrders, type OrderFilter } from '@levelup/db';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, mxn, orderStatusLabel, statusTone } from '../../../lib/format';
 
@@ -28,7 +28,7 @@ export default async function OrdersPage({
   const search = params.q?.trim() ?? '';
   const page = Math.max(1, Number(params.p) || 1);
 
-  const { rows, total } = await listOrders(db, {
+  const { rows, total } = await listOrders(getDb(), {
     filter,
     ...(search ? { search } : {}),
     limit: PAGE_SIZE,

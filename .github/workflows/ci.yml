@@ -1,0 +1,76 @@
+# Typecheck, tests, and a production build of both apps.
+#
+# The point of CI here is not the unit tests — those run fine on anyone's
+# laptop. It is the 154 database tests, which skip themselves when no Postgres
+# is reachable and are therefore the ones that quietly stop being run. A
+# service container makes them unconditional, and the pre-flight step below
+# makes a silent skip impossible.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push supersedes the first. No value in finishing a run for a commit
+# that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The tests each create their own database, so this connects as the superuser.
+  TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Before the tests, not after: a failure here means the database tests
+      # would have skipped and the build would have reported success.
+      - name: Require a real Postgres
+        run: pnpm --filter @levelup/db exec node scripts/require-pg.mjs
+
+      - run: pnpm -r --filter "@levelup/*" typecheck
+
+      - run: pnpm -r --filter "@levelup/*" test
+
+      # Catches what typecheck cannot: a page that only fails when Next
+      # actually renders it, and anything that breaks the standalone output the
+      # container images are built from.
+      - name: Build the storefront
+        run: pnpm --filter @levelup/web exec next build
+
+      - name: Build the admin panel
+        run: pnpm --filter @levelup/admin exec next build

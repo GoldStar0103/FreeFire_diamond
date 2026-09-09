@@ -3,7 +3,7 @@
 import { eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { adminUsers } from '@levelup/db';
-import { db } from '../../lib/db';
+import { getDb } from '../../lib/db';
 import { createSessionToken, verifyPassword } from '../../lib/auth';
 import { clearSessionCookie, setSessionCookie } from '../../lib/session';
 
@@ -20,7 +20,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
 
   if (!email || !password) return { error: 'Ingresa tu correo y contraseña.' };
 
-  const [user] = await db
+  const [user] = await getDb()
     .select()
     .from(adminUsers)
     .where(eq(adminUsers.email, email))

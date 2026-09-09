@@ -1,5 +1,5 @@
 import { listPendingApprovals } from '@levelup/db';
-import { db } from '../../lib/db';
+import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { logout } from '../login/actions';
 import { NavLink } from './nav-link';
@@ -12,7 +12,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   const session = await requireSession();
 
   // Badged in the nav so nobody has to remember to check the queue.
-  const pending = await listPendingApprovals(db, 100);
+  const pending = await listPendingApprovals(getDb(), 100);
 
   return (
     <div className="shell">

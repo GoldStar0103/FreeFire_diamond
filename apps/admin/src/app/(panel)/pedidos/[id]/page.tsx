@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getOrderDetail } from '@levelup/db';
-import { db } from '../../../../lib/db';
+import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 import {
   dateTime,
@@ -52,7 +52,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   await requireSession();
   const { id } = await params;
 
-  const order = await getOrderDetail(db, id);
+  const order = await getOrderDetail(getDb(), id);
   if (!order) notFound();
 
   const snapshot = order.comboSnapshot as { name?: string; advertisedDiamonds?: number };

@@ -29,9 +29,30 @@ function connect() {
   return createDb(url, { max: 10 });
 }
 
-const handle = globalThis.__webDb ?? connect();
-if (process.env.NODE_ENV !== 'production') globalThis.__webDb = handle;
-export const db = handle.db;
+/**
+ * Opened on first use, not at import.
+ *
+ * `next build` evaluates every route's modules to collect page data, so an
+ * eager connect made DATABASE_URL a *build-time* requirement — and the build
+ * is exactly where it is not available. The container image builds with no
+ * environment at all, so `docker build` would have failed on this, and so
+ * would CI. Building should not need infrastructure.
+ *
+ * postgres.js does not open a socket until the first query regardless; the
+ * eager part was only the check, which is now where it belongs — at the point
+ * something actually wants the database.
+ */
+let handle: ReturnType<typeof createDb> | undefined;
+
+export function getDb(): ReturnType<typeof createDb>['db'] {
+  // Two layers, and both are needed. The module-level `handle` is the real
+  // singleton — without it every call would open another pool in production.
+  // The `globalThis` copy survives the module reloads Next does on every edit
+  // in development, which would otherwise leak a pool per save.
+  handle ??= globalThis.__webDb ?? connect();
+  if (process.env.NODE_ENV !== 'production') globalThis.__webDb = handle;
+  return handle.db;
+}
 
 /**
  * The validation endpoint calls the provider on every lookup. It costs nothing

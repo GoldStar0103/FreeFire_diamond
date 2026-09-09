@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getStorefrontCombo } from '@levelup/db';
-import { db } from '../../../lib/server';
+import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
 import { Checkout } from './checkout';
 
@@ -19,7 +19,7 @@ export async function generateMetadata({
   params: Promise<{ combo: string }>;
 }): Promise<Metadata> {
   const { combo: comboKey } = await params;
-  const combo = await getStorefrontCombo(db, comboKey);
+  const combo = await getStorefrontCombo(getDb(), comboKey);
 
   if (!combo) return { title: 'Paquete no disponible' };
 
@@ -44,7 +44,7 @@ export async function generateMetadata({
 
 export default async function BuyPage({ params }: { params: Promise<{ combo: string }> }) {
   const { combo: comboKey } = await params;
-  const combo = await getStorefrontCombo(db, comboKey);
+  const combo = await getStorefrontCombo(getDb(), comboKey);
   if (!combo) notFound();
 
   return (

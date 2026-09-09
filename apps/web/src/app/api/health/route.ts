@@ -11,13 +11,13 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { db } from '../../../lib/server';
+import { getDb } from '../../../lib/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    await db.execute(sql`select 1`);
+    await getDb().execute(sql`select 1`);
   } catch {
     // No error detail: the reason is in the logs, where it is not public.
     return Response.json(

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { listCombosForAdmin, DrizzleCatalogAdminStore } from '@levelup/db';
 import { ACCEPTABLE_SHORTFALL_DIAMONDS } from '@levelup/engine';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { diamonds, mxn, usd } from '../../../lib/format';
 import { retireCampaign, toggleCombo } from './actions';
@@ -11,8 +11,8 @@ export const dynamic = 'force-dynamic';
 export default async function CombosPage() {
   await requireSession();
   const [combos, campaigns] = await Promise.all([
-    listCombosForAdmin(db),
-    new DrizzleCatalogAdminStore(db).listCampaignOptions(),
+    listCombosForAdmin(getDb()),
+    new DrizzleCatalogAdminStore(getDb()).listCampaignOptions(),
   ]);
 
   // Only a gap past the rounding tolerance is a problem — the client rounds

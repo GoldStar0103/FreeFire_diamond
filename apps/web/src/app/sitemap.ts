@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { listStorefront } from '@levelup/db';
-import { db } from '../lib/server';
+import { getDb } from '../lib/server';
 import { siteUrl } from '../lib/site';
 
 /**
@@ -33,7 +33,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   let campaigns: Awaited<ReturnType<typeof listStorefront>> = [];
   try {
-    campaigns = await listStorefront(db);
+    campaigns = await listStorefront(getDb());
   } catch (err) {
     // A sitemap is a nicety. Failing it should not turn into a 500 that a
     // crawler reads as the whole site being broken.

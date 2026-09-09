@@ -14,7 +14,7 @@ import { join, resolve, sep } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { payments } from '@levelup/db';
 import { contentTypeForKey, safeStorageKey, uploadRoot } from '@levelup/shared';
-import { db } from '../../../../lib/db';
+import { getDb } from '../../../../lib/db';
 import { getSession } from '../../../../lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,7 @@ export async function GET(
     return new Response('Solicitud inválida', { status: 400 });
   }
 
-  const [payment] = await db
+  const [payment] = await getDb()
     .select({ key: payments.comprobanteAssetUrl })
     .from(payments)
     .where(eq(payments.id, paymentId))

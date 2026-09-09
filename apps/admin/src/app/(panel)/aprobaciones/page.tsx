@@ -1,5 +1,5 @@
 import { listPendingApprovals } from '@levelup/db';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { diamonds, mxn, relativeTime } from '../../../lib/format';
 import { ApprovalCard } from './approval-card';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ApprovalsPage() {
   await requireSession();
-  const approvals = await listPendingApprovals(db);
+  const approvals = await listPendingApprovals(getDb());
 
   return (
     <>

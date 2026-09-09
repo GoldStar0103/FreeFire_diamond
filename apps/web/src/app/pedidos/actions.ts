@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { findCustomerOrder } from '@levelup/db';
-import { callerIp, db, lookupLimiter } from '../../lib/server';
+import { callerIp, getDb, lookupLimiter } from '../../lib/server';
 
 export interface LookupState {
   error?: string;
@@ -35,7 +35,7 @@ export async function lookupOrder(
     };
   }
 
-  const order = await findCustomerOrder(db, orderNumber, playerId);
+  const order = await findCustomerOrder(getDb(), orderNumber, playerId);
   if (!order) {
     return {
       error: 'No encontramos ese pedido. Revisa el número y tu ID de Free Fire.',

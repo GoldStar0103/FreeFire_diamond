@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { baseProducts, DrizzleOrderingStore, getStorefrontCombo } from '@levelup/db';
 import { createOrder, type CreateOrderFailure } from '@levelup/engine';
 import { ValidationUnsupportedError } from '@levelup/provider';
-import { callerIp, db, getProvider, validationLimiter } from '../../../lib/server';
+import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
 import { storeComprobante } from '../../../lib/storage';
 
 // ── step 1: who is this player? ───────────────────────────────────────────────
@@ -47,7 +47,7 @@ export async function validatePlayer(
   // Any recharge-type product validates the same account, so use the cheapest
   // one on the books — validation does not charge, but this keeps it obvious
   // that nothing expensive is being touched.
-  const [validator] = await db
+  const [validator] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
     .where(eq(baseProducts.canValidate, true))
@@ -96,7 +96,7 @@ export interface CheckoutState {
 
 /** The product used for validation lookups. Validation never charges. */
 async function validationProductId(): Promise<string | null> {
-  const [row] = await db
+  const [row] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
     .where(eq(baseProducts.canValidate, true))
@@ -164,7 +164,7 @@ export async function placeOrder(
   const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
   const comprobante = formData.get('comprobante');
 
-  const combo = await getStorefrontCombo(db, comboKey);
+  const combo = await getStorefrontCombo(getDb(), comboKey);
   if (!combo) return { error: 'Esta promoción ya no está disponible.' };
 
   if (!(comprobante instanceof File) || comprobante.size === 0) {
@@ -184,7 +184,7 @@ export async function placeOrder(
   if (!confirmed.ok) return { error: confirmed.message };
 
   const created = await createOrder(
-    { store: new DrizzleOrderingStore(db) },
+    { store: new DrizzleOrderingStore(getDb()) },
     {
       comboKey,
       playerId,
@@ -217,7 +217,7 @@ export async function placeOrder(
 
 async function attachComprobante(orderId: string, key: string): Promise<void> {
   const { payments } = await import('@levelup/db');
-  await db
+  await getDb()
     .update(payments)
     .set({ comprobanteAssetUrl: key, status: 'under_review' })
     .where(eq(payments.orderId, orderId));

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getDashboardStats } from '@levelup/db';
-import { db } from '../../lib/db';
+import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { mxn } from '../../lib/format';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   await requireSession();
-  const stats = await getDashboardStats(db);
+  const stats = await getDashboardStats(getDb());
 
   return (
     <>

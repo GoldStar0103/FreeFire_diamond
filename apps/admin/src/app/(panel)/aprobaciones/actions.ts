@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { approvePayment, rejectPayment } from '@levelup/engine';
 import { DrizzlePaymentStore } from '@levelup/db';
-import { db } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 
 export interface ActionResult {
@@ -46,7 +46,7 @@ export async function approve(_prev: ActionResult, formData: FormData): Promise<
   }
 
   const result = await approvePayment(
-    { store: new DrizzlePaymentStore(db) },
+    { store: new DrizzlePaymentStore(getDb()) },
     {
       orderId,
       adminUserId: session.adminUserId,
@@ -78,7 +78,7 @@ export async function reject(_prev: ActionResult, formData: FormData): Promise<A
   if (!reason) return { error: 'Escribe el motivo del rechazo.' };
 
   const result = await rejectPayment(
-    { store: new DrizzlePaymentStore(db) },
+    { store: new DrizzlePaymentStore(getDb()) },
     { orderId, adminUserId: session.adminUserId, reason },
   );
 
