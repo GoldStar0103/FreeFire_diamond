@@ -185,6 +185,16 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .empty { text-align: center; color: var(--muted); padding: 36px; }
 
+/* VIP invite — completed orders only. Tinted rather than loud: it sits below
+   the delivery confirmation, which is the thing the customer came to read. */
+.vip {
+  text-align: center;
+  border-color: rgba(37, 211, 102, 0.45);
+  background: linear-gradient(180deg, rgba(37, 211, 102, 0.09), transparent);
+}
+.vip-title { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+.vip-text { color: var(--muted); font-size: 14px; margin: 7px 0 14px; }
+
 /* ── footer ────────────────────────────────────────────────────────────── */
 
 .site-footer { border-top: 1px solid var(--border); padding: 26px 16px 34px; text-align: center; }

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { findCustomerOrder, type CustomerOrderStatus } from '@levelup/db';
 import { db } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
+import { vipGroupUrl } from '../../../lib/vip';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,11 @@ export default async function OrderPage({
     `Hola, tengo un problema con mi pedido ${order.orderNumber} (ID ${order.playerId}).`,
   )}`;
 
+  // Only once the diamonds are actually in their account. Inviting someone to
+  // the VIP group while their order is still processing would read as a sales
+  // pitch at the exact moment they are waiting to find out if we delivered.
+  const vipUrl = order.status === 'completado' ? vipGroupUrl() : null;
+
   return (
     <main className="page narrow">
       <div className={`card status-card ${status.tone}`}>
@@ -105,6 +111,19 @@ export default async function OrderPage({
         <a className="btn primary wide" href={supportUrl} target="_blank" rel="noreferrer">
           Escríbenos por WhatsApp
         </a>
+      )}
+
+      {vipUrl && (
+        <div className="card vip">
+          <div className="vip-title">🎁 Únete al grupo VIP</div>
+          <p className="vip-text">
+            Promos exclusivas, sorteos y los combos nuevos antes que nadie. Solo para clientes
+            que ya compraron.
+          </p>
+          <a className="btn primary wide" href={vipUrl} target="_blank" rel="noreferrer">
+            Entrar al grupo VIP
+          </a>
+        </div>
       )}
 
       <p className="hint center">

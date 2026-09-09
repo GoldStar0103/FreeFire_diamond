@@ -150,6 +150,70 @@ describe('a balance that increased mid-call', () => {
   });
 });
 
+// ── provider-side rounding, measured live ─────────────────────────────────────
+
+/**
+ * Observed against the real RecargasAmérica API on 2026-09-09, buying the
+ * 100-diamond SKU:
+ *
+ *   amount_charged: 0.70 USD
+ *   wallet:         59.99 -> 59.29   (actual delta 0.6989)
+ *
+ * The provider debits slightly less than it reports — about 0.16%. These tests
+ * exist because that gap is real money behaviour we cannot control, and the
+ * tolerance has to absorb it at every price point without ever letting two
+ * different SKUs look alike.
+ */
+describe('provider rounding drift', () => {
+  const LIVE_COSTS = { d100: 0.7, d310: 2.1, d520: 3.55, d1060: 6.59, d2180: 13.07, d5600: 33.27 };
+  const DRIFT = 0.0016;
+
+  it('reads the exact live measurement as charged, not as a mystery', () => {
+    const r = resolveAmbiguous({
+      balanceBefore: usd(59.99),
+      balanceAfter: usd(59.99 - 0.6989),
+      expectedCost: usd(0.7),
+    });
+    expect(r.verdict).toBe('charged');
+  });
+
+  it.each(Object.entries(LIVE_COSTS))(
+    'absorbs the same proportional drift on the %s SKU',
+    (_sku, cost) => {
+      // A flat $0.01 tolerance passes the cheap SKUs and fails the dear ones:
+      // 0.16% of $33.27 is about $0.05, five times that floor. Every large
+      // recharge would have gone to manual review.
+      const r = resolveAmbiguous({
+        balanceBefore: usd(500),
+        balanceAfter: usd(500 - cost * (1 - DRIFT)),
+        expectedCost: usd(cost),
+      });
+      expect(r.verdict).toBe('charged');
+    },
+  );
+
+  it('still refuses to confuse one denomination with another', () => {
+    // The widened window must not turn "some other SKU was charged" into a
+    // confident answer. The SKUs are 1.5x apart or more, so it cannot.
+    const r = resolveAmbiguous({
+      balanceBefore: usd(500),
+      balanceAfter: usd(500 - LIVE_COSTS.d1060),
+      expectedCost: usd(LIVE_COSTS.d2180),
+    });
+    expect(r.verdict).toBe('indeterminate');
+  });
+
+  it('still calls an untouched balance not_charged', () => {
+    const r = resolveAmbiguous({
+      balanceBefore: usd(500),
+      balanceAfter: usd(500),
+      expectedCost: usd(LIVE_COSTS.d5600),
+    });
+    expect(r.verdict).toBe('not_charged');
+    expect(isSafeToRetry(r)).toBe(true);
+  });
+});
+
 // ── definitive failures ───────────────────────────────────────────────────────
 
 describe('definitive failures', () => {

@@ -1,3 +1,9 @@
+import { loadRootEnv } from '../../scripts/load-root-env.mjs';
+
+// The root `.env` is the file `.env.example` tells you to copy; Next would
+// otherwise only read `apps/admin/.env`. No-op when there is no file.
+loadRootEnv();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,

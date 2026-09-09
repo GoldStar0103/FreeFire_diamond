@@ -79,8 +79,25 @@ function buildProvider(): TopupProvider {
   });
 }
 
-export const provider: TopupProvider = globalThis.__webProvider ?? buildProvider();
-if (process.env.NODE_ENV !== 'production') globalThis.__webProvider = provider;
+/**
+ * Built on first use, not at import.
+ *
+ * Only the buy flow talks to the provider, but every page that needs `db`
+ * imports this module — so an eager build meant a missing or mistyped
+ * RA_API_KEY took down the order-status page too. That is exactly backwards:
+ * the customers who most need to see their order are the ones who have already
+ * paid, and the provider being unreachable is precisely when they will look.
+ *
+ * Failing here still fails loudly, just scoped to the flow that needs it.
+ */
+export function getProvider(): TopupProvider {
+  const existing = globalThis.__webProvider;
+  if (existing) return existing;
+
+  const built = buildProvider();
+  if (process.env.NODE_ENV !== 'production') globalThis.__webProvider = built;
+  return built;
+}
 
 /**
  * Caller IP for rate limiting.

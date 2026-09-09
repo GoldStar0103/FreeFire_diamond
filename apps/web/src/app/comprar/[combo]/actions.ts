@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { baseProducts, DrizzleOrderingStore, getStorefrontCombo } from '@levelup/db';
 import { createOrder, type CreateOrderFailure } from '@levelup/engine';
 import { ValidationUnsupportedError } from '@levelup/provider';
-import { callerIp, db, provider, validationLimiter } from '../../../lib/server';
+import { callerIp, db, getProvider, validationLimiter } from '../../../lib/server';
 import { storeComprobante } from '../../../lib/storage';
 
 // ── step 1: who is this player? ───────────────────────────────────────────────
@@ -62,7 +62,7 @@ export async function validatePlayer(
   }
 
   try {
-    const result = await provider.validatePlayer(validator.providerProductId, playerId);
+    const result = await getProvider().validatePlayer(validator.providerProductId, playerId);
 
     if (!result.found || !result.nickname) {
       return {
@@ -118,7 +118,7 @@ async function confirmPlayer(playerId: string): Promise<ConfirmResult> {
   }
 
   try {
-    const result = await provider.validatePlayer(productId, playerId);
+    const result = await getProvider().validatePlayer(productId, playerId);
     if (!result.found || !result.nickname) {
       return { ok: false, message: 'No encontramos ese ID de Free Fire. Revísalo por favor.' };
     }

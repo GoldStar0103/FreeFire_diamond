@@ -27,11 +27,26 @@ export type AmbiguousResolution =
   | { verdict: 'indeterminate'; observedDelta: UsdTenK; reason: string };
 
 /**
- * Tolerance for balance comparison, in ten-thousandths of a dollar.
- * Absorbs provider-side rounding without being wide enough to confuse two
- * different SKUs — the cheapest denomination costs far more than $0.01.
+ * Tolerance for balance comparison.
+ *
+ * Measured against the live provider, not guessed: a purchase reporting
+ * `amount_charged: 0.70` actually moved the wallet by 0.6989 — about 0.16%
+ * short. Exact comparison would have sent that real, successful transaction to
+ * manual review.
+ *
+ * The allowance is therefore the greater of a flat floor and a proportion of
+ * the expected cost. A flat $0.01 alone would cover the cheapest denomination
+ * but not the largest: 0.16% of $33.27 is roughly $0.05, five times the floor.
+ *
+ * Widening it cannot confuse two denominations. The six SKUs are separated by
+ * factors of 1.5x or more ($0.70, $2.10, $3.55, $6.59, $13.07, $33.27), so a
+ * 0.5% window around any of them comes nowhere near another.
  */
-const TOLERANCE: UsdTenK = 100 as UsdTenK; // $0.0100
+const TOLERANCE_FLOOR: UsdTenK = 100 as UsdTenK; // $0.0100
+const TOLERANCE_FRACTION = 0.005; // 0.5%
+
+const toleranceFor = (expectedCost: UsdTenK): UsdTenK =>
+  Math.max(TOLERANCE_FLOOR, Math.round(Math.abs(expectedCost) * TOLERANCE_FRACTION)) as UsdTenK;
 
 export interface ReconcileInput {
   /** Balance read immediately before the call, committed to the DB first. */
@@ -54,9 +69,11 @@ export function resolveAmbiguous(input: ReconcileInput): AmbiguousResolution {
     };
   }
 
+  const tolerance = toleranceFor(expectedCost);
+
   // Balance went UP. A refund, a top-up by the client mid-order, or a stale
   // read. Whatever it is, we cannot infer delivery from it.
-  if (observedDelta < -TOLERANCE) {
+  if (observedDelta < -tolerance) {
     return {
       verdict: 'indeterminate',
       observedDelta,
@@ -64,11 +81,11 @@ export function resolveAmbiguous(input: ReconcileInput): AmbiguousResolution {
     };
   }
 
-  if (Math.abs(observedDelta) <= TOLERANCE) {
+  if (Math.abs(observedDelta) <= tolerance) {
     return { verdict: 'not_charged', observedDelta };
   }
 
-  if (Math.abs(observedDelta - expectedCost) <= TOLERANCE) {
+  if (Math.abs(observedDelta - expectedCost) <= tolerance) {
     return { verdict: 'charged', observedDelta };
   }
 
