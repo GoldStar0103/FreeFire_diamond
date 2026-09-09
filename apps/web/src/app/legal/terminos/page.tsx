@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import { legalIdentity, pending } from '../../../lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Términos y Condiciones — LevelUp Store',
+  title: 'Términos y Condiciones',
   robots: { index: true, follow: true },
+  alternates: { canonical: '/legal/terminos' },
 };
 
 /** Per request, for the reason spelled out in the aviso de privacidad page. */

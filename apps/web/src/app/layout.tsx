@@ -1,10 +1,51 @@
 import type { Metadata, Viewport } from 'next';
+import { siteOrigin } from '../lib/site';
 import './globals.css';
 
+const DESCRIPTION =
+  'Recargas de diamantes para Free Fire directo a tu cuenta. Entrega automática, pago seguro.';
+
+/**
+ * Share metadata matters more here than it looks.
+ *
+ * Every visitor arrives from a link pasted into TikTok, Instagram or a WhatsApp
+ * group. Without Open Graph tags those links preview as a bare grey box, and a
+ * grey box from an unknown store is precisely the thing this market has learned
+ * to scroll past. The preview card is the first trust signal, before anyone
+ * reaches the site at all.
+ *
+ * `metadataBase` is what makes the rest work: relative og:image paths resolve
+ * against it, and without it Next emits them relative, which every scraper
+ * ignores.
+ */
 export const metadata: Metadata = {
-  title: 'LevelUp Store — Recargas Free Fire',
-  description:
-    'Recargas de diamantes para Free Fire directo a tu cuenta. Entrega automática, pago seguro.',
+  metadataBase: new URL(siteOrigin()),
+  title: {
+    default: 'LevelUp Store — Recargas Free Fire',
+    // Page titles read "Pack Insano · LevelUp Store" rather than repeating the
+    // brand twice.
+    template: '%s · LevelUp Store',
+  },
+  description: DESCRIPTION,
+  applicationName: 'LevelUp Store',
+  // No `alternates.canonical` here on purpose. Metadata is inherited, so a
+  // canonical of '/' in the root layout would make every page that does not
+  // override it declare itself to be the homepage — which tells search engines
+  // to drop /confianza and both legal notices in favour of it. Each page sets
+  // its own.
+  openGraph: {
+    type: 'website',
+    siteName: 'LevelUp Store',
+    locale: 'es_MX',
+    title: 'LevelUp Store — Recargas Free Fire',
+    description: DESCRIPTION,
+    url: '/',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'LevelUp Store — Recargas Free Fire',
+    description: DESCRIPTION,
+  },
 };
 
 // Traffic is almost entirely phones arriving from TikTok, Instagram and

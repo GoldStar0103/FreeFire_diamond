@@ -2,9 +2,18 @@ import type { Metadata } from 'next';
 import { LookupForm } from './lookup-form';
 
 export const metadata: Metadata = {
-  title: 'Tus pedidos — LevelUp Store',
+  title: 'Tus pedidos',
   description: 'Consulta el estado de tu recarga.',
+  alternates: { canonical: '/pedidos' },
 };
+
+/**
+ * Per request so the canonical and og:url reflect the deployed domain. A
+ * prerendered page freezes `metadataBase` at build time, which for an image
+ * built without PUBLIC_DOMAIN means every URL in its head points at the
+ * fallback domain.
+ */
+export const dynamic = 'force-dynamic';
 
 export default function OrdersLookupPage() {
   return (

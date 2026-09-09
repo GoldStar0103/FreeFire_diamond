@@ -3,9 +3,12 @@ import Link from 'next/link';
 import { countCompletedOrders, listTestimonials } from '@levelup/db';
 import { db } from '../../lib/server';
 
+// The brand is appended by the root layout's title template, so it is not
+// repeated here.
 export const metadata: Metadata = {
-  title: 'Confianza — LevelUp Store',
+  title: 'Confianza',
   description: 'Por qué puedes recargar con nosotros con seguridad.',
+  alternates: { canonical: '/confianza' },
 };
 
 export const dynamic = 'force-dynamic';

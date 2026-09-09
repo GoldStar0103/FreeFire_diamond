@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countCompletedOrders, listStorefront } from '@levelup/db';
 import { db } from '../lib/server';
@@ -5,6 +6,8 @@ import { diamonds, mxn } from '../lib/format';
 import { flyerUrl } from '../lib/assets';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { alternates: { canonical: '/' } };
 
 export default async function HomePage() {
   const [campaigns, delivered] = await Promise.all([

@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import { legalIdentity, pending } from '../../../lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Aviso de Privacidad — LevelUp Store',
+  title: 'Aviso de Privacidad',
   robots: { index: true, follow: true },
+  alternates: { canonical: '/legal/privacidad' },
 };
 
 /**

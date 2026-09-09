@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { findCustomerOrder, type CustomerOrderStatus } from '@levelup/db';
@@ -6,6 +7,18 @@ import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Never indexed. The URL carries a Free Fire player ID and the page shows what
+ * they bought and what they paid — indexed, that is a searchable record of
+ * someone's purchases tied to their game account.
+ *
+ * next.config.mjs already sends `X-Robots-Tag: noindex` for this path and
+ * robots.txt disallows it. This is the third layer, and the cheapest.
+ */
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, nocache: true },
+};
 
 const STATUS: Record<CustomerOrderStatus, { label: string; detail: string; tone: string }> = {
   esperando_pago: {
