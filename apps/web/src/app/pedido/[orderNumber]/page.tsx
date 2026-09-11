@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { findCustomerOrder, type CustomerOrder, type CustomerOrderStatus } from '@levelup/db';
-import { getDb } from '../../../lib/server';
+import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { AutoRefresh, PurchasePixel } from './live';
 import { diamonds, mxn } from '../../../lib/format';
@@ -114,7 +114,20 @@ export default async function OrderPage({
   if (!id) notFound();
 
   let order = await findCustomerOrder(getDb(), orderNumber, id);
-  if (!order) notFound();
+  if (!order) {
+    // This page performs the identical order-number+player-ID pairing check
+    // `pedidos/actions.ts`'s `lookupOrder` exists to rate-limit, and is
+    // directly navigable — it's the redirect target of every checkout and of
+    // that very form — so it was reachable at an unlimited rate by skipping
+    // the form. Unlike the form, this page also has to serve its own AutoRefresh
+    // polling every few seconds while an order is processing, so the limiter is
+    // only ever consumed on a MISS, never on a hit: a customer's own valid
+    // order — the same pairing, over and over — can never trip it, while a
+    // guess against unrelated order numbers looks exactly like the thing
+    // `lookupOrder` already throttles, and shares its budget with it.
+    lookupLimiter.check(await callerIp());
+    notFound();
+  }
 
   const { voucherUrl } = await reconcileCard(order);
   if (order.status === 'esperando_pago' && order.gateway === STRIPE) {

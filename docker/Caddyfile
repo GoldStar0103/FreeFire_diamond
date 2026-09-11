@@ -43,10 +43,15 @@
 	header @orders Cache-Control "private, no-store"
 
 	reverse_proxy web:3000 {
-		# The apps read x-forwarded-for for rate limiting and trust it because
-		# this proxy is the only thing that can reach them. Caddy overwrites
-		# rather than appends, so a client cannot forge its own address.
+		# The apps read X-Real-IP for rate limiting and trust it because this
+		# proxy is the only thing that can reach them, and both headers below
+		# are set to overwrite rather than append — a client-supplied value
+		# never survives. (X-Forwarded-For is reverse_proxy's default *append*
+		# to whatever a client already sent, not a replacement, so it is
+		# overwritten explicitly here too — the app no longer reads it, but a
+		# stray future caller of the header must not inherit a forgeable one.)
 		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
 	}
 
 	log {
@@ -87,6 +92,7 @@ www.{$STORE_DOMAIN} {
 
 	reverse_proxy admin:3000 {
 		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
 	}
 
 	log {

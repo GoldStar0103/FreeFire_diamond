@@ -90,7 +90,13 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
   }
 
   async settleItem(itemId: string, settlement: ItemSettlement): Promise<void> {
-    await this.db
+    // Guarded the same way `markItemSending` is: an item only ever reaches
+    // here from `sending` (the live dispatch, or `recoverStalledItems` finding
+    // it abandoned) or `provider_pending` (`pollPendingOrders` resolving a
+    // PENDING reference). A live call that stalls past `minAgeMs` and *then*
+    // finally answers would otherwise race the poller that reconciled it in
+    // the meantime, each settlement silently overwriting the other's verdict.
+    const updated = await this.db
       .update(orderItems)
       .set({
         status: settlement.status,
@@ -110,7 +116,14 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
           responsePayload: settlement.responsePayload,
         }),
       })
-      .where(eq(orderItems.id, itemId));
+      .where(and(eq(orderItems.id, itemId), inArray(orderItems.status, ['sending', 'provider_pending'])))
+      .returning({ id: orderItems.id });
+
+    if (updated.length === 0) {
+      throw new Error(
+        `Item ${itemId} was already settled before this write landed — refusing to overwrite it.`,
+      );
+    }
   }
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {

@@ -164,7 +164,23 @@ export class DrizzleRecoveryStore
   /** Mirrors `DrizzlePaymentStore.expirePayment`; the sweep needs it here. */
   async expirePayment(input: { orderId: string; paymentId: string }): Promise<void> {
     await this.database.transaction(async (tx) => {
-      await tx.update(payments).set({ status: 'expired' }).where(eq(payments.id, input.paymentId));
+      // Mirrors `DrizzlePaymentStore.expirePayment`'s guard: `findOverduePayments`
+      // reads a snapshot, and by the time the sweep's loop reaches this row the
+      // payment may already have been approved (a webhook, an admin tap). The
+      // WHERE clause is what stops that just-confirmed payment from being
+      // silently overwritten back to `expired`.
+      const updated = await tx
+        .update(payments)
+        .set({ status: 'expired' })
+        .where(and(eq(payments.id, input.paymentId), eq(payments.status, 'pending')))
+        .returning({ id: payments.id });
+
+      if (updated.length === 0) {
+        throw new Error(
+          `Payment ${input.paymentId} was no longer pending when this expiry landed — not expiring it.`,
+        );
+      }
+
       await tx
         .update(orders)
         .set({ status: 'payment_expired', updatedAt: new Date() })

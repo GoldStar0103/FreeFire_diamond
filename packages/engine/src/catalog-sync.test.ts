@@ -576,6 +576,42 @@ describe('a provider id that changes denomination', () => {
   });
 });
 
+describe('a provider id offered as two denominations in the same response', () => {
+  it('refuses both instead of crashing the batch upsert', async () => {
+    // Two rows in this one catalog response share id 'dup' but parse to
+    // different denominations — an internally inconsistent response, not a
+    // stored-vs-offered conflict. Upserting both would hand `upsertProducts`'s
+    // `ON CONFLICT (provider_product_id) DO UPDATE` two rows for the same
+    // target within one statement, which Postgres rejects outright.
+    const catalog = catalogWithIds({ ...LIVE_IDS, 100: 'dup', 310: 'dup' });
+    const { deps, upserted } = harness(catalog, storedLive());
+
+    const result = await syncCatalog(deps);
+
+    expect(result.blocked).toBe(false);
+    expect(result.denominationConflicts).toEqual([
+      {
+        providerProductId: 'dup',
+        name: 'Free Fire 310 Diamantes',
+        storedDiamonds: 100,
+        offeredDiamonds: 310,
+      },
+    ]);
+    expect(result.skipped.find((s) => s.providerProductId === 'dup')?.reason).toMatch(
+      /also offered as 100 diamonds elsewhere in this same catalog response/i,
+    );
+    expect(result.missing).toEqual([310]);
+    expect(result.mapped).toContain(100);
+
+    // Only one row for 'dup' ever reaches the store, whichever denomination
+    // claimed it first — the crash this fix prevents was two rows sharing a
+    // provider id landing in the same upsert batch.
+    const dupRows = upserted.flat().filter((u) => u.providerProductId === 'dup');
+    expect(dupRows).toHaveLength(1);
+    expect(dupRows[0]?.diamondsBase).toBe(100);
+  });
+});
+
 describe('provider failure', () => {
   it('propagates rather than reporting an empty catalog', async () => {
     // Treating a failed fetch as "no products" would deactivate everything.

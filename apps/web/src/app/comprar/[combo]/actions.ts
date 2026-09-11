@@ -119,9 +119,26 @@ async function validationProductId(): Promise<string | null> {
 
 type ConfirmResult = { ok: true; nickname: string } | { ok: false; message: string };
 
+/**
+ * `placeOrder` and `payWithCard` are public POST endpoints in their own
+ * right — `payWithCard` reaches this with nothing but a combo key and a
+ * player ID, no comprobante, no prior step. Without its own check here,
+ * `validatePlayer`'s rate limit only ever throttled the UI's own step 1;
+ * this call hits the exact same provider lookup and was reachable at any
+ * rate directly through step 2, silently doubling as the free ID-enumeration
+ * oracle `validationLimiter`'s own doc comment says it exists to prevent.
+ */
 async function confirmPlayer(playerId: string): Promise<ConfirmResult> {
   if (!/^\d{6,15}$/.test(playerId)) {
     return { ok: false, message: 'El ID de jugador no es válido.' };
+  }
+
+  const decision = validationLimiter.check(await callerIp());
+  if (!decision.allowed) {
+    return {
+      ok: false,
+      message: `Demasiados intentos. Espera ${Math.ceil(decision.retryAfterMs / 1000)} segundos.`,
+    };
   }
 
   const productId = await validationProductId();

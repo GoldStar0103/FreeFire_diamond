@@ -143,15 +143,37 @@ const isFreeFire = (text) => /free\s*fire|\bff\b/i.test(String(text ?? ''));
  * Pull a diamond count out of a product name.
  * Handles "1060 Diamonds", "1.060 Diamantes", "2180💎", "Free Fire (MY) 5600".
  */
+// Delivered amount (base + Garena's bonus) for each base denomination, e.g.
+// 1060 -> 1166 at BONUS_PCT=10. Kept in step with the identical table in
+// packages/provider/src/catalog.ts — see the comment there for why this
+// exists: the 2026-09-15 catalog change is exactly the kind of rename that
+// could switch a product's displayed name from the base count to the
+// delivered one, and this script is the one the runbook tells an operator to
+// trust *during* that change. Missing this fix here meant it could report a
+// denomination as gone when production had already followed the rename fine,
+// which is a false alarm at exactly the worst moment to have one.
+const DELIVERED_TO_BASE = new Map(
+  BASE_DENOMINATIONS.map((base) => [Math.round((base * (100 + BONUS_PCT)) / 100), base]),
+);
+const resolveDenomination = (n) =>
+  BASE_DENOMINATIONS.includes(n) ? n : (DELIVERED_TO_BASE.get(n) ?? null);
+
 function extractDiamonds(text) {
   if (!text) return null;
   const norm = String(text).replace(/(\d)[.,](\d{3})\b/g, '$1$2');
 
   const adjacent = norm.match(/(\d{2,6})\s*(?:x\s*)?(?:💎|diamond|diamante|dias?\b)/i);
-  if (adjacent) return Number(adjacent[1]);
+  if (adjacent) {
+    const n = Number(adjacent[1]);
+    return resolveDenomination(n) ?? n;
+  }
 
   const numbers = [...norm.matchAll(/\d{2,6}/g)].map((m) => Number(m[0]));
-  return numbers.find((n) => BASE_DENOMINATIONS.includes(n)) ?? null;
+  for (const n of numbers) {
+    const resolved = resolveDenomination(n);
+    if (resolved !== null) return resolved;
+  }
+  return null;
 }
 
 /** Normalise a games-catalog entry into the shape the report expects. */

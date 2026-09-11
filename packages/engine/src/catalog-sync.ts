@@ -116,7 +116,13 @@ export interface Replacement {
   currentCostUsd: UsdTenK;
 }
 
-/** A known provider id that now parses as a different denomination. */
+/**
+ * A provider id offered as two different denominations at once: either a
+ * known id that now parses as something other than what's stored for it, or
+ * — `storedDiamonds` covers both — two rows in the very same catalog response
+ * sharing an id but parsing to different amounts, which is exactly the same
+ * kind of inconsistency and refused the same way.
+ */
 export interface DenominationConflict {
   providerProductId: string;
   name: string;
@@ -214,28 +220,50 @@ export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncRes
   const upserts: ProductUpsert[] = [];
   const mapped: number[] = [];
   const missing: number[] = [];
+  // Provider ids already accepted into `upserts` this run, and which
+  // denomination claimed each. `mapDenominations` groups a product under
+  // exactly one denomination by its own diamondsBase, so the only way the
+  // same id reaches a second denomination's candidate list is the response
+  // itself being internally inconsistent — two rows sharing an id but
+  // parsing to different amounts. Upserting both would crash the whole sync
+  // (`ON CONFLICT DO UPDATE` cannot affect the same target twice in one
+  // statement) rather than reporting the conflict the way an id reused from
+  // the *stored* catalog already is, below.
+  const claimedThisRun = new Map<string, number>();
 
   for (const match of matches) {
     const candidates = match.chosen ? [match.chosen, ...match.alternatives] : [];
 
-    // An id we already store under another denomination. Upserting it would
-    // rewrite `diamonds_base` on a row recipes and unsent items point at.
+    // An id already storing a different denomination, or already claimed by a
+    // different denomination earlier in this very run. Upserting either would
+    // rewrite `diamonds_base` on a row recipes and unsent items point at, or
+    // crash the batch insert outright.
     const eligible = candidates.filter((candidate) => {
       const existing = byProviderId.get(candidate.providerProductId);
-      if (!existing || existing.diamondsBase === match.denomination) return true;
+      const claimedAs = claimedThisRun.get(candidate.providerProductId);
+      const conflictingDiamonds =
+        existing && existing.diamondsBase !== match.denomination
+          ? existing.diamondsBase
+          : claimedAs !== undefined && claimedAs !== match.denomination
+            ? claimedAs
+            : null;
+      if (conflictingDiamonds === null) return true;
 
       denominationConflicts.push({
         providerProductId: candidate.providerProductId,
         name: candidate.name,
-        storedDiamonds: existing.diamondsBase,
+        storedDiamonds: conflictingDiamonds,
         offeredDiamonds: match.denomination,
       });
       skipped.push({
         providerProductId: candidate.providerProductId,
         name: candidate.name,
         reason:
-          `Stored as ${existing.diamondsBase} diamonds but now offered as ` +
-          `${match.denomination} — refusing to change what existing recipes deliver`,
+          claimedAs !== undefined
+            ? `Also offered as ${claimedAs} diamonds elsewhere in this same catalog response — ` +
+              `the provider sent inconsistent data for this id, refusing both`
+            : `Stored as ${conflictingDiamonds} diamonds but now offered as ` +
+              `${match.denomination} — refusing to change what existing recipes deliver`,
       });
       return false;
     });
@@ -245,6 +273,13 @@ export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncRes
       missing.push(match.denomination);
       continue;
     }
+
+    // Claimed as soon as it's chosen, before the cost/pins_code checks below
+    // — even a product this denomination ultimately can't use (no price, a
+    // redeemable code) still proves the id maps to `match.denomination` in
+    // this response, which is what makes it a genuine conflict if some other
+    // denomination's match also picks the very same id.
+    claimedThisRun.set(product.providerProductId, match.denomination);
 
     // Without a cost the wallet-delta check has nothing to compare against, so
     // storing the product would only let orders fail later at fulfilment.

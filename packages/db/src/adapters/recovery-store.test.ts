@@ -253,6 +253,30 @@ describe.skipIf(!PG_AVAILABLE)('expirePayment', () => {
       seedPayment({ orderNumber: 'LU-2', paymentStatus: 'pending', expiresInSeconds: 3600 }),
     ).resolves.toBeDefined();
   });
+
+  it('refuses to expire a payment that is no longer pending, and leaves the order alone', async () => {
+    // The sweep's own `findOverduePayments` reads a snapshot of what was
+    // `pending` moments ago; by the time this call reaches a given row, an
+    // admin approval or a webhook may already have paid it. Without this
+    // guard on the write itself, that race silently overwrites a payment the
+    // store already recorded as `paid` back to `expired` — a customer who
+    // paid, with their order (`payment_confirmed`) never getting fulfilled.
+    const { orderId, paymentId } = await seedPayment({
+      orderNumber: 'LU-raced',
+      paymentStatus: 'paid',
+      orderStatus: 'payment_confirmed',
+      expiresInSeconds: -60,
+    });
+
+    await expect(
+      new DrizzleRecoveryStore(db).expirePayment({ orderId, paymentId }),
+    ).rejects.toThrow(/no longer pending/);
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+    expect(payment?.status).toBe('paid');
+    expect(order?.status).toBe('payment_confirmed');
+  });
 });
 
 describe.skipIf(!PG_AVAILABLE)('findPendingProviderItems', () => {

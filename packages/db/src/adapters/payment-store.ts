@@ -133,7 +133,23 @@ export class DrizzlePaymentStore implements PaymentStore {
     reason: string;
   }): Promise<void> {
     await this.db.transaction(async (tx) => {
-      await tx.update(payments).set({ status: 'failed' }).where(eq(payments.id, input.paymentId));
+      // Guarded the same way `confirmPayment` guards its own write: the engine
+      // checks `paymentStatus !== 'paid'` before calling this, but that check
+      // and this write are two separate round-trips. Without the WHERE clause
+      // here too, money that arrives (a Stripe webhook, another admin's
+      // approval) in the gap between them gets silently overwritten back to
+      // `failed`/`cancelled` — a paid order rejected out from under itself.
+      const updated = await tx
+        .update(payments)
+        .set({ status: 'failed' })
+        .where(and(eq(payments.id, input.paymentId), ne(payments.status, 'paid')))
+        .returning({ id: payments.id });
+
+      if (updated.length === 0) {
+        throw new Error(
+          `Payment ${input.paymentId} was paid before this rejection landed — not rejecting money that arrived.`,
+        );
+      }
 
       await tx
         .update(orders)
@@ -152,7 +168,22 @@ export class DrizzlePaymentStore implements PaymentStore {
 
   async expirePayment(input: { orderId: string; paymentId: string }): Promise<void> {
     await this.db.transaction(async (tx) => {
-      await tx.update(payments).set({ status: 'expired' }).where(eq(payments.id, input.paymentId));
+      // Same reasoning as `rejectPayment` above: `findOverduePayments` reads a
+      // snapshot, and the sweep can reach this row's write well after that
+      // snapshot was taken. Guarding on `status = 'pending'` here — the exact
+      // state `findOverduePayments` selected on — is what stops a payment that
+      // was approved in the meantime from being expired out from under itself.
+      const updated = await tx
+        .update(payments)
+        .set({ status: 'expired' })
+        .where(and(eq(payments.id, input.paymentId), eq(payments.status, 'pending')))
+        .returning({ id: payments.id });
+
+      if (updated.length === 0) {
+        throw new Error(
+          `Payment ${input.paymentId} was no longer pending when this expiry landed — not expiring it.`,
+        );
+      }
 
       await tx
         .update(orders)

@@ -8,7 +8,17 @@ import Link from 'next/link';
  * long links — or a combo that was live when they saw the flyer and has since
  * been rotated out. Both of those people have money involved, so the page
  * routes them to the order lookup rather than just apologising.
+ *
+ * `force-dynamic` for the same reason the legal pages are: Next's auto-
+ * generated `/_not-found` route reads the root layout's env-derived config
+ * (the Meta/TikTok pixel ids, the WhatsApp support link) at render time, and
+ * without this it is the one route in the app that gets prerendered at BUILD
+ * time — when the container image builds with no environment at all, per
+ * README. A visitor who lands here (which, per the comment above, is most of
+ * them) would silently get no pixel and no WhatsApp link, baked in until the
+ * next rebuild.
  */
+export const dynamic = 'force-dynamic';
 export default function NotFound() {
   return (
     <main className="page narrow">

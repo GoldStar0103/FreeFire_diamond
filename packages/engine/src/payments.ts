@@ -203,12 +203,28 @@ export async function rejectPayment(
     };
   }
 
-  await deps.store.rejectPayment({
-    orderId: payable.orderId,
-    paymentId: payable.paymentId,
-    adminUserId: input.adminUserId ?? null,
-    reason: input.reason,
-  });
+  try {
+    await deps.store.rejectPayment({
+      orderId: payable.orderId,
+      paymentId: payable.paymentId,
+      adminUserId: input.adminUserId ?? null,
+      reason: input.reason,
+    });
+  } catch {
+    // The store guards this write against the exact race the check above
+    // cannot: the payment was confirmed (a webhook, another admin) in the gap
+    // between that check and this write landing. Re-read rather than assume,
+    // since it may since have moved on again (e.g. straight to needs_review).
+    const now = await deps.store.findPayable(input.orderId);
+    return {
+      ok: false,
+      failure: {
+        code: 'NOT_AWAITING_PAYMENT',
+        message: `${payable.orderNumber} was confirmed as paid just now — use a refund, not a rejection.`,
+        paymentStatus: now?.paymentStatus ?? 'paid',
+      },
+    };
+  }
 
   return {
     ok: true,
@@ -329,6 +345,13 @@ export async function expireUnpaid(
   const now = deps.now?.() ?? new Date();
   if (!payable.expiresAt || now <= payable.expiresAt) return { expired: false };
 
-  await deps.store.expirePayment({ orderId: payable.orderId, paymentId: payable.paymentId });
+  try {
+    await deps.store.expirePayment({ orderId: payable.orderId, paymentId: payable.paymentId });
+  } catch {
+    // The store guards this write against the same race the header comment
+    // already calls out: paid while this call was mid-flight. `expired: false`
+    // is exactly the right answer here — it was not expired, correctly.
+    return { expired: false };
+  }
   return { expired: true };
 }

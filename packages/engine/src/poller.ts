@@ -95,65 +95,81 @@ export async function pollPendingOrders(deps: PollerDeps): Promise<SweepResult> 
   result.examined = items.length;
 
   for (const item of items) {
-    if (!item.providerReference) {
-      // PENDING with no reference is unpollable — it can only ever be resolved
-      // by a human against the provider's panel.
-      await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'NO_REFERENCE' });
-      await escalate(deps, item, 'PENDING item has no provider reference to poll');
-      result.escalated++;
-      continue;
+    try {
+      await pollOne(deps, config, item, result);
+    } catch (err) {
+      // Most likely `settleItem` lost a race — a live call that stalled past
+      // `minAgeMs` finally answered and settled this item in between this
+      // batch being read and reaching it. Nothing wrong to report; someone
+      // else already resolved it. Skip rather than let one item's race, or a
+      // genuine transient error, abort the rest of the batch.
+      console.warn(`[poller] skipping ${item.itemId}: ${String(err)}`);
     }
-
-    const status = await provider.getOrderStatus(item.providerReference);
-
-    if (status?.status === 'COMPLETED') {
-      // A populated `pins` array means codes, not a top-up — the same
-      // project-breaking case the purchase path guards against.
-      if (status.pins.length > 0) {
-        await store.settleItem(item.itemId, {
-          status: 'unknown',
-          errorCode: 'DELIVERED_AS_CODE',
-          resolvedBy: 'polling',
-          responsePayload: status,
-        });
-        await escalate(deps, item, 'Provider delivered a code rather than a top-up');
-        result.escalated++;
-        continue;
-      }
-
-      await store.settleItem(item.itemId, {
-        status: 'succeeded',
-        resolvedBy: 'polling',
-        responsePayload: status,
-      });
-      result.completed++;
-      await refreshOrderStatus(store, item.orderId, config.maxAttempts);
-      continue;
-    }
-
-    if (status === null) {
-      // The provider does not recognise a reference it gave us. Never guess.
-      await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'REFERENCE_NOT_FOUND' });
-      await escalate(deps, item, 'Provider no longer recognises the order reference');
-      result.escalated++;
-      continue;
-    }
-
-    if (item.ageMs >= config.escalateAfterMs) {
-      await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'PENDING_TIMEOUT' });
-      await escalate(
-        deps,
-        item,
-        `Still PENDING after ${Math.round(item.ageMs / 60_000)} minutes`,
-      );
-      result.escalated++;
-      continue;
-    }
-
-    result.stillPending++;
   }
 
   return result;
+}
+
+async function pollOne(
+  deps: PollerDeps,
+  config: PollerConfig,
+  item: StalledItem,
+  result: SweepResult,
+): Promise<void> {
+  const { store, provider } = deps;
+
+  if (!item.providerReference) {
+    // PENDING with no reference is unpollable — it can only ever be resolved
+    // by a human against the provider's panel.
+    await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'NO_REFERENCE' });
+    await escalate(deps, item, 'PENDING item has no provider reference to poll');
+    result.escalated++;
+    return;
+  }
+
+  const status = await provider.getOrderStatus(item.providerReference);
+
+  if (status?.status === 'COMPLETED') {
+    // A populated `pins` array means codes, not a top-up — the same
+    // project-breaking case the purchase path guards against.
+    if (status.pins.length > 0) {
+      await store.settleItem(item.itemId, {
+        status: 'unknown',
+        errorCode: 'DELIVERED_AS_CODE',
+        resolvedBy: 'polling',
+        responsePayload: status,
+      });
+      await escalate(deps, item, 'Provider delivered a code rather than a top-up');
+      result.escalated++;
+      return;
+    }
+
+    await store.settleItem(item.itemId, {
+      status: 'succeeded',
+      resolvedBy: 'polling',
+      responsePayload: status,
+    });
+    result.completed++;
+    await refreshOrderStatus(store, item.orderId, config.maxAttempts);
+    return;
+  }
+
+  if (status === null) {
+    // The provider does not recognise a reference it gave us. Never guess.
+    await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'REFERENCE_NOT_FOUND' });
+    await escalate(deps, item, 'Provider no longer recognises the order reference');
+    result.escalated++;
+    return;
+  }
+
+  if (item.ageMs >= config.escalateAfterMs) {
+    await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'PENDING_TIMEOUT' });
+    await escalate(deps, item, `Still PENDING after ${Math.round(item.ageMs / 60_000)} minutes`);
+    result.escalated++;
+    return;
+  }
+
+  result.stillPending++;
 }
 
 /**
@@ -175,53 +191,14 @@ export async function recoverStalledItems(deps: PollerDeps): Promise<SweepResult
     result.examined = items.length;
 
     for (const item of items) {
-      if (item.walletBeforeUsd === null) {
-        // No pre-call snapshot means nothing to compare against.
-        await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'NO_WALLET_SNAPSHOT' });
-        await escalate(deps, item, 'Stalled mid-send with no wallet snapshot to reconcile');
-        result.escalated++;
-        continue;
+      try {
+        await recoverOne(deps, config, item, result);
+      } catch (err) {
+        // Most likely `settleItem` lost a race against another writer for the
+        // same item — see the comment on the equivalent catch in
+        // `pollPendingOrders`. Skip it rather than abort the rest of the batch.
+        console.warn(`[poller] skipping ${item.itemId}: ${String(err)}`);
       }
-
-      const balanceAfter = await provider.getBalance();
-      const resolution = resolveAmbiguous({
-        balanceBefore: item.walletBeforeUsd,
-        balanceAfter,
-        expectedCost: item.costUsd,
-      });
-
-      if (resolution.verdict === 'charged') {
-        await store.settleItem(item.itemId, {
-          status: 'succeeded',
-          walletAfterUsd: balanceAfter,
-          resolvedBy: 'wallet_delta',
-          errorCode: 'RECOVERED_AFTER_CRASH',
-        });
-        result.resolvedByWallet++;
-        await alerter.send('warn', 'Recovered a crashed call as delivered', {
-          orderNumber: item.orderNumber,
-        });
-      } else if (resolution.verdict === 'not_charged') {
-        // Never landed, so it is safe to put back in the queue.
-        await store.settleItem(item.itemId, {
-          status: item.attemptCount >= config.maxAttempts ? 'unknown' : 'failed',
-          walletAfterUsd: balanceAfter,
-          resolvedBy: 'wallet_delta',
-          errorCode: 'RECOVERED_NOT_CHARGED',
-        });
-        result.resolvedByWallet++;
-      } else {
-        await store.settleItem(item.itemId, {
-          status: 'unknown',
-          walletAfterUsd: balanceAfter,
-          resolvedBy: 'wallet_delta',
-          errorCode: 'RECOVERY_INDETERMINATE',
-        });
-        await escalate(deps, item, resolution.reason);
-        result.escalated++;
-      }
-
-      await refreshOrderStatus(store, item.orderId, config.maxAttempts);
     }
 
     return result;
@@ -233,6 +210,63 @@ export async function recoverStalledItems(deps: PollerDeps): Promise<SweepResult
     return (await lock.tryWithLock(PROVIDER_LOCK_KEY, run)) ?? empty(true);
   }
   return lock.withLock(PROVIDER_LOCK_KEY, run);
+}
+
+async function recoverOne(
+  deps: PollerDeps,
+  config: PollerConfig,
+  item: StalledItem,
+  result: SweepResult,
+): Promise<void> {
+  const { store, provider, alerter } = deps;
+
+  if (item.walletBeforeUsd === null) {
+    // No pre-call snapshot means nothing to compare against.
+    await store.settleItem(item.itemId, { status: 'unknown', errorCode: 'NO_WALLET_SNAPSHOT' });
+    await escalate(deps, item, 'Stalled mid-send with no wallet snapshot to reconcile');
+    result.escalated++;
+    return;
+  }
+
+  const balanceAfter = await provider.getBalance();
+  const resolution = resolveAmbiguous({
+    balanceBefore: item.walletBeforeUsd,
+    balanceAfter,
+    expectedCost: item.costUsd,
+  });
+
+  if (resolution.verdict === 'charged') {
+    await store.settleItem(item.itemId, {
+      status: 'succeeded',
+      walletAfterUsd: balanceAfter,
+      resolvedBy: 'wallet_delta',
+      errorCode: 'RECOVERED_AFTER_CRASH',
+    });
+    result.resolvedByWallet++;
+    await alerter.send('warn', 'Recovered a crashed call as delivered', {
+      orderNumber: item.orderNumber,
+    });
+  } else if (resolution.verdict === 'not_charged') {
+    // Never landed, so it is safe to put back in the queue.
+    await store.settleItem(item.itemId, {
+      status: item.attemptCount >= config.maxAttempts ? 'unknown' : 'failed',
+      walletAfterUsd: balanceAfter,
+      resolvedBy: 'wallet_delta',
+      errorCode: 'RECOVERED_NOT_CHARGED',
+    });
+    result.resolvedByWallet++;
+  } else {
+    await store.settleItem(item.itemId, {
+      status: 'unknown',
+      walletAfterUsd: balanceAfter,
+      resolvedBy: 'wallet_delta',
+      errorCode: 'RECOVERY_INDETERMINATE',
+    });
+    await escalate(deps, item, resolution.reason);
+    result.escalated++;
+  }
+
+  await refreshOrderStatus(store, item.orderId, config.maxAttempts);
 }
 
 async function refreshOrderStatus(

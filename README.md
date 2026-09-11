@@ -106,7 +106,7 @@ recipe items until that runs. The worker runs it at startup and hourly;
 
 | | |
 |---|---|
-| `pnpm test` | everything (870 tests) |
+| `pnpm test` | everything (884 tests) |
 | `pnpm typecheck` | strict, with `noUncheckedIndexedAccess` |
 | `pnpm pg:start` / `pg:stop` | local Postgres from npm binaries, no Docker |
 | `pnpm db:migrate` / `db:seed` / `db:studio` | schema and data |
@@ -115,14 +115,14 @@ recipe items until that runs. The worker runs it at startup and hourly;
 | `node phase0/discover.mjs` | probe the live provider API |
 | `node scripts/smoke.mjs <store-url> [panel-url]` | verify a running deployment — read-only, no credentials |
 
-The 244 tests in `packages/db` run against a real Postgres and **skip silently
+The 250 tests in `packages/db` run against a real Postgres and **skip silently
 when none is reachable**. `pnpm pg:start` first, or they will pass without
 having tested anything.
 
 CI (`.github/workflows/ci.yml`) runs typecheck, the full suite against a
 Postgres service, and a production build of both apps. It runs
 `packages/db/scripts/require-pg.mjs` *before* the tests, so a database that is
-unreachable fails the build instead of silently skipping 244 tests — which is
+unreachable fails the build instead of silently skipping 250 tests — which is
 the whole reason for running them there. That check opens a real connection and
 issues a query rather than probing the port: Postgres accepts connections while
 still in crash recovery and rejects every query with "the database system is

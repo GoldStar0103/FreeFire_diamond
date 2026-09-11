@@ -275,4 +275,81 @@ describe.skipIf(!PG_AVAILABLE)('rejection and expiry', () => {
     const [updated] = await db.select().from(orders).where(eq(orders.id, order.id));
     expect(updated?.status).toBe('payment_confirmed');
   });
+
+  // The two tests above only prove the engine's own pre-check works — it reads
+  // the status, sees `paid`, and never calls the store at all. They do not
+  // prove anything about a payment that becomes `paid` *after* that read,
+  // which is the actual race a concurrent webhook or admin approval creates.
+  // These call the store directly, the way a racing request effectively would
+  // once past the engine's stale read, to prove the write itself is guarded.
+
+  it('the store itself refuses to reject a payment that is no longer awaiting one', async () => {
+    const order = await seedOrder();
+    await approvePayment({ store: store() }, { orderId: order.id });
+    const [payment] = await db.select().from(payments).where(eq(payments.orderId, order.id));
+
+    await expect(
+      store().rejectPayment({
+        orderId: order.id,
+        paymentId: payment!.id,
+        adminUserId: null,
+        reason: 'raced',
+      }),
+    ).rejects.toThrow(/paid before this rejection landed/);
+
+    // Rolled back with the payment: an order already `payment_confirmed` must
+    // never end up `cancelled` because of a rejection that arrived too late.
+    const [updated] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(updated?.status).toBe('payment_confirmed');
+  });
+
+  it('the store itself refuses to expire a payment that is no longer pending', async () => {
+    const order = await seedOrder();
+    await approvePayment({ store: store() }, { orderId: order.id });
+    const [payment] = await db.select().from(payments).where(eq(payments.orderId, order.id));
+
+    await expect(
+      store().expirePayment({ orderId: order.id, paymentId: payment!.id }),
+    ).rejects.toThrow(/no longer pending/);
+
+    const [updated] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(updated?.status).toBe('payment_confirmed');
+  });
+
+  it('a real race between approval and the expiry sweep never splits payment and order state apart', async () => {
+    const order = await seedOrder();
+    await db
+      .update(payments)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(payments.orderId, order.id));
+
+    // `acceptMismatch` is what lets approval proceed despite the past deadline
+    // (the same override the "leaves an already-paid order alone" test above
+    // uses) — without it this test would just be proving the ordinary expired-
+    // payment refusal, not the race. Both calls read `pending` before either
+    // writes, the same shape as the existing "lets only one of two concurrent
+    // approvals through" test above, racing approval against the sweep instead
+    // of two approvals against each other.
+    await Promise.allSettled([
+      approvePayment({ store: store() }, { orderId: order.id, acceptMismatch: true }),
+      expireUnpaid({ store: store() }, order.id),
+    ]);
+
+    // Whoever committed first, `payments` and `orders` must agree with each
+    // other — this is the actual corruption the missing guard used to allow:
+    // an order reading `payment_expired` while its own payment reads `paid`,
+    // or vice versa. Note `confirmPayment`'s own guard only excludes `paid`
+    // (deliberately — it also has to let a legitimate late payment override
+    // an `amount_mismatch`), so approval landing just after the sweep is
+    // allowed to win outright; what must never happen is the two rows ending
+    // up out of step with each other.
+    const [payment] = await db.select().from(payments).where(eq(payments.orderId, order.id));
+    const [updated] = await db.select().from(orders).where(eq(orders.id, order.id));
+    if (payment?.status === 'paid') {
+      expect(updated?.status).toBe('payment_confirmed');
+    } else {
+      expect(payment?.status).toBe('expired');
+      expect(updated?.status).toBe('payment_expired');
+    }
+  });
 });

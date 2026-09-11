@@ -3,9 +3,10 @@
  *
  * The integration tests skip themselves when no database answers, which is
  * right locally — `pnpm -r test` stays green on a machine with no cluster. In
- * CI it is the worst possible behaviour: 154 tests quietly do not run and the
- * build reports success. The whole point of running them there is that they
- * are the ones nobody remembers to run.
+ * CI it is the worst possible behaviour: the whole `packages/db` suite (see
+ * README for the current count) quietly does not run and the build reports
+ * success. The whole point of running them there is that they are the ones
+ * nobody remembers to run.
  *
  * A TCP check is not enough. Postgres accepts connections on the port while
  * still in crash recovery and rejects every query with "the database system is

@@ -182,3 +182,67 @@ describe.skipIf(!PG_AVAILABLE)('loadOrder', () => {
     expect(loaded?.items[0]?.productActive).toBe(true);
   });
 });
+
+async function pendingItem(o: { id: string }, status: 'sending' | 'provider_pending' = 'sending') {
+  const [item] = await db
+    .insert(orderItems)
+    .values({
+      orderId: o.id,
+      sequence: 0,
+      baseProductId: null,
+      providerProductId: '351',
+      diamondsBase: 100,
+      costUsd: '0.7000',
+      status,
+      walletBeforeUsd: '100.0000',
+    })
+    .returning();
+  return item!;
+}
+
+describe.skipIf(!PG_AVAILABLE)('settleItem', () => {
+  it('refuses to settle an item that is no longer sending or provider_pending', async () => {
+    // A live call and the poller both resolving the same stalled item is
+    // exactly the race `markItemSending`'s CAS already guards against on the
+    // dispatch side — settling has the same failure mode without a guard.
+    const o = await order();
+    const item = await pendingItem(o);
+    const store = new DrizzleFulfillmentStore(db);
+
+    await store.settleItem(item.id, { status: 'succeeded', resolvedBy: 'response' });
+
+    await expect(
+      store.settleItem(item.id, { status: 'unknown', errorCode: 'RECOVERY_INDETERMINATE' }),
+    ).rejects.toThrow(/already settled/);
+
+    const [row] = await db.select().from(orderItems).where(eq(orderItems.id, item.id));
+    // The second write never landed — no overwritten status or errorCode.
+    expect(row?.status).toBe('succeeded');
+    expect(row?.errorCode).toBeNull();
+  });
+
+  it('a real race between the live call and the poller settling the same item never splits the row', async () => {
+    const o = await order();
+    const item = await pendingItem(o);
+    const store = new DrizzleFulfillmentStore(db);
+
+    const outcomes = await Promise.allSettled([
+      store.settleItem(item.id, { status: 'succeeded', resolvedBy: 'response' }),
+      store.settleItem(item.id, {
+        status: 'unknown',
+        resolvedBy: 'wallet_delta',
+        errorCode: 'RECOVERY_INDETERMINATE',
+      }),
+    ]);
+
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
+    const rejected = outcomes.filter((o) => o.status === 'rejected');
+    // Exactly one write lands; the loser gets the CAS error, never a silent
+    // overwrite of whichever settlement landed first.
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    const [row] = await db.select().from(orderItems).where(eq(orderItems.id, item.id));
+    expect(['succeeded', 'unknown']).toContain(row?.status);
+  });
+});

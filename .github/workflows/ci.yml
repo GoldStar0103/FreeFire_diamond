@@ -1,8 +1,9 @@
 # Typecheck, tests, and a production build of both apps.
 #
 # The point of CI here is not the unit tests — those run fine on anyone's
-# laptop. It is the 154 database tests, which skip themselves when no Postgres
-# is reachable and are therefore the ones that quietly stop being run. A
+# laptop. It is the database tests (see README's `packages/db` count), which
+# skip themselves when no Postgres is reachable and are therefore the ones
+# that quietly stop being run. A
 # service container makes them unconditional, and the pre-flight step below
 # makes a silent skip impossible.
 

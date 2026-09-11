@@ -236,6 +236,27 @@ describe('rejection', () => {
     ).toMatchObject({ failure: { code: 'NOT_AWAITING_PAYMENT' } });
     expect(store.rejectPayment).not.toHaveBeenCalled();
   });
+
+  it('turns a race lost at the store into a typed failure, not a thrown error', async () => {
+    // The read above only catches a payment that was ALREADY paid when this
+    // function started. The store's own guarded write is what catches one
+    // that becomes paid in the gap between that read and the write landing —
+    // and it reports that by throwing (see DrizzlePaymentStore.rejectPayment).
+    // This proves the engine turns that into a normal PaymentResult rather
+    // than letting the exception reach the caller (an admin's "rechazar" tap).
+    const { deps, store } = harness(payable());
+    vi.mocked(store.rejectPayment).mockRejectedValueOnce(new Error('paid before this landed'));
+    vi.mocked(store.findPayable).mockResolvedValueOnce(payable()).mockResolvedValueOnce(
+      payable({ paymentStatus: 'paid' }),
+    );
+
+    const result = await rejectPayment(deps, { orderId: 'order-1', reason: 'oops' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      failure: { code: 'NOT_AWAITING_PAYMENT', paymentStatus: 'paid' },
+    });
+  });
 });
 
 describe('settling a gateway charge', () => {

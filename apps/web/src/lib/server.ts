@@ -11,6 +11,7 @@ import { headers } from 'next/headers';
 import { createDb } from '@levelup/db';
 import { assertDryRunDatabaseIsSafe, createRateLimiter, type RateLimiter } from '@levelup/shared';
 import { RecargasAmericaProvider, ProviderSimulator, type TopupProvider } from '@levelup/provider';
+import { pickCallerIp } from './caller-ip.js';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -123,15 +124,7 @@ export function getProvider(): TopupProvider {
   return built;
 }
 
-/**
- * Caller IP for rate limiting.
- *
- * Behind Caddy, so the proxy headers are trustworthy here. Directly exposed
- * they would not be — a client can send whatever it likes.
- */
+/** Caller IP for rate limiting. See `pickCallerIp` in `./caller-ip.ts` for the trust decision. */
 export async function callerIp(): Promise<string> {
-  const h = await headers();
-  const forwarded = h.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0]!.trim();
-  return h.get('x-real-ip') ?? 'unknown';
+  return pickCallerIp(await headers());
 }
