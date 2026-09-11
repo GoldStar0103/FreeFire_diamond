@@ -50,6 +50,14 @@ new `.mx`, occasionally a few hours.
 
 ### Steps
 
+> **Automated with `scripts/deploy.sh`:** `scripts/server-setup.sh` handles
+> "Bootstrap the server" below. Once the code is checked out and `.env` is
+> filled in (through "Get the code"), `./scripts/deploy.sh init` automates
+> everything from there — build, wait for postgres to be healthy, migrate,
+> seed, create the first admin user, and the verification smoke test. See
+> `./scripts/deploy.sh --help`. The steps below are what it runs, and remain
+> the reference for what to do by hand if something needs a closer look.
+
 #### Bootstrap the server (once)
 
 Put your SSH key on root first. Skip this if you gave Hostinger your key when
@@ -163,6 +171,13 @@ Re-running it for an existing email resets that password, which is the
 account-recovery path. Note the password appears in shell history; clear it, or
 prefix the command with a space if the shell is configured to skip those.
 
+Re-running it also clears any two-factor authentication (TOTP) on that
+account. The realistic reason to reset a password from the server is an owner
+locked out of the panel, and if 2FA were left in place a fresh password would
+just trade one lockout for another — especially if losing the phone the
+authenticator app was on is *why* they needed the reset. The owner can turn
+2FA back on from Ajustes once logged in.
+
 ### Verify before telling anyone it is live
 
 ```bash
@@ -262,6 +277,12 @@ How it holds together, for whoever debugs it:
 ---
 
 ## 2. Deploying a change
+
+> **Automated with `scripts/deploy.sh`:** `./scripts/deploy.sh update` runs
+> the steps below — pull, rebuild and restart, smoke test — and, instead of
+> ever running migrations for you, refuses to continue (printing the exact
+> command to run) if the pull touched `packages/db/migrations/`. See
+> `./scripts/deploy.sh --help`.
 
 ```bash
 cd /srv/levelup

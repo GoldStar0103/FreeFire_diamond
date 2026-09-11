@@ -106,7 +106,7 @@ recipe items until that runs. The worker runs it at startup and hourly;
 
 | | |
 |---|---|
-| `pnpm test` | everything (802 tests) |
+| `pnpm test` | everything (870 tests) |
 | `pnpm typecheck` | strict, with `noUncheckedIndexedAccess` |
 | `pnpm pg:start` / `pg:stop` | local Postgres from npm binaries, no Docker |
 | `pnpm db:migrate` / `db:seed` / `db:studio` | schema and data |
@@ -115,14 +115,14 @@ recipe items until that runs. The worker runs it at startup and hourly;
 | `node phase0/discover.mjs` | probe the live provider API |
 | `node scripts/smoke.mjs <store-url> [panel-url]` | verify a running deployment — read-only, no credentials |
 
-The 240 tests in `packages/db` run against a real Postgres and **skip silently
+The 244 tests in `packages/db` run against a real Postgres and **skip silently
 when none is reachable**. `pnpm pg:start` first, or they will pass without
 having tested anything.
 
 CI (`.github/workflows/ci.yml`) runs typecheck, the full suite against a
 Postgres service, and a production build of both apps. It runs
 `packages/db/scripts/require-pg.mjs` *before* the tests, so a database that is
-unreachable fails the build instead of silently skipping 240 tests — which is
+unreachable fails the build instead of silently skipping 244 tests — which is
 the whole reason for running them there. That check opens a real connection and
 issues a query rather than probing the port: Postgres accepts connections while
 still in crash recovery and rejects every query with "the database system is
@@ -203,14 +203,21 @@ Next's `standalone` output, which is what the images wrap.
 
 Built and tested: storefront, panel, fulfilment engine, provider client,
 manual comprobante payments, Stripe card (and optional OXXO) payments, Meta
-Pixel plus server-side Conversions API, automatic provider catalog sync,
+and TikTok Pixels plus server-side Meta Conversions API, automatic provider
+catalog sync, panel tools for resolving an order stuck in review (settle a
+recharge by hand, resume delivery, flag/close a refund), a one-tap WhatsApp
+button wherever the panel shows an order's number, optional TOTP two-factor
+login for the panel, one-click deployment scripting (`scripts/deploy.sh`),
 deployment stack.
 
-Stripe and Meta are switched on by their environment variables and are
-invisible without them — see `docs/RUNBOOK.md`. Both have been tested against
-their documented contracts, not yet against the client's live accounts: the
-first real $10 order through each is the remaining proof.
+Stripe, Meta, TikTok and per-admin 2FA are switched on by their own
+configuration and are invisible without it — see `docs/RUNBOOK.md`. Card
+payments and Meta have been tested against their documented contracts, not yet
+against the client's live accounts: the first real $10 order through each is
+the remaining proof.
 
-Not yet wired: TikTok's pixel (most traffic is TikTok; the variables are
-reserved in `.env.example`). Off-box backup copying is built but needs its
-one-time rclone setup on the server — see `docs/RUNBOOK.md` §3.
+Off-box backup copying is built but needs its one-time rclone setup on the
+server — see `docs/RUNBOOK.md` §3. The deploy scripts (`scripts/server-setup.sh`,
+`scripts/deploy.sh`) have never run against a real server: this was developed
+on a machine with neither bash nor Docker, so their first real test is the
+client's actual VPS.

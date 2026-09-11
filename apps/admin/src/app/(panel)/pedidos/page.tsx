@@ -3,6 +3,7 @@ import { listOrders, type OrderFilter } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, mxn, orderStatusLabel, statusTone } from '../../../lib/format';
+import { orderWhatsappMessage, waUrl } from '../../../lib/whatsapp';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,32 +92,57 @@ export default async function OrdersPage({
                 <th className="num">Entregado</th>
                 <th className="num">Monto</th>
                 <th>Fecha</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((o) => (
-                <tr key={o.orderId}>
-                  <td className="mono">
-                    <Link href={`/pedidos/${o.orderId}`} style={{ color: 'var(--accent)' }}>
-                      {o.orderNumber}
-                    </Link>
-                  </td>
-                  <td>{o.comboName}</td>
-                  <td className="mono">{o.playerId}</td>
-                  <td>
-                    <span className={`badge ${statusTone(o.status)}`}>
-                      {orderStatusLabel(o.status)}
-                    </span>
-                  </td>
-                  <td className="num">
-                    {o.itemsDelivered}/{o.itemsTotal}
-                  </td>
-                  <td className="num">{mxn(o.priceMxnCents)}</td>
-                  <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    {dateTime(o.createdAt)}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((o) => {
+                const chatUrl = waUrl(
+                  o.contactWhatsapp,
+                  orderWhatsappMessage(
+                    { orderNumber: o.orderNumber, comboName: o.comboName },
+                    'general',
+                  ),
+                );
+                return (
+                  <tr key={o.orderId}>
+                    <td className="mono">
+                      <Link href={`/pedidos/${o.orderId}`} style={{ color: 'var(--accent)' }}>
+                        {o.orderNumber}
+                      </Link>
+                    </td>
+                    <td>{o.comboName}</td>
+                    <td className="mono">{o.playerId}</td>
+                    <td>
+                      <span className={`badge ${statusTone(o.status)}`}>
+                        {orderStatusLabel(o.status)}
+                      </span>
+                    </td>
+                    <td className="num">
+                      {o.itemsDelivered}/{o.itemsTotal}
+                    </td>
+                    <td className="num">{mxn(o.priceMxnCents)}</td>
+                    <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {dateTime(o.createdAt)}
+                    </td>
+                    <td>
+                      {/* Only rendered when the order actually has a WhatsApp
+                          number — never a broken wa.me link with none. */}
+                      {chatUrl && (
+                        <a
+                          className="btn sm"
+                          href={chatUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Escribirle por WhatsApp — ${o.contactWhatsapp}`}
+                        >
+                          💬
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

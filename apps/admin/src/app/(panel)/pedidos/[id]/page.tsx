@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getOrderDetail } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
+import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import {
   dateTime,
@@ -81,6 +82,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   if (!order) notFound();
 
   const snapshot = order.comboSnapshot as { name?: string; advertisedDiamonds?: number };
+  const chatUrl = waUrl(
+    order.contactWhatsapp,
+    orderWhatsappMessage(
+      { orderNumber: order.orderNumber, comboName: snapshot.name, advertisedDiamonds: snapshot.advertisedDiamonds },
+      'general',
+    ),
+  );
 
   return (
     <>
@@ -158,7 +166,20 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           {order.contactWhatsapp && (
             <>
               <dt>WhatsApp</dt>
-              <dd className="mono">{order.contactWhatsapp}</dd>
+              <dd className="mono">
+                {order.contactWhatsapp}
+                {chatUrl && (
+                  <a
+                    className="btn sm"
+                    href={chatUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ marginLeft: 10 }}
+                  >
+                    💬 Escribirle
+                  </a>
+                )}
+              </dd>
             </>
           )}
 

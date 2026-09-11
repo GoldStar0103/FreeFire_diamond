@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import type { PendingApproval } from '@levelup/db';
+import { orderWhatsappMessage, waUrl } from '../../../lib/whatsapp';
 import { approve, reject, type ActionResult } from './actions';
 
 interface Props {
@@ -20,6 +21,19 @@ export function ApprovalCard({ approval, display }: Props) {
 
   const state = approveState.error || approveState.ok ? approveState : rejectState;
   const busy = approving || rejecting;
+
+  // The manual is explicit about this one case: "Si el monto no coincide, no
+  // apruebes. Escríbele al cliente primero." Only shown when there is a real
+  // number to write to — never a broken wa.me link with none.
+  const mismatchChatUrl = approval.mismatch
+    ? waUrl(
+        approval.contactWhatsapp,
+        orderWhatsappMessage({ orderNumber: approval.orderNumber }, 'mismatch', {
+          receivedMxn: display.received ?? undefined,
+          expectedMxn: display.price,
+        }),
+      )
+    : null;
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -41,6 +55,13 @@ export function ApprovalCard({ approval, display }: Props) {
         <div className="alert warn">
           El cliente pagó <strong>{display.received}</strong> y el combo cuesta{' '}
           <strong>{display.price}</strong>. Revisa el comprobante antes de aprobar.
+          {mismatchChatUrl && (
+            <div style={{ marginTop: 10 }}>
+              <a className="btn sm" href={mismatchChatUrl} target="_blank" rel="noreferrer">
+                💬 Escríbele al cliente antes de aprobar
+              </a>
+            </div>
+          )}
         </div>
       )}
 

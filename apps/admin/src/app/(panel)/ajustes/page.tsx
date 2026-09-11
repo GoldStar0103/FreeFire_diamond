@@ -1,7 +1,9 @@
-import { DEFAULT_FX_RATE, getFxRate, getPaymentDetails } from '@levelup/db';
+import { eq } from 'drizzle-orm';
+import { adminUsers, DEFAULT_FX_RATE, getFxRate, getPaymentDetails } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { SettingsForm } from './settings-form';
+import { TwoFactorForm } from './two-factor-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +16,17 @@ export const dynamic = 'force-dynamic';
  * seconds in this panel rather than a redeploy.
  */
 export default async function SettingsPage() {
-  await requireSession();
+  const session = await requireSession();
 
-  const [payTo, fxRate] = await Promise.all([getPaymentDetails(getDb()), getFxRate(getDb())]);
+  const [payTo, fxRate, [admin]] = await Promise.all([
+    getPaymentDetails(getDb()),
+    getFxRate(getDb()),
+    getDb()
+      .select({ totpSecret: adminUsers.totpSecret })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, session.adminUserId))
+      .limit(1),
+  ]);
 
   return (
     <>
@@ -33,6 +43,8 @@ export default async function SettingsPage() {
           fxRate: String(fxRate || DEFAULT_FX_RATE),
         }}
       />
+
+      <TwoFactorForm enabled={admin?.totpSecret != null} />
     </>
   );
 }

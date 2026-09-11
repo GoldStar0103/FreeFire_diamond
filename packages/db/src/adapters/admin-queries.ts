@@ -20,6 +20,7 @@ export interface PendingApproval {
   orderNumber: string;
   playerId: string;
   playerNickname: string | null;
+  contactWhatsapp: string | null;
   comboName: string;
   advertisedDiamonds: number;
   priceMxnCents: number;
@@ -52,6 +53,7 @@ export async function listPendingApprovals(
       orderNumber: orders.orderNumber,
       playerId: orders.playerId,
       playerNickname: orders.playerNickname,
+      contactWhatsapp: orders.contactWhatsapp,
       comboSnapshot: orders.comboSnapshot,
       priceMxnCents: orders.priceMxnCents,
       createdAt: orders.createdAt,
@@ -81,6 +83,7 @@ export async function listPendingApprovals(
       orderNumber: r.orderNumber,
       playerId: r.playerId,
       playerNickname: r.playerNickname,
+      contactWhatsapp: r.contactWhatsapp,
       comboName: snapshot.name ?? '(combo desconocido)',
       advertisedDiamonds: snapshot.advertisedDiamonds ?? 0,
       priceMxnCents: r.priceMxnCents,
@@ -111,6 +114,7 @@ export interface OrderListRow {
   orderNumber: string;
   playerId: string;
   playerNickname: string | null;
+  contactWhatsapp: string | null;
   comboName: string;
   priceMxnCents: number;
   status: string;
@@ -149,6 +153,7 @@ export async function listOrders(
       orderNumber: orders.orderNumber,
       playerId: orders.playerId,
       playerNickname: orders.playerNickname,
+      contactWhatsapp: orders.contactWhatsapp,
       comboSnapshot: orders.comboSnapshot,
       priceMxnCents: orders.priceMxnCents,
       status: orders.status,
@@ -190,6 +195,7 @@ export async function listOrders(
         orderNumber: r.orderNumber,
         playerId: r.playerId,
         playerNickname: r.playerNickname,
+        contactWhatsapp: r.contactWhatsapp,
         comboName: (r.comboSnapshot as { name?: string }).name ?? '(combo desconocido)',
         priceMxnCents: r.priceMxnCents,
         status: r.status,

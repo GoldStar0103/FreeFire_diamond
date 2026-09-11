@@ -6,6 +6,17 @@
  *
  *   DATABASE_URL=... pnpm --filter @levelup/admin create-admin jose@levelupstore.mx "una contraseña larga"
  *
+ * Re-running this for an existing email resets the password AND clears any
+ * 2FA (`totp_secret`/`totp_last_step`) on the account. This is a deliberate
+ * behaviour change from before 2FA existed: the realistic reason to reset a
+ * password from the server is "the owner is locked out," and if that owner
+ * also lost the phone their authenticator app was on, leaving the old TOTP
+ * secret in place would reset the password straight into a second lockout.
+ * Resetting the password already requires the same shell access disabling
+ * 2FA would, so this does not lower the bar for account recovery — it keeps
+ * the one recovery path that exists actually able to get someone back in.
+ * The admin can turn 2FA back on from Ajustes once logged in.
+ *
  * Wrapped in a function rather than using top-level await: this package is not
  * `"type": "module"` (Next does not need it), so the script is transpiled to
  * CommonJS, where top-level await is a syntax error.
@@ -40,12 +51,19 @@ async function main(): Promise<void> {
       .limit(1);
 
     if (existing) {
-      // Re-running with a new password is the password-reset path.
+      // Re-running with a new password is the password-reset path. Clear 2FA
+      // in the same update — see the header comment for why.
       await db
         .update(adminUsers)
-        .set({ passwordHash, active: true, ...(name ? { name } : {}) })
+        .set({
+          passwordHash,
+          active: true,
+          totpSecret: null,
+          totpLastStep: null,
+          ...(name ? { name } : {}),
+        })
         .where(eq(adminUsers.id, existing.id));
-      console.log(`Password updated for ${normalised}`);
+      console.log(`Password updated for ${normalised} (2FA cleared, if it was on)`);
     } else {
       await db.insert(adminUsers).values({
         email: normalised,

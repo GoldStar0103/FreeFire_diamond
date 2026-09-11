@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   createSessionToken,
   hashPassword,
+  readPurposeToken,
   readSessionToken,
+  signPurposeToken,
   verifyPassword,
 } from './auth';
 
@@ -108,5 +110,66 @@ describe('session tokens', () => {
   it('rejects everything when no secret is configured', () => {
     const token = createSessionToken(session, SECRET);
     expect(readSessionToken(token, '')).toBeNull();
+  });
+});
+
+describe('purpose-bound tokens (2FA pending state)', () => {
+  it('round-trips a payload for the purpose it was signed with', () => {
+    const token = signPurposeToken({ adminUserId: 'admin-1', email: 'jose@levelupstore.mx' }, SECRET, 'login-2fa', 300);
+    expect(readPurposeToken(token, SECRET, 'login-2fa')).toMatchObject({
+      adminUserId: 'admin-1',
+      email: 'jose@levelupstore.mx',
+    });
+  });
+
+  it('never verifies for a different purpose, even with the right secret', () => {
+    // This is the whole point: a pending-login token must not double as a
+    // pending-enrollment token, or (critically) as a session token, even if
+    // the payload shape happens to line up.
+    const token = signPurposeToken({ adminUserId: 'admin-1', email: 'jose@levelupstore.mx' }, SECRET, 'login-2fa', 300);
+    expect(readPurposeToken(token, SECRET, 'totp-enroll')).toBeNull();
+  });
+
+  it('a pending-login token cannot be read as a session token', () => {
+    // Same payload shape as SessionPayload minus expiresAt — the exact
+    // collision this primitive exists to prevent. `readSessionToken` signs
+    // with the bare secret, `signPurposeToken` mixes in the purpose, so the
+    // signature can never match.
+    const pending = signPurposeToken(session, SECRET, 'login-2fa', 300);
+    expect(readSessionToken(pending, SECRET)).toBeNull();
+  });
+
+  it('a session token cannot be read as a pending token of any purpose', () => {
+    const token = createSessionToken(session, SECRET);
+    expect(readPurposeToken(token, SECRET, 'login-2fa')).toBeNull();
+    expect(readPurposeToken(token, SECRET, 'totp-enroll')).toBeNull();
+  });
+
+  it('rejects an expired pending token', () => {
+    const token = signPurposeToken({ adminUserId: 'admin-1' }, SECRET, 'totp-enroll', 60);
+    const later = () => Date.now() + 61_000;
+    expect(readPurposeToken(token, SECRET, 'totp-enroll', later)).toBeNull();
+  });
+
+  it('rejects a tampered payload', () => {
+    const token = signPurposeToken({ adminUserId: 'admin-1' }, SECRET, 'totp-enroll', 300);
+    const [, signature] = token.split('.');
+    const forged = Buffer.from(JSON.stringify({ adminUserId: 'someone-else', expiresAt: 9_999_999_999 })).toString(
+      'base64url',
+    );
+    expect(readPurposeToken(`${forged}.${signature}`, SECRET, 'totp-enroll')).toBeNull();
+  });
+
+  it('refuses to issue a token with a weak secret', () => {
+    expect(() => signPurposeToken({ adminUserId: 'admin-1' }, 'short', 'totp-enroll', 300)).toThrow(/at least 32/);
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['empty', ''],
+    ['no separator', 'abcdef'],
+    ['garbage payload', '!!!!.signature'],
+  ])('rejects a malformed token (%s)', (_label, token) => {
+    expect(readPurposeToken(token, SECRET, 'login-2fa')).toBeNull();
   });
 });

@@ -250,3 +250,33 @@ carpeta donde se guardan las imágenes.
 - Si crees que alguien más entró, cambia la contraseña de inmediato.
 - Cambia tu contraseña de RecargasAmérica cada cierto tiempo. Esa cuenta tiene
   saldo real.
+
+### Verificación en dos pasos (2FA)
+
+Además de la contraseña, puedes pedir un código de 6 dígitos generado por una
+app en tu teléfono (Google Authenticator, Authy, 1Password o cualquier app de
+autenticación) cada vez que alguien inicie sesión en el panel. Es la misma
+protección que usan los bancos: aunque alguien adivine o robe tu contraseña,
+no puede entrar sin tu teléfono.
+
+**Para activarla:**
+
+1. Entra a **Ajustes** y busca "Verificación en dos pasos".
+2. Pulsa **Activar**. Verás una clave y una liga; escanéala o escribe la clave
+   en tu app de autenticación.
+3. Escribe el código de 6 dígitos que te muestra la app y confirma. Solo se
+   activa cuando ese primer código es correcto — así no te quedas afuera por
+   haber escaneado mal.
+
+A partir de ese momento, cada inicio de sesión te pedirá el código además de
+la contraseña.
+
+**Si pierdes el teléfono:** si todavía puedes entrar al panel, desactívala
+desde Ajustes (te pedirá tu contraseña otra vez) antes de cambiar de teléfono.
+Si ya no puedes entrar porque no tienes cómo generar el código, no hay forma
+de saltarte este paso tú mismo — es justo lo que lo hace seguro. Pide al
+desarrollador que la desactive desde el servidor; es el mismo procedimiento
+que ya existe para restablecer una contraseña olvidada (ver
+[RUNBOOK.md](RUNBOOK.md)), y de hecho ese mismo restablecimiento también
+apaga la verificación en dos pasos, para que no te quedes con la puerta cerrada
+dos veces.

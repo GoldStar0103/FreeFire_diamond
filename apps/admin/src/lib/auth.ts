@@ -155,3 +155,71 @@ export function readSessionToken(
 
   return payload;
 }
+
+// ── short-lived purpose-bound tokens (2FA pending state) ────────────────────
+
+/**
+ * The same HMAC-signed, expiring token format as a session cookie, generalised
+ * for short-lived "pending" state — 2FA enrollment, the half-authenticated gap
+ * between password and TOTP code at login — that must never be usable as a
+ * full session.
+ *
+ * `purpose` is mixed into the signing key (not just carried in the payload),
+ * so a pending token and a real session token can never verify as each other
+ * even if a payload happens to carry the same field names, or a cookie is
+ * ever misread under the wrong name. This is why a new primitive rather than
+ * reusing `createSessionToken` for pending state: that would make a 2FA
+ * "pending login" cookie byte-for-byte a valid session cookie, silently
+ * defeating the second factor.
+ */
+export function signPurposeToken(
+  payload: Record<string, unknown>,
+  secret: string,
+  purpose: string,
+  ttlSeconds: number,
+): string {
+  if (!secret || secret.length < 32) {
+    throw new Error('ADMIN_SESSION_SECRET must be at least 32 characters');
+  }
+  const full = { ...payload, expiresAt: Math.floor(Date.now() / 1000) + ttlSeconds };
+  const encoded = b64url(JSON.stringify(full));
+  return `${encoded}.${sign(encoded, `${secret}:${purpose}`)}`;
+}
+
+/**
+ * Returns the payload, or null for anything wrong: bad shape, bad signature,
+ * expired, or signed for a different `purpose`. The caller still validates
+ * whatever fields it expects beyond `expiresAt` — this only proves the token
+ * was minted here, for this exact purpose, and has not expired.
+ */
+export function readPurposeToken(
+  token: string | undefined,
+  secret: string,
+  purpose: string,
+  now = () => Date.now(),
+): (Record<string, unknown> & { expiresAt: number }) | null {
+  if (!token || !secret) return null;
+
+  const dot = token.indexOf('.');
+  if (dot <= 0) return null;
+
+  const encoded = token.slice(0, dot);
+  const signature = token.slice(dot + 1);
+  const expected = sign(encoded, `${secret}:${purpose}`);
+
+  // Length check first: timingSafeEqual throws on a length mismatch.
+  if (signature.length !== expected.length) return null;
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+
+  let payload: (Record<string, unknown> & { expiresAt?: unknown }) | null;
+  try {
+    payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (typeof payload?.expiresAt !== 'number') return null;
+  if (payload.expiresAt * 1000 <= now()) return null;
+
+  return payload as Record<string, unknown> & { expiresAt: number };
+}

@@ -407,6 +407,13 @@ export const adminUsers = pgTable(
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     totpSecret: text('totp_secret'),
+    /**
+     * The last TOTP time-step index (30s each) accepted for this admin.
+     * Anti-replay: a code is valid for its whole ±30s window, so without this
+     * a shoulder-surfed or intercepted code could be reused seconds later.
+     * Verification rejects any step `<= totpLastStep`.
+     */
+    totpLastStep: integer('totp_last_step'),
     name: text('name'),
     role: text('role').notNull().default('operator'),
     active: boolean('active').notNull().default(true),

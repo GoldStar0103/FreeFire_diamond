@@ -126,10 +126,20 @@ async function seedCatalog() {
   }
 }
 
-async function placeOrder(comboKey: string, playerId = '7288567050') {
+async function placeOrder(
+  comboKey: string,
+  playerId = '7288567050',
+  options: { contactWhatsapp?: string } = {},
+) {
   const result = await createOrder(
     { store: new DrizzleOrderingStore(db) },
-    { comboKey, playerId, paymentMethod: 'transfer_manual', source: 'admin' },
+    {
+      comboKey,
+      playerId,
+      paymentMethod: 'transfer_manual',
+      source: 'admin',
+      ...options,
+    },
   );
   if (!result.ok) throw new Error(`seed order failed: ${result.failure.code}`);
   return result.order;
@@ -188,6 +198,22 @@ describe.skipIf(!PG_AVAILABLE)('listPendingApprovals', () => {
   it('is empty when there is nothing to approve', async () => {
     expect(await listPendingApprovals(db)).toEqual([]);
   });
+
+  it('carries the contact WhatsApp number through, when the order has one', async () => {
+    await placeOrder('pack_insano', '7288567050', { contactWhatsapp: '5212345678' });
+
+    const queue = await listPendingApprovals(db);
+
+    expect(queue[0]?.contactWhatsapp).toBe('5212345678');
+  });
+
+  it('is null when the customer did not leave a WhatsApp number', async () => {
+    await placeOrder('pack_insano');
+
+    const queue = await listPendingApprovals(db);
+
+    expect(queue[0]?.contactWhatsapp).toBeNull();
+  });
 });
 
 describe.skipIf(!PG_AVAILABLE)('listOrders', () => {
@@ -238,6 +264,22 @@ describe.skipIf(!PG_AVAILABLE)('listOrders', () => {
 
     expect(page.rows).toHaveLength(2);
     expect(page.total).toBe(3);
+  });
+
+  it('carries the contact WhatsApp number through, when the order has one', async () => {
+    await placeOrder('pack_insano', '7288567050', { contactWhatsapp: '5212345678' });
+
+    const { rows } = await listOrders(db);
+
+    expect(rows[0]?.contactWhatsapp).toBe('5212345678');
+  });
+
+  it('is null when the customer did not leave a WhatsApp number', async () => {
+    await placeOrder('pack_insano');
+
+    const { rows } = await listOrders(db);
+
+    expect(rows[0]?.contactWhatsapp).toBeNull();
   });
 });
 

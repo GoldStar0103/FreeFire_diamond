@@ -15,6 +15,13 @@
       "when": 1789078842552,
       "tag": "0001_meta_conversions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789123349137,
+      "tag": "0002_admin_totp_replay_guard",
+      "breakpoints": true
     }
   ]
 }
