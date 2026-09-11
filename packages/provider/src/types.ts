@@ -1,9 +1,19 @@
 /**
  * Provider abstraction.
  *
- * The RecargasAmérica API has no idempotency key, no client-supplied reference,
- * and no transactions-list endpoint. When a purchase call times out there is no
+ * The RecargasAmérica API has no client-supplied reference and no
+ * transactions-list endpoint. When a purchase call times out there is no
  * supported way to ask whether it happened.
+ *
+ * It does offer an optional `Idempotency-Key` header (added to its docs
+ * 2026-09-11, alongside the catálogo unificado beta) — unused here, since it
+ * would need its own durable storage to survive a worker restart and the
+ * wallet-delta reconciliation already covers the crash case. What we do rely
+ * on: resending the *same purchase payload* within 120s, key or not, gets a
+ * 409 `DUPLICATE_REQUEST` rather than a second charge. Our own retries can hit
+ * this — `buildPurchaseBody` is deterministic per order item — so it is
+ * mapped to `ambiguous`/`duplicate`, not to a definitive failure: a 409 proves
+ * nothing about whether the *first* attempt landed.
  *
  * So `PurchaseOutcome` makes ambiguity a first-class result rather than an
  * exception. A caller cannot accidentally treat a timeout as a failure and
@@ -80,7 +90,7 @@ export type PurchaseOutcome =
    */
   | {
       kind: 'ambiguous';
-      reason: 'timeout' | 'provider_error' | 'network';
+      reason: 'timeout' | 'provider_error' | 'network' | 'duplicate';
       message: string;
       httpStatus: number | null;
     }

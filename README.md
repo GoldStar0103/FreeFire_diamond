@@ -106,7 +106,7 @@ recipe items until that runs. The worker runs it at startup and hourly;
 
 | | |
 |---|---|
-| `pnpm test` | everything (884 tests) |
+| `pnpm test` | everything (889 tests) |
 | `pnpm typecheck` | strict, with `noUncheckedIndexedAccess` |
 | `pnpm pg:start` / `pg:stop` | local Postgres from npm binaries, no Docker |
 | `pnpm db:migrate` / `db:seed` / `db:studio` | schema and data |

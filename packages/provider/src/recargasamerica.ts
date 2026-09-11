@@ -356,6 +356,20 @@ function mapPurchaseFailure(
     };
   }
 
+  // 409 DUPLICATE_REQUEST: the provider saw this exact payload within its 120s
+  // window and refused to act on it again. `buildPurchaseBody` is deterministic
+  // per order item, so a same-item retry can genuinely hit this. It proves
+  // nothing about whether the *first* attempt charged us — never a definitive
+  // failure, and never retried again until the window has had time to pass.
+  if (res.httpStatus === 409) {
+    return {
+      kind: 'ambiguous',
+      reason: 'duplicate',
+      message: res.message,
+      httpStatus: 409,
+    };
+  }
+
   // 400/401/403/404 — our request was wrong. Nothing was charged; retrying the
   // same payload will fail identically.
   return {
