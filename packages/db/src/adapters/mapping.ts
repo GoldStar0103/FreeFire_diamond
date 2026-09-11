@@ -30,6 +30,7 @@ export interface OrderItemRow {
   providerReference: string | null;
   walletBeforeUsd: string | null;
   endpointKind?: EndpointKind | null;
+  productActive?: boolean | null;
 }
 
 export function toOrderItemRecord(row: OrderItemRow): OrderItemRecord {
@@ -53,6 +54,7 @@ export function toOrderItemRecord(row: OrderItemRow): OrderItemRecord {
     providerReference: row.providerReference,
     walletBeforeUsd: row.walletBeforeUsd === null ? null : parseUsd(row.walletBeforeUsd),
     endpointKind: row.endpointKind ?? null,
+    productActive: row.productActive ?? null,
   };
 }
 

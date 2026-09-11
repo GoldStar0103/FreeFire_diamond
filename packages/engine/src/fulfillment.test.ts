@@ -88,7 +88,51 @@ describe('happy path', () => {
     expect(result.delivered).toBe(8);
     expect(sim.deliveryCount).toBe(8);
   });
+});
 
+describe('a withdrawn or reassigned product', () => {
+  it('refuses to buy an item whose product the catalog sync deactivated, rather than send blind', async () => {
+    // The dangerous case: the provider reused the id for a different
+    // denomination mid-migration. Sending it could buy the wrong amount at
+    // the wrong price, and a clean 'succeeded' response would be recorded as
+    // delivered with nothing to catch the mismatch.
+    const order = chidos3000();
+    order.items[0]!.productActive = false;
+    const { deps, sim, store, alerter } = harness(order);
+    sim.program({ mode: 'succeed' });
+
+    const seen: string[] = [];
+    const purchase = sim.purchase.bind(sim);
+    sim.purchase = async (request) => {
+      seen.push(request.providerProductId);
+      return purchase(request);
+    };
+
+    const result = await fulfillOrder(deps, 'order-1');
+
+    expect(seen).toEqual([]); // never called the provider for it, or for anything after it
+    expect(result.finalStatus).toBe('needs_review');
+    expect(result.haltedReason).toBe('product_unavailable');
+    expect(store.current.items[0]).toMatchObject({ status: 'failed', attemptCount: 0 });
+    expect(alerter.sent).toContainEqual(
+      expect.objectContaining({ level: 'critical', title: expect.stringContaining('no longer on sale') }),
+    );
+  });
+
+  it('proceeds normally when a product’s active state is simply unknown', async () => {
+    // `productActive` is undefined for every item built by `buildOrder` — a
+    // store that never learned to report it, or a genuine left-join miss —
+    // and that must not block a launch-day order that predates this check.
+    const { deps, sim } = harness();
+    sim.program({ mode: 'succeed' });
+
+    const result = await fulfillOrder(deps, 'order-1');
+
+    expect(result.finalStatus).toBe('completed');
+  });
+});
+
+describe('write ordering', () => {
   it('records intent before every provider call', async () => {
     // Crash recovery depends on this ordering: a `sending` row must exist
     // before the HTTP request goes out, or a dead process leaves no evidence.

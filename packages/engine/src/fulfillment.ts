@@ -57,7 +57,12 @@ export interface FulfillmentResult {
   delivered: number;
   attempted: number;
   /** Set when the run stopped early rather than working through every item. */
-  haltedReason?: 'indeterminate' | 'code_delivery' | 'insufficient_balance' | 'permanent_failure';
+  haltedReason?:
+    | 'indeterminate'
+    | 'code_delivery'
+    | 'insufficient_balance'
+    | 'permanent_failure'
+    | 'product_unavailable';
 }
 
 /** Orders in these states have nothing for the worker to do. */
@@ -127,6 +132,27 @@ export async function fulfillOrder(
   for (const [index, item] of pending.entries()) {
     if (halted) break;
     if (index > 0 && config.interCallDelayMs > 0) await clock.sleep(config.interCallDelayMs);
+
+    // A catalog sync can withdraw a product between the order being placed and
+    // the worker reaching it — most dangerously by *reassigning* the provider
+    // id to a different denomination. Nothing downstream would catch that: a
+    // clean 'succeeded' response is recorded as delivered with no check that
+    // the wallet moved by anything like `item.costUsd`. Refuse rather than
+    // send, and stop the order for a human rather than burn the rest of the
+    // combo against a catalog that just changed under it.
+    if (item.productActive === false) {
+      await store.settleItem(item.id, {
+        status: 'failed',
+        errorCode: 'PRODUCT_INACTIVE',
+      });
+      await alerter.send('critical', 'Order item refused — its product is no longer on sale', {
+        orderNumber: order.orderNumber,
+        sequence: item.sequence,
+        providerProductId: item.providerProductId,
+      });
+      halted = 'product_unavailable';
+      break;
+    }
 
     attempted++;
 

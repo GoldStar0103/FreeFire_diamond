@@ -106,7 +106,7 @@ recipe items until that runs. The worker runs it at startup and hourly;
 
 | | |
 |---|---|
-| `pnpm test` | everything (770 tests) |
+| `pnpm test` | everything (802 tests) |
 | `pnpm typecheck` | strict, with `noUncheckedIndexedAccess` |
 | `pnpm pg:start` / `pg:stop` | local Postgres from npm binaries, no Docker |
 | `pnpm db:migrate` / `db:seed` / `db:studio` | schema and data |
@@ -115,14 +115,14 @@ recipe items until that runs. The worker runs it at startup and hourly;
 | `node phase0/discover.mjs` | probe the live provider API |
 | `node scripts/smoke.mjs <store-url> [panel-url]` | verify a running deployment — read-only, no credentials |
 
-The 236 tests in `packages/db` run against a real Postgres and **skip silently
+The 240 tests in `packages/db` run against a real Postgres and **skip silently
 when none is reachable**. `pnpm pg:start` first, or they will pass without
 having tested anything.
 
 CI (`.github/workflows/ci.yml`) runs typecheck, the full suite against a
 Postgres service, and a production build of both apps. It runs
 `packages/db/scripts/require-pg.mjs` *before* the tests, so a database that is
-unreachable fails the build instead of silently skipping 236 tests — which is
+unreachable fails the build instead of silently skipping 240 tests — which is
 the whole reason for running them there. That check opens a real connection and
 issues a query rather than probing the port: Postgres accepts connections while
 still in crash recovery and rejects every query with "the database system is
@@ -190,10 +190,14 @@ Next's `standalone` output, which is what the images wrap.
   every closed order, is left alone. An empty or unparseable catalog
   deactivates nothing and raises a critical alert instead. What each alert
   means is in [the runbook](docs/RUNBOOK.md#the-provider-changed-its-catalog).
-- **Never run `WORKER_DRY_RUN=true` against a real database.** The simulator's
-  catalog has its own ids, and the sync will faithfully treat that as the
-  provider replacing every product — re-pointing live recipes and paid orders
-  onto ids that do not exist.
+- **`WORKER_DRY_RUN=true` (and `WEB_DRY_RUN`/`ADMIN_DRY_RUN`) refuse to start
+  against a non-local database.** The simulator's catalog has its own ids, and
+  the sync would faithfully treat that as the provider replacing every
+  product — re-pointing live recipes and paid orders onto ids that do not
+  exist. `packages/shared/src/dry-run.ts` enforces this: dry run is allowed
+  only against `localhost`/`127.0.0.1`/`::1`, or with
+  `DRY_RUN_ALLOW_REMOTE_DATABASE=true` set explicitly for a genuine disposable
+  staging database.
 
 ## Status
 

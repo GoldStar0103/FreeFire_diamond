@@ -6,6 +6,8 @@
  * than one that refuses to start at all.
  */
 
+import { assertDryRunDatabaseIsSafe } from '@levelup/shared';
+
 export interface WorkerConfig {
   databaseUrl: string;
   provider: {
@@ -94,6 +96,13 @@ function loadMeta(): WorkerConfig['meta'] {
 
 export function loadConfig(): WorkerConfig {
   const dryRun = process.env.WORKER_DRY_RUN === 'true';
+  const databaseUrl = required('DATABASE_URL');
+
+  // The worker's catalog sync runs regardless of dry run and writes to this
+  // database whatever the simulator's fake catalog reports — pointed at
+  // production by a stale .env, that means real combo recipes re-pointed onto
+  // simulator product ids. See packages/shared/src/dry-run.ts.
+  assertDryRunDatabaseIsSafe(databaseUrl, dryRun, { flagName: 'WORKER_DRY_RUN' });
 
   const telegram =
     process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID
@@ -119,7 +128,7 @@ export function loadConfig(): WorkerConfig {
   }
 
   return {
-    databaseUrl: required('DATABASE_URL'),
+    databaseUrl,
     provider: {
       baseUrl: process.env.RA_BASE_URL ?? 'https://panel.recargasamerica.com/api/v1',
       apiKey: dryRun ? (process.env.RA_API_KEY ?? 'dry-run') : required('RA_API_KEY'),

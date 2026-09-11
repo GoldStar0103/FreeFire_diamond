@@ -8,6 +8,7 @@
 
 import 'server-only';
 import { createDb } from '@levelup/db';
+import { assertDryRunDatabaseIsSafe } from '@levelup/shared';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -17,6 +18,10 @@ declare global {
 function connect() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
+  // ADMIN_DRY_RUN swaps the provider for a simulator, not the database — a
+  // manual order "confirmed" against a fake player could otherwise be created
+  // for real against production.
+  assertDryRunDatabaseIsSafe(url, process.env.ADMIN_DRY_RUN === 'true', { flagName: 'ADMIN_DRY_RUN' });
   // The admin panel is read-mostly and low-traffic; the worker owns throughput.
   return createDb(url, { max: 5 });
 }

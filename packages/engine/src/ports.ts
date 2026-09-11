@@ -26,6 +26,19 @@ export interface OrderItemRecord {
    * the path every launch product was verified on.
    */
   endpointKind?: EndpointKind | null;
+  /**
+   * Whether the catalog still sells this exact provider id, as of the product
+   * row's current state. `false` means the catalog sync withdrew it — most
+   * dangerously by *reassigning* the id to a different denomination, in which
+   * case sending it blind risks buying the wrong amount at the wrong price,
+   * with nothing to catch it: a clean 'succeeded' response is recorded as-is,
+   * with no check that the wallet moved by anything like `costUsd`. Fulfilment
+   * refuses to dispatch such an item. `null`/absent (no product row to check,
+   * or a store that predates this field) is treated as active, matching how
+   * `endpointKind` degrades — this is deliberately a block on positive
+   * evidence of withdrawal, not on the absence of a row.
+   */
+  productActive?: boolean | null;
 }
 
 export interface OrderRecord {

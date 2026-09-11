@@ -55,6 +55,9 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
         // Left join: an item must stay loadable even if its product row is
         // ever gone, and the engine falls back to the verified endpoint.
         endpointKind: baseProducts.endpointKind,
+        // Null on a missing row is treated as active by the engine — the
+        // withdrawal it must act on is the product row saying so explicitly.
+        productActive: baseProducts.active,
       })
       .from(orderItems)
       .leftJoin(baseProducts, eq(baseProducts.id, orderItems.baseProductId))

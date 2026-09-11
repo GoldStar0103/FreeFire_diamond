@@ -9,7 +9,7 @@
 import 'server-only';
 import { headers } from 'next/headers';
 import { createDb } from '@levelup/db';
-import { createRateLimiter, type RateLimiter } from '@levelup/shared';
+import { assertDryRunDatabaseIsSafe, createRateLimiter, type RateLimiter } from '@levelup/shared';
 import { RecargasAmericaProvider, ProviderSimulator, type TopupProvider } from '@levelup/provider';
 
 declare global {
@@ -26,6 +26,9 @@ declare global {
 function connect() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
+  // WEB_DRY_RUN swaps the provider for a simulator, not the database — a fake
+  // "validated" test order would otherwise be free to land in a real one.
+  assertDryRunDatabaseIsSafe(url, process.env.WEB_DRY_RUN === 'true', { flagName: 'WEB_DRY_RUN' });
   return createDb(url, { max: 10 });
 }
 
