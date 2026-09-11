@@ -34,3 +34,6 @@ export * from './adapters/storefront-queries.js';
 export * from './adapters/catalog-admin-store.js';
 export * from './adapters/testimonials.js';
 export * from './adapters/payment-settings.js';
+export * from './adapters/gateway-payments.js';
+export * from './adapters/conversion-store.js';
+export * from './adapters/review-store.js';

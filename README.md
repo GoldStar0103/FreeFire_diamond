@@ -52,7 +52,7 @@ packages/
   provider/  RecargasAmérica client, simulator, reconciliation
   engine/    ordering, payments, fulfilment, catalog rules — no I/O
   db/        Drizzle schema, migrations, and the adapters engine talks through
-  payments/  gateway port and webhook signature verification
+  payments/  gateway port, webhook signature verification, Stripe adapter
 phase0/      live API discovery, and the transcribed combo catalog
 docker/      images and the Caddy config
 docs/        RUNBOOK.md — deploy, restore, what to do when something breaks
@@ -99,28 +99,30 @@ Use it. The real one spends real balance.
 
 The seed links recipes to `base_products`, which are populated by the provider
 catalog sync rather than seeded, so a fresh database will report unlinked
-recipe items until that runs.
+recipe items until that runs. The worker runs it at startup and hourly;
+`pnpm --filter @levelup/worker sync-catalog` runs it now.
 
 ### Commands
 
 | | |
 |---|---|
-| `pnpm test` | everything (495 tests) |
+| `pnpm test` | everything (770 tests) |
 | `pnpm typecheck` | strict, with `noUncheckedIndexedAccess` |
 | `pnpm pg:start` / `pg:stop` | local Postgres from npm binaries, no Docker |
 | `pnpm db:migrate` / `db:seed` / `db:studio` | schema and data |
 | `pnpm --filter @levelup/worker seed-test-order <combo> --approve` | put a real order through the real path |
+| `pnpm --filter @levelup/worker sync-catalog` | provider catalog sync, now — the worker also runs it hourly |
 | `node phase0/discover.mjs` | probe the live provider API |
 | `node scripts/smoke.mjs <store-url> [panel-url]` | verify a running deployment — read-only, no credentials |
 
-The 154 tests in `packages/db` run against a real Postgres and **skip silently
+The 236 tests in `packages/db` run against a real Postgres and **skip silently
 when none is reachable**. `pnpm pg:start` first, or they will pass without
 having tested anything.
 
 CI (`.github/workflows/ci.yml`) runs typecheck, the full suite against a
 Postgres service, and a production build of both apps. It runs
 `packages/db/scripts/require-pg.mjs` *before* the tests, so a database that is
-unreachable fails the build instead of silently skipping 154 tests — which is
+unreachable fails the build instead of silently skipping 236 tests — which is
 the whole reason for running them there. That check opens a real connection and
 issues a query rather than probing the port: Postgres accepts connections while
 still in crash recovery and rejects every query with "the database system is
@@ -180,13 +182,31 @@ Next's `standalone` output, which is what the images wrap.
   back on by hand.
 - **Uploads are not in the database.** Back up the volume as well as the dump,
   or you will restore payment records with none of the receipts proving them.
+- **The worker rewires the catalog by itself.** At startup and every
+  `CATALOG_SYNC_INTERVAL_MS` (default an hour) it syncs the provider catalog.
+  When a denomination moves to a new provider id, combo recipes and unsent
+  (`queued`/`failed`) order items follow it, at the new cost, with an
+  `audit_log` row per change; anything that may have reached the provider, and
+  every closed order, is left alone. An empty or unparseable catalog
+  deactivates nothing and raises a critical alert instead. What each alert
+  means is in [the runbook](docs/RUNBOOK.md#the-provider-changed-its-catalog).
+- **Never run `WORKER_DRY_RUN=true` against a real database.** The simulator's
+  catalog has its own ids, and the sync will faithfully treat that as the
+  provider replacing every product — re-pointing live recipes and paid orders
+  onto ids that do not exist.
 
 ## Status
 
 Built and tested: storefront, panel, fulfilment engine, provider client,
-manual comprobante payments, deployment stack.
+manual comprobante payments, Stripe card (and optional OXXO) payments, Meta
+Pixel plus server-side Conversions API, automatic provider catalog sync,
+deployment stack.
 
-Not yet wired: a card gateway (the port and webhook verification exist, no
-adapter), Meta Pixel/CAPI, and off-box backup copying. Launch runs on the
-manual comprobante flow the client already uses, so none of those are on the
-critical path.
+Stripe and Meta are switched on by their environment variables and are
+invisible without them — see `docs/RUNBOOK.md`. Both have been tested against
+their documented contracts, not yet against the client's live accounts: the
+first real $10 order through each is the remaining proof.
+
+Not yet wired: TikTok's pixel (most traffic is TikTok; the variables are
+reserved in `.env.example`). Off-box backup copying is built but needs its
+one-time rclone setup on the server — see `docs/RUNBOOK.md` §3.

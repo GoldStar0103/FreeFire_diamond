@@ -1,6 +1,6 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { baseProducts, DrizzleOrderingStore, DrizzlePaymentStore } from '@levelup/db';
@@ -20,12 +20,15 @@ export interface CreateState {
   error?: string;
 }
 
-/** Any recharge-type product validates the same account; validation is free. */
+/**
+ * Any recharge-type product validates the same account; validation is free.
+ * Active only — a product id the provider has retired stays in the table.
+ */
 async function validationProductId(): Promise<string | null> {
   const [row] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
-    .where(eq(baseProducts.canValidate, true))
+    .where(and(eq(baseProducts.canValidate, true), eq(baseProducts.active, true)))
     .orderBy(baseProducts.diamondsBase)
     .limit(1);
   return row?.providerProductId ?? null;

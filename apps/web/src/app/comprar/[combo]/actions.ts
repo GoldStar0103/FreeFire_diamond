@@ -1,18 +1,24 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import {
+  attachGatewayCharge,
   baseProducts,
   DrizzleOrderingStore,
+  DrizzlePaymentStore,
   getPaymentDetails,
   getStorefrontCombo,
 } from '@levelup/db';
-import { createOrder, type CreateOrderFailure } from '@levelup/engine';
+import { createOrder, rejectPayment, type CreateOrderFailure } from '@levelup/engine';
 import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
+import { diamonds } from '../../../lib/format';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
+import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
+import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
+import { trackingContext } from '../../../lib/tracking';
 
 // ── step 1: who is this player? ───────────────────────────────────────────────
 
@@ -50,15 +56,7 @@ export async function validatePlayer(
     };
   }
 
-  // Any recharge-type product validates the same account, so use the cheapest
-  // one on the books — validation does not charge, but this keeps it obvious
-  // that nothing expensive is being touched.
-  const [validator] = await getDb()
-    .select({ providerProductId: baseProducts.providerProductId })
-    .from(baseProducts)
-    .where(eq(baseProducts.canValidate, true))
-    .orderBy(baseProducts.diamondsBase)
-    .limit(1);
+  const validator = await validationProductId();
 
   if (!validator) {
     return {
@@ -68,7 +66,7 @@ export async function validatePlayer(
   }
 
   try {
-    const result = await getProvider().validatePlayer(validator.providerProductId, playerId);
+    const result = await getProvider().validatePlayer(validator, playerId);
 
     if (!result.found || !result.nickname) {
       return {
@@ -100,12 +98,20 @@ export interface CheckoutState {
   error?: string;
 }
 
-/** The product used for validation lookups. Validation never charges. */
+/**
+ * The product used for validation lookups. Validation never charges.
+ *
+ * Any recharge-type product validates the same account, so the cheapest one
+ * on the books — nothing expensive is being touched. Active only: when the
+ * provider replaces its product ids, the retired rows stay in the table (and
+ * the 100 💎 one is still the cheapest), and validating against a dead id would
+ * fail every customer at step one.
+ */
 async function validationProductId(): Promise<string | null> {
   const [row] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
-    .where(eq(baseProducts.canValidate, true))
+    .where(and(eq(baseProducts.canValidate, true), eq(baseProducts.active, true)))
     .orderBy(baseProducts.diamondsBase)
     .limit(1);
   return row?.providerProductId ?? null;
@@ -227,6 +233,7 @@ export async function placeOrder(
       contactWhatsapp: whatsapp,
       paymentMethod: 'transfer_manual',
       source: 'storefront',
+      tracking: await trackingContext(),
     },
   );
 
@@ -252,6 +259,101 @@ export async function placeOrder(
   await attachComprobante(created.order.id, stored.key);
 
   redirect(`/pedido/${created.order.orderNumber}?id=${encodeURIComponent(playerId)}`);
+}
+
+// ── step 2, by card ───────────────────────────────────────────────────────────
+
+/**
+ * Create the order and send the customer to Stripe's hosted Checkout.
+ *
+ * The order exists before the customer pays, exactly as with a transfer: that
+ * is what reserves the Mega Oferta slot against a double purchase, and what
+ * the session's metadata points back at. If Stripe cannot open a session, the
+ * order is cancelled on the spot — otherwise a customer who never got to pay
+ * would find their entry offer "already used" for the next hour.
+ */
+export async function payWithCard(
+  _prev: CheckoutState,
+  formData: FormData,
+): Promise<CheckoutState> {
+  const gateway = getStripe();
+  if (!gateway) {
+    return { error: 'El pago con tarjeta no está disponible en este momento. Paga por transferencia.' };
+  }
+
+  const comboKey = String(formData.get('comboKey') ?? '');
+  const playerId = String(formData.get('playerId') ?? '').trim();
+  const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
+
+  const combo = await getStorefrontCombo(getDb(), comboKey);
+  if (!combo) return { error: 'Esta promoción ya no está disponible.' };
+
+  // Same reason as the transfer path: the form is a UX gate, not a security one.
+  const confirmed = await confirmPlayer(playerId);
+  if (!confirmed.ok) return { error: confirmed.message };
+
+  const created = await createOrder(
+    { store: new DrizzleOrderingStore(getDb()) },
+    {
+      comboKey,
+      playerId,
+      playerNickname: confirmed.nickname,
+      contactWhatsapp: whatsapp,
+      paymentMethod: 'card',
+      source: 'storefront',
+      tracking: await trackingContext(),
+    },
+  );
+  if (!created.ok) return { error: explain(created.failure) };
+
+  const { order } = created;
+  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
+  let checkoutUrl: string;
+
+  try {
+    const charge = await gateway.createCharge({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amountCents: order.priceMxnCents,
+      method: 'card',
+      description: `${combo.name} · ${diamonds(combo.advertisedDiamonds)} diamantes Free Fire`,
+      customerPhone: whatsapp,
+      returnUrl: siteUrl(`${orderPage}&pago=tarjeta`),
+      cancelUrl: siteUrl(
+        `/comprar/${encodeURIComponent(comboKey)}?cancelado=${encodeURIComponent(order.orderNumber)}` +
+          `&id=${encodeURIComponent(playerId)}`,
+      ),
+    });
+
+    if (charge.instructions.kind !== 'redirect') {
+      throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+    }
+
+    const attached = await attachGatewayCharge(getDb(), {
+      orderId: order.id,
+      gateway: STRIPE,
+      gatewayChargeId: charge.gatewayChargeId,
+      expiresAt: charge.expiresAt ? new Date(charge.expiresAt.getTime() + SESSION_GRACE_MS) : null,
+    });
+    if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    checkoutUrl = charge.instructions.url;
+  } catch (err) {
+    console.error(`[checkout] ${order.orderNumber}: could not open a card checkout`, err);
+    await rejectPayment(
+      { store: new DrizzlePaymentStore(getDb()) },
+      { orderId: order.id, adminUserId: null, reason: 'No se pudo abrir el pago con tarjeta' },
+    ).catch((cancelErr: unknown) =>
+      console.error(`[checkout] ${order.orderNumber}: and could not cancel it`, cancelErr),
+    );
+    return {
+      error: 'No pudimos abrir el pago con tarjeta. Intenta de nuevo o paga por transferencia.',
+    };
+  }
+
+  // Outside the try: `redirect` works by throwing, and the catch above would
+  // otherwise swallow it and cancel an order that is on its way to being paid.
+  redirect(checkoutUrl);
 }
 
 async function attachComprobante(orderId: string, key: string): Promise<void> {

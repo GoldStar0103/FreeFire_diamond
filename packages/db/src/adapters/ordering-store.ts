@@ -15,8 +15,15 @@ import type { Database } from '../index.js';
 import { baseProducts, campaigns, comboItems, combos, orderItems, orders, payments } from '../schema.js';
 import { toNumericString } from './mapping.js';
 
-/** Orders that no longer count against a per-player cap. */
-const RELEASES_CAP = ['cancelled'] as const;
+/**
+ * Orders that no longer count against a per-player cap.
+ *
+ * Must match the `one_mega_oferta_per_player` index, which excludes both. This
+ * list used to be `cancelled` alone, so the expiry sweep freed the slot in the
+ * database and this check kept refusing it anyway: a customer whose $10 order
+ * lapsed unpaid was told "este ID ya la usó" for an offer they never received.
+ */
+const RELEASES_CAP = ['cancelled', 'payment_expired'] as const;
 
 /** Postgres unique-violation. Retried for order numbers, which are random. */
 const UNIQUE_VIOLATION = '23505';

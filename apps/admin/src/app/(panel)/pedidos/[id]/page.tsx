@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getOrderDetail } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
+import { ReviewPanel } from './review-panel';
 import {
   dateTime,
   diamonds,
@@ -16,6 +17,23 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const METHOD_LABEL: Record<string, string> = {
+  transfer_manual: 'Transferencia / depósito con comprobante',
+  card: 'Tarjeta u OXXO (Stripe)',
+  spei: 'SPEI',
+  oxxo: 'OXXO',
+  paypal: 'PayPal',
+};
+
+const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pendiente',
+  under_review: 'En revisión',
+  paid: 'Pagado',
+  expired: 'Vencido',
+  failed: 'Rechazado',
+  amount_mismatch: 'Monto no coincide',
+};
+
 /**
  * How this call was settled, as one sentence.
  *
@@ -27,13 +45,20 @@ const hasPayload = (item: { requestPayload: unknown; responsePayload: unknown })
   item.requestPayload != null || item.responsePayload != null;
 
 function confirmationLine(item: {
+  status: string;
   resolvedBy: string | null;
   walletBeforeUsd: string | null;
   walletAfterUsd: string | null;
   providerTransactionId: string | null;
   sentAt: Date | null;
 }): string {
-  const parts = [`Confirmado por ${resolutionLabel(item.resolvedBy)}`];
+  // An `unknown` item carries `wallet_delta` because the comparison was
+  // attempted — and failed to settle it. "Confirmado" would say the opposite.
+  const parts = [
+    item.status === 'unknown'
+      ? `Sin confirmar tras ${resolutionLabel(item.resolvedBy)}`
+      : `Confirmado por ${resolutionLabel(item.resolvedBy)}`,
+  ];
 
   if (item.walletBeforeUsd !== null && item.walletAfterUsd !== null) {
     parts.push(
@@ -76,6 +101,26 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       <p className="subtitle">
         {snapshot.name} · {mxn(order.priceMxnCents)}
       </p>
+
+      {/* Renders only for an order waiting on a human (review or refund). */}
+      <ReviewPanel
+        orderId={order.orderId}
+        orderStatus={order.status}
+        items={order.items.map((item) => ({
+          itemId: item.itemId,
+          sequence: item.sequence,
+          status: item.status,
+          diamondsBase: diamonds(item.diamondsBase),
+          costUsd: usd(item.costUsd),
+          sentAt: item.sentAt ? dateTime(item.sentAt) : null,
+          walletLine:
+            item.walletBeforeUsd !== null && item.walletAfterUsd !== null
+              ? `Saldo antes ${Number(item.walletBeforeUsd).toFixed(2)} → después ${Number(item.walletAfterUsd).toFixed(2)} USD`
+              : item.walletBeforeUsd !== null
+                ? `Saldo antes de enviarla: ${Number(item.walletBeforeUsd).toFixed(2)} USD`
+                : null,
+        }))}
+      />
 
       <div className="card">
         <div className="row">
@@ -123,12 +168,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           {order.payment && (
             <>
               <dt>Método</dt>
-              <dd>{order.payment.method}</dd>
+              <dd>{METHOD_LABEL[order.payment.method] ?? order.payment.method}</dd>
 
               <dt>Estado del pago</dt>
               <dd>
                 <span className={`badge ${order.payment.status === 'paid' ? 'ok' : 'warn'}`}>
-                  {order.payment.status}
+                  {PAYMENT_STATUS_LABEL[order.payment.status] ?? order.payment.status}
                 </span>
               </dd>
 
@@ -143,25 +188,46 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               {order.payment.reference && (
                 <>
                   <dt>Referencia</dt>
-                  <dd className="mono">{order.payment.reference}</dd>
+                  <dd className="mono">
+                    {/* A Stripe PaymentIntent opens straight onto the charge,
+                        which is where a dispute or refund gets handled. */}
+                    {order.payment.reference.startsWith('pi_') ? (
+                      <a
+                        href={`https://dashboard.stripe.com/payments/${encodeURIComponent(order.payment.reference)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        {order.payment.reference} ↗
+                      </a>
+                    ) : (
+                      order.payment.reference
+                    )}
+                  </dd>
                 </>
               )}
 
-              <dt>Comprobante</dt>
-              <dd>
-                {order.payment.hasComprobante ? (
-                  <a
-                    href={`/api/comprobante/${order.payment.paymentId}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: 'var(--accent)' }}
-                  >
-                    Abrir
-                  </a>
-                ) : (
-                  <span style={{ color: 'var(--muted)' }}>Sin comprobante</span>
-                )}
-              </dd>
+              {/* A card payment has no receipt photo — Stripe is the receipt.
+                  "Sin comprobante" on it would read as something missing. */}
+              {order.payment.method !== 'card' && (
+                <>
+                  <dt>Comprobante</dt>
+                  <dd>
+                    {order.payment.hasComprobante ? (
+                      <a
+                        href={`/api/comprobante/${order.payment.paymentId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        Abrir
+                      </a>
+                    ) : (
+                      <span style={{ color: 'var(--muted)' }}>Sin comprobante</span>
+                    )}
+                  </dd>
+                </>
+              )}
             </>
           )}
 

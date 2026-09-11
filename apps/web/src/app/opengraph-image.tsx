@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { ogLogo } from '../lib/og-logo';
 
 /**
  * The preview card for the site's own link.
@@ -11,6 +12,10 @@ import { ImageResponse } from 'next/og';
  * render time, which is a network dependency inside a container that has no
  * business making outbound requests to draw a picture — and when it fails it
  * fails by rendering nothing, silently.
+ *
+ * The logo leads, in place of a typed wordmark: it already says LEVELUP STORE,
+ * and it is the thing a buyer will recognise again on the site itself. It is
+ * compiled in rather than read from disk — see lib/og-logo-data.ts.
  */
 
 export const alt = 'LevelUp Store — Recargas de diamantes para Free Fire';
@@ -33,16 +38,14 @@ export default async function Image() {
           fontFamily: 'sans-serif',
         }}
       >
-        <div style={{ fontSize: 30, letterSpacing: 10, color: '#8b91b5', fontWeight: 700 }}>
-          LEVELUP STORE
-        </div>
+        {ogLogo(176)}
 
         <div
           style={{
             display: 'flex',
-            fontSize: 96,
+            fontSize: 88,
             fontWeight: 800,
-            marginTop: 18,
+            marginTop: 26,
             letterSpacing: -3,
           }}
         >
@@ -50,11 +53,11 @@ export default async function Image() {
           <span style={{ color: '#a78bfa' }}>AL INSTANTE</span>
         </div>
 
-        <div style={{ fontSize: 36, color: '#8b91b5', marginTop: 14 }}>
+        <div style={{ fontSize: 34, color: '#8b91b5', marginTop: 10 }}>
           Diamantes de Free Fire directo a tu cuenta
         </div>
 
-        <div style={{ display: 'flex', gap: 18, marginTop: 46 }}>
+        <div style={{ display: 'flex', gap: 18, marginTop: 34 }}>
           {/* Accents included deliberately. The bundled font covers Latin-1,
               and misspelled Spanish on the brand's own share card would be a
               worse problem than the one that caution would avoid. */}

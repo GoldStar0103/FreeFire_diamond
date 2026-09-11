@@ -3,6 +3,7 @@ import {
   approvePayment,
   expireUnpaid,
   rejectPayment,
+  settleGatewayCharge,
   type PayableOrder,
   type PaymentState,
   type PaymentStore,
@@ -17,7 +18,7 @@ const payable = (overrides: Partial<PayableOrder> = {}): PayableOrder => ({
   paymentId: 'pay-1',
   paymentStatus: 'pending',
   method: 'transfer_manual',
-  amountExpectedCents: 153_000, // $1,530 — the pack from the client's WhatsApp log
+  amountExpectedCents: 153_000, // $1,530 â€” the pack from the client's WhatsApp log
   expiresAt: null,
   ...overrides,
 });
@@ -66,7 +67,7 @@ describe('approving a comprobante', () => {
     );
   });
 
-  it('is idempotent — a double tap does not enqueue twice', async () => {
+  it('is idempotent â€” a double tap does not enqueue twice', async () => {
     const { deps, store } = harness(payable({ paymentStatus: 'paid' }));
 
     const result = await approvePayment(deps, { orderId: 'order-1' });
@@ -234,5 +235,125 @@ describe('rejection', () => {
       await rejectPayment(deps, { orderId: 'order-1', reason: 'changed mind' }),
     ).toMatchObject({ failure: { code: 'NOT_AWAITING_PAYMENT' } });
     expect(store.rejectPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe('settling a gateway charge', () => {
+  const card = (overrides: Partial<PayableOrder> = {}) =>
+    payable({ method: 'card', amountExpectedCents: 26_000, ...overrides });
+
+  it('approves a paid card charge through the same path as a comprobante', async () => {
+    const { deps, store } = harness(card());
+
+    const result = await settleGatewayCharge(deps, {
+      orderId: 'order-1',
+      state: 'paid',
+      amountReceivedCents: 26_000,
+      reference: 'pi_123',
+    });
+
+    expect(result).toEqual({ action: 'approved', orderNumber: 'LU-260915-AB12' });
+    expect(store.confirmPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ amountReceivedCents: 26_000, adminUserId: null, reference: 'pi_123' }),
+    );
+  });
+
+  it('turns a redelivered webhook into a no-op, not a second enqueue', async () => {
+    const { deps, store } = harness(card({ paymentStatus: 'paid' }));
+
+    const result = await settleGatewayCharge(deps, {
+      orderId: 'order-1',
+      state: 'paid',
+      amountReceivedCents: 26_000,
+      reference: 'pi_123',
+    });
+
+    expect(result.action).toBe('already_approved');
+    expect(store.confirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('refuses â€” and does not ship â€” when the gateway amount differs', async () => {
+    const { deps, store } = harness(card());
+
+    const result = await settleGatewayCharge(deps, {
+      orderId: 'order-1',
+      state: 'paid',
+      amountReceivedCents: 1_000,
+      reference: 'pi_123',
+    });
+
+    expect(result).toMatchObject({ action: 'refused', failure: { code: 'AMOUNT_MISMATCH' } });
+    expect(store.confirmPayment).not.toHaveBeenCalled();
+    expect(store.flagMismatch).toHaveBeenCalled();
+  });
+
+  it('refuses a paid report that carries no amount', async () => {
+    const { deps, store } = harness(card());
+
+    const result = await settleGatewayCharge(deps, {
+      orderId: 'order-1',
+      state: 'paid',
+      amountReceivedCents: null,
+      reference: null,
+    });
+
+    expect(result.action).toBe('refused');
+    expect(store.confirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('refuses money that lands on an order already expired, so a human is told', async () => {
+    const { deps } = harness(card({ paymentStatus: 'expired', orderStatus: 'payment_expired' }));
+
+    const result = await settleGatewayCharge(deps, {
+      orderId: 'order-1',
+      state: 'paid',
+      amountReceivedCents: 26_000,
+      reference: 'pi_123',
+    });
+
+    expect(result).toMatchObject({ action: 'refused', failure: { code: 'NOT_AWAITING_PAYMENT' } });
+  });
+
+  it('expires an abandoned checkout, which frees a Mega Oferta slot', async () => {
+    const { deps, store } = harness(card());
+
+    const result = await settleGatewayCharge(deps, {
+      orderId: 'order-1',
+      state: 'expired',
+      amountReceivedCents: null,
+      reference: null,
+    });
+
+    expect(result.action).toBe('expired');
+    expect(store.expirePayment).toHaveBeenCalledWith({ orderId: 'order-1', paymentId: 'pay-1' });
+  });
+
+  it('never expires a payment that has already been acted on', async () => {
+    for (const paymentStatus of ['paid', 'under_review', 'amount_mismatch'] as PaymentState[]) {
+      const { deps, store } = harness(card({ paymentStatus }));
+      const result = await settleGatewayCharge(deps, {
+        orderId: 'order-1',
+        state: 'failed',
+        amountReceivedCents: null,
+        reference: null,
+      });
+      expect(result.action).toBe('ignored');
+      expect(store.expirePayment).not.toHaveBeenCalled();
+    }
+  });
+
+  it('leaves pending charges and refunds alone', async () => {
+    for (const state of ['pending', 'refunded'] as const) {
+      const { deps, store } = harness(card());
+      const result = await settleGatewayCharge(deps, {
+        orderId: 'order-1',
+        state,
+        amountReceivedCents: null,
+        reference: null,
+      });
+      expect(result.action).toBe('ignored');
+      expect(store.confirmPayment).not.toHaveBeenCalled();
+      expect(store.expirePayment).not.toHaveBeenCalled();
+    }
   });
 });

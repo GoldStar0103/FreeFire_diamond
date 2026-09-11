@@ -17,7 +17,7 @@ import type {
   OrderStatus,
 } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { orderItems, orders } from '../schema.js';
+import { baseProducts, orderItems, orders } from '../schema.js';
 import { toNumericString, toOrderRecord } from './mapping.js';
 
 /** States an item may legitimately be dispatched from. */
@@ -52,8 +52,12 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
         attemptCount: orderItems.attemptCount,
         providerReference: orderItems.providerReference,
         walletBeforeUsd: orderItems.walletBeforeUsd,
+        // Left join: an item must stay loadable even if its product row is
+        // ever gone, and the engine falls back to the verified endpoint.
+        endpointKind: baseProducts.endpointKind,
       })
       .from(orderItems)
+      .leftJoin(baseProducts, eq(baseProducts.id, orderItems.baseProductId))
       .where(eq(orderItems.orderId, orderId));
 
     return toOrderRecord(order, items);

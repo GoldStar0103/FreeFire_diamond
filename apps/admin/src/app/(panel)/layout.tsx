@@ -3,6 +3,9 @@ import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { logout } from '../login/actions';
 import { NavLink } from './nav-link';
+// Through the bundler, not `public/`, which the standalone Docker image does
+// not copy. See the storefront's home page for the longer version.
+import logo from '../../assets/logo.webp';
 
 /**
  * Every panel route renders inside this, so the session check here is the
@@ -17,7 +20,10 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   return (
     <div className="shell">
       <nav className="sidebar">
-        <div className="brand">LEVELUP STORE</div>
+        <div className="brand">
+          <img src={logo.src} width={32} height={32} alt="" />
+          <span>LEVELUP STORE</span>
+        </div>
         <NavLink href="/">Inicio</NavLink>
         <NavLink href="/aprobaciones" count={pending.length}>
           Aprobaciones

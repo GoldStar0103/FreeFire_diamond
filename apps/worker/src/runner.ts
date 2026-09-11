@@ -1,7 +1,7 @@
 /**
- * The worker's two loops.
+ * The worker's two loops, and the catalog sync that rides on the sweep.
  *
- * Extracted from `main.ts` so both can be driven directly by tests — the
+ * Extracted from `main.ts` so all of it can be driven directly by tests — the
  * shutdown behaviour in particular is the sort of thing that only ever gets
  * exercised in production otherwise.
  */
@@ -9,22 +9,57 @@
 import {
   expireOverduePayments,
   fulfillOrder,
+  PROVIDER_LOCK_KEY,
   recoverStalledItems,
   pollPendingOrders,
+  reportConversions,
+  summariseSync,
+  syncCatalog,
 } from '@levelup/engine';
-import type { Alerter, AdvisoryLock, ExpiryStore, RecoveryStore } from '@levelup/engine';
+import type {
+  Alerter,
+  AdvisoryLock,
+  CatalogSyncResult,
+  CatalogSyncStore,
+  ConversionDeps,
+  ConversionResult,
+  ExpiryStore,
+  RecoveryStore,
+} from '@levelup/engine';
 import type { TopupProvider, UsdTenK } from '@levelup/provider';
 import type { DrizzleOrderQueue } from '@levelup/db';
+import { catalogSyncAlerts } from './catalog-report.js';
 import type { WorkerConfig } from './config.js';
 
 export interface RunnerDeps {
   queue: Pick<DrizzleOrderQueue, 'claimNext' | 'depth'>;
   store: RecoveryStore & ExpiryStore;
+  /** The `base_products` mirror, for the periodic provider catalog sync. */
+  catalog: CatalogSyncStore;
   provider: TopupProvider;
   lock: AdvisoryLock;
+  /**
+   * In-process mutex around each whole order — see `ORDER_BOUNDARY_KEY`.
+   * `InMemoryLock` in production: the worker is a single process by design.
+   */
+  orderBoundary: AdvisoryLock;
   alerter: Alerter;
   config: WorkerConfig;
 }
+
+/**
+ * Held for the whole of one `fulfillOrder` call, and by the catalog sync.
+ *
+ * The provider advisory lock alone is not enough to keep a re-point away from
+ * a combo in flight. `fulfillOrder` loads the order once, then takes the
+ * provider lock per call and releases it for the pacing delay between calls —
+ * so a sync could slip into that gap and re-point items 4 to 8 in the database
+ * while the loop still holds their old ids and old costs in memory. It would
+ * then dispatch to the retired id and reconcile against the retired price.
+ * Serialising the sync against whole orders closes that gap: the sync waits
+ * for the combo in hand to finish, and the next order loads fresh.
+ */
+export const ORDER_BOUNDARY_KEY = 'worker:order-boundary';
 
 /** Cooperative stop flag, so a combo mid-flight is never abandoned. */
 export class ShutdownSignal {
@@ -51,7 +86,7 @@ export async function runFulfillmentLoop(
   signal: ShutdownSignal,
   options: { maxIterations?: number } = {},
 ): Promise<{ processed: number }> {
-  const { queue, store, provider, lock, alerter, config } = deps;
+  const { queue, store, provider, lock, orderBoundary, alerter, config } = deps;
   let processed = 0;
   let iterations = 0;
 
@@ -79,18 +114,20 @@ export async function runFulfillmentLoop(
     }
 
     try {
-      const result = await fulfillOrder(
-        {
-          store,
-          provider,
-          lock,
-          alerter,
-          config: {
-            maxAttempts: config.fulfillment.maxAttempts,
-            interCallDelayMs: config.provider.interCallDelayMs,
+      const result = await orderBoundary.withLock(ORDER_BOUNDARY_KEY, () =>
+        fulfillOrder(
+          {
+            store,
+            provider,
+            lock,
+            alerter,
+            config: {
+              maxAttempts: config.fulfillment.maxAttempts,
+              interCallDelayMs: config.provider.interCallDelayMs,
+            },
           },
-        },
-        claimed.id,
+          claimed.id,
+        ),
       );
       processed++;
       console.log(
@@ -192,5 +229,120 @@ export async function checkWallet(deps: RunnerDeps): Promise<void> {
     }
   } catch (err) {
     console.error(`[sweep] Could not read wallet balance: ${String(err)}`);
+  }
+}
+
+/**
+ * One provider catalog sync, as the worker runs it.
+ *
+ * Before this ran on its own the sync was a CLI someone had to remember, so a
+ * provider changing its ids would have surfaced as customers complaining that
+ * nothing could be bought. Now the worker notices within the hour and either
+ * follows the change (re-pointing recipes and unsent items) or says loudly that
+ * it could not.
+ *
+ * Lock order is the same as fulfilment's — order boundary, then provider — so
+ * the two cannot deadlock. The provider lock is what guarantees no item is
+ * re-pointed while its own call is in flight; see `ORDER_BOUNDARY_KEY` for why
+ * the boundary is needed on top.
+ *
+ * Returns null when the sync threw. Like every sweep step, a failure is logged
+ * and survived: a catalog endpoint having a bad minute must not stop the
+ * worker delivering orders that are already paid for.
+ */
+export async function runCatalogSync(deps: RunnerDeps): Promise<CatalogSyncResult | null> {
+  const { catalog, provider, lock, orderBoundary, alerter } = deps;
+
+  // The `Alerter` contract is never to throw, but this runs on the sweep loop
+  // and a broken alerter must not be what stops it.
+  const send: Alerter['send'] = (level, title, detail) =>
+    alerter.send(level, title, detail).catch((err: unknown) => {
+      console.error(`[catalog] Could not send alert "${title}": ${String(err)}`);
+    });
+
+  let result: CatalogSyncResult;
+  try {
+    result = await orderBoundary.withLock(ORDER_BOUNDARY_KEY, () =>
+      lock.withLock(PROVIDER_LOCK_KEY, () => syncCatalog({ store: catalog, provider })),
+    );
+  } catch (err) {
+    console.error(`[catalog] Sync failed: ${String(err)}`);
+    // Warn, not critical: a failed sync changes nothing — the previous catalog
+    // stays exactly as it was — and the retry comes round shortly. If the
+    // provider's purchase endpoints are down too, fulfilment says so itself.
+    await send('warn', 'Provider catalog sync failed — will retry', { error: String(err) });
+    return null;
+  }
+
+  const alerts = catalogSyncAlerts(result);
+  const line = `[catalog] ${summariseSync(result)}`;
+  if (alerts.length > 0) console.warn(line);
+  else console.log(line);
+
+  for (const alert of alerts) await send(alert.level, alert.title, alert.detail);
+  return result;
+}
+
+/** After a failed sync, try again this soon rather than a full interval later. */
+export const CATALOG_SYNC_RETRY_MS = 5 * 60_000;
+
+/**
+ * When the next catalog sync is due.
+ *
+ * Driven from the sweep loop rather than a timer of its own, so it inherits the
+ * sweep's shutdown handling and can never run twice at once. The first call is
+ * always due — that is the startup sync, which `main.ts` runs before the
+ * fulfilment loop claims anything, so a worker restarted after the provider
+ * changed its catalog overnight does not dispatch its first orders to dead ids.
+ */
+export class CatalogSyncSchedule {
+  private nextAt: number | null = null;
+
+  constructor(
+    private readonly intervalMs: number,
+    private readonly retryMs: number = CATALOG_SYNC_RETRY_MS,
+  ) {}
+
+  get enabled(): boolean {
+    return this.intervalMs > 0;
+  }
+
+  isDue(now: number): boolean {
+    return this.enabled && (this.nextAt === null || now >= this.nextAt);
+  }
+
+  async runIfDue(
+    deps: RunnerDeps,
+    now: number = Date.now(),
+  ): Promise<{ ran: boolean; result: CatalogSyncResult | null }> {
+    if (!this.isDue(now)) return { ran: false, result: null };
+
+    const result = await runCatalogSync(deps);
+    // Scheduled from when the run was due, not when it finished, and sooner
+    // after a failure: on the day the provider migrates, an hour between
+    // attempts is an hour of not knowing.
+    this.nextAt = now + (result ? this.intervalMs : Math.min(this.intervalMs, this.retryMs));
+    return { ran: true, result };
+  }
+}
+
+/**
+ * Report newly paid orders to Meta. Attribution only — it never touches the
+ * provider, holds no lock, and a failure here must not disturb anything that
+ * delivers diamonds, so it is caught and logged like every other sweep step.
+ */
+export async function runConversions(deps: ConversionDeps): Promise<ConversionResult | null> {
+  try {
+    const result = await reportConversions(deps);
+    if (result.examined > 0) {
+      console.log(
+        `[conversions] ${result.reported} reported, ${result.failed} failed` +
+          `${result.gaveUp ? `, ${result.gaveUp} given up` : ''}`,
+      );
+    }
+    return result;
+  } catch (err) {
+    console.error(`[conversions] Sweep failed: ${String(err)}`);
+    return null;
   }
 }

@@ -1,18 +1,29 @@
 /**
  * Catalog sync CLI.
  *
- * Run after Phase 0 resolves the provider's real product IDs, and on a schedule
- * afterwards — supplier prices move without notice, and revenue is fixed in MXN
- * by a flyer for a whole month.
+ * The worker runs the same sync on its own — at startup and every
+ * CATALOG_SYNC_INTERVAL_MS — so this is for running it *now*: after Phase 0
+ * resolves the provider's real product IDs, or on the day the provider says it
+ * is changing its catalog, when waiting up to an hour is not good enough.
+ *
+ * Safe to run while the worker is up. It takes the same provider advisory lock
+ * fulfilment does, so nothing is re-pointed while a provider call is in flight.
+ * The reporting and alerting are the worker's, from `catalog-report.ts`, so the
+ * two can never disagree about what a result means.
  *
  *   pnpm --filter @levelup/worker sync-catalog
  *   WORKER_DRY_RUN=true pnpm --filter @levelup/worker sync-catalog
+ *
+ * Do not run the dry-run form against a real database: the simulator's catalog
+ * has its own ids, and the sync would faithfully treat that as the provider
+ * replacing every product.
  */
 
-import { createDb, DrizzleCatalogSyncStore } from '@levelup/db';
-import { summariseSync, syncCatalog } from '@levelup/engine';
+import { createDb, DrizzleCatalogSyncStore, PostgresAdvisoryLock } from '@levelup/db';
+import { PROVIDER_LOCK_KEY, summariseSync, syncCatalog } from '@levelup/engine';
 import { ProviderSimulator, RecargasAmericaProvider } from '@levelup/provider';
 import { ConsoleAlerter, TelegramAlerter } from './alerter.js';
+import { catalogSyncAlerts, describeSync } from './catalog-report.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is not set');
@@ -41,50 +52,23 @@ const provider = dryRun
     });
 
 const store = new DrizzleCatalogSyncStore(db);
+const lock = new PostgresAdvisoryLock(client);
 
 try {
   console.log(`Syncing provider catalog${dryRun ? ' (DRY RUN — simulated provider)' : ''}\n`);
 
-  const result = await syncCatalog({ store, provider });
+  const result = await lock.withLock(PROVIDER_LOCK_KEY, () => syncCatalog({ store, provider }));
+
   console.log(summariseSync(result));
+  const details = describeSync(result);
+  if (details.length) console.log(['', ...details].join('\n'));
 
-  if (result.added.length) console.log(`\n  added:       ${result.added.join(', ')}`);
-  if (result.deactivated.length) console.log(`  deactivated: ${result.deactivated.join(', ')}`);
-
-  if (result.skipped.length) {
-    console.log('\n  Skipped:');
-    for (const s of result.skipped) console.log(`    ${s.providerProductId} — ${s.reason}`);
+  for (const alert of catalogSyncAlerts(result)) {
+    await alerter.send(alert.level, alert.title, alert.detail);
   }
 
-  // A cost rise silently eats a whole month of margin, so this is an alert and
-  // not just a log line.
-  if (result.costChanges.length) {
-    console.log('\n  Cost changes:');
-    for (const change of result.costChanges) {
-      const direction = change.deltaUsd > 0 ? 'up' : 'down';
-      console.log(
-        `    ${change.diamondsBase} 💎  ${(change.previousUsd / 10_000).toFixed(4)} -> ` +
-          `${(change.currentUsd / 10_000).toFixed(4)} USD  (${direction} ${change.pctChange.toFixed(1)}%)`,
-      );
-    }
-    await alerter.send('warn', 'Provider costs changed — re-check combo margins', {
-      changes: result.costChanges
-        .map((c) => `${c.diamondsBase}: ${c.pctChange.toFixed(1)}%`)
-        .join(', '),
-    });
-  }
-
-  if (result.blocked) {
-    console.error('\nBLOCKED — no denomination resolved to a direct top-up.');
-    await alerter.send('critical', 'Catalog sync found no usable Free Fire products', {});
-    process.exitCode = 1;
-  } else if (result.missing.length) {
-    console.warn(`\nWARNING — no product for: ${result.missing.join(', ')}`);
-    console.warn('Combos using these denominations cannot be fulfilled.');
-    await alerter.send('critical', 'Catalog sync is missing denominations', {
-      missing: result.missing.join(', '),
-    });
-  }
+  // Non-zero for anything a human must look at before trusting the store.
+  if (result.blocked || result.denominationConflicts.length) process.exitCode = 1;
 
   const incomplete = await store.findIncompleteRecipes();
   if (incomplete.length) {

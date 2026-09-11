@@ -246,6 +246,22 @@ describe.skipIf(!PG_AVAILABLE)('the Mega Oferta cap, end to end', () => {
     const again = await createOrder({ store: store() }, input({ comboKey: 'mega_10' }));
     expect(again.ok).toBe(true);
   });
+
+  it('frees the cap once the first order expires unpaid', async () => {
+    // Regression: the index allowed this and the application check did not,
+    // so the expiry sweep's whole purpose was defeated one layer up.
+    await createOrder({ store: store() }, input({ comboKey: 'mega_10' }));
+    await db.update(orders).set({ status: 'payment_expired' });
+
+    const again = await createOrder({ store: store() }, input({ comboKey: 'mega_10' }));
+    expect(again.ok).toBe(true);
+  });
+
+  it('still refuses while the first order is only awaiting payment', async () => {
+    await createOrder({ store: store() }, input({ comboKey: 'mega_10' }));
+    const again = await createOrder({ store: store() }, input({ comboKey: 'mega_10' }));
+    expect(again).toMatchObject({ failure: { code: 'PLAYER_LIMIT_REACHED' } });
+  });
 });
 
 describe.skipIf(!PG_AVAILABLE)('availability from the database', () => {

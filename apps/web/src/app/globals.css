@@ -51,6 +51,20 @@ img { max-width: 100%; display: block; }
 /* ── hero ──────────────────────────────────────────────────────────────── */
 
 .hero { text-align: center; padding: 22px 0 18px; }
+/* The logo art sits on a black square, which on this background reads as a
+   box that failed to load. Cropped to a circle it reads as a badge — the shape
+   of a TikTok or Instagram profile picture, which is where the buyer has just
+   come from. The circle loses only black corners. The ring is the padding
+   showing the brand gradient behind the image. */
+.hero-logo {
+  width: 104px;
+  height: 104px;
+  margin: 0 auto 14px;
+  padding: 3px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, var(--accent-2));
+  box-shadow: 0 0 34px rgba(139, 92, 246, 0.35);
+}
 .hero h1 { font-size: 30px; margin: 0; letter-spacing: -0.03em; line-height: 1.1; }
 .grad {
   background: linear-gradient(90deg, #a78bfa, var(--accent-2));
@@ -133,6 +147,21 @@ img { max-width: 100%; display: block; }
 .pay-row span { color: var(--muted); }
 .pay-row.total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; font-size: 17px; }
 
+/* Card vs transfer. Big targets: this is chosen with a thumb. */
+.method-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.method-tab {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 12px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.method-tab.active { border-color: var(--accent); color: var(--text); background: rgba(139, 92, 246, 0.12); }
+
 .field { display: block; margin-bottom: 14px; }
 .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 
@@ -198,7 +227,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 /* ── footer ────────────────────────────────────────────────────────────── */
 
 .site-footer { border-top: 1px solid var(--border); padding: 26px 16px 34px; text-align: center; }
-.footer-brand {
+.footer-brand { display: inline-flex; align-items: center; gap: 10px; }
+.footer-brand img { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); }
+.footer-brand span {
   font-weight: 900; letter-spacing: 0.05em; font-size: 14px;
   background: linear-gradient(90deg, #a78bfa, var(--accent-2));
   -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -207,6 +238,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .footer-note { color: var(--muted); font-size: 12px; letter-spacing: 0.06em; }
 
 @media (min-width: 640px) {
+  .hero-logo { width: 128px; height: 128px; }
   .hero h1 { font-size: 40px; }
   .mega-diamonds { font-size: 52px; }
 }

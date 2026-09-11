@@ -7,7 +7,7 @@
  * logic under test is the same logic that runs in production.
  */
 
-import type { UsdTenK } from '@levelup/provider';
+import type { EndpointKind, UsdTenK } from '@levelup/provider';
 import type { OrderItemStatus, OrderStatus } from './states.js';
 
 export interface OrderItemRecord {
@@ -20,6 +20,12 @@ export interface OrderItemRecord {
   attemptCount: number;
   providerReference: string | null;
   walletBeforeUsd: UsdTenK | null;
+  /**
+   * Which provider endpoint buys this product, from its catalog row. Absent
+   * means the item's product row is gone; fulfilment then uses `/buy/pins`,
+   * the path every launch product was verified on.
+   */
+  endpointKind?: EndpointKind | null;
 }
 
 export interface OrderRecord {

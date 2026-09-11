@@ -40,7 +40,17 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   // A partially delivered order can resume and finish, or stall for a human.
   partially_delivered: ['processing', 'completed', 'needs_review'],
   // Review can end in completion (admin fulfilled it), a refund, or resumption.
-  needs_review: ['processing', 'partially_delivered', 'completed', 'refund_required', 'cancelled'],
+  // Resuming an order nothing has reached yet goes back to `payment_confirmed`,
+  // the state the worker claims from; `processing` would sit unclaimed until it
+  // went stale.
+  needs_review: [
+    'processing',
+    'payment_confirmed',
+    'partially_delivered',
+    'completed',
+    'refund_required',
+    'cancelled',
+  ],
   refund_required: ['cancelled', 'needs_review'],
   completed: [],
   payment_expired: ['cancelled'],

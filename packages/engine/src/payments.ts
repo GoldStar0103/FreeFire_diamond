@@ -10,7 +10,8 @@
  * The launch flow is the one LevelUp already runs by hand: the customer
  * transfers to BBVA or deposits at OXXO and sends a photo of the receipt. An
  * admin approves it here in one tap, and fulfilment happens automatically.
- * Conekta later replaces the human with a webhook calling the same function.
+ * Card payments through Stripe replace the human with a webhook calling the
+ * same function — see `settleGatewayCharge`.
  */
 
 export type PaymentMethod = 'transfer_manual' | 'spei' | 'oxxo' | 'card' | 'paypal';
@@ -215,6 +216,100 @@ export async function rejectPayment(
     orderNumber: payable.orderNumber,
     alreadyApproved: false,
   };
+}
+
+// ── gateway settlement ────────────────────────────────────────────────────────
+
+/** What a card gateway reports about a charge, in gateway-neutral terms. */
+export type GatewayChargeState = 'pending' | 'paid' | 'expired' | 'failed' | 'refunded';
+
+export interface GatewayReport {
+  orderId: string;
+  state: GatewayChargeState;
+  /** What the gateway says arrived. Required for `paid`. */
+  amountReceivedCents: number | null;
+  /** The gateway's id for the money movement, kept as the payment reference. */
+  reference: string | null;
+}
+
+export type GatewaySettlement =
+  | { action: 'approved'; orderNumber: string }
+  | { action: 'already_approved'; orderNumber: string }
+  | { action: 'expired'; orderNumber: string }
+  | { action: 'ignored'; reason: string }
+  /**
+   * Money arrived and the order could not be approved — an amount mismatch, a
+   * voucher paid after the window, an order already cancelled. Somebody paid
+   * and nothing will ship until a human looks. The caller must alert.
+   */
+  | { action: 'refused'; failure: PaymentFailure };
+
+/**
+ * Apply a gateway's report to an order.
+ *
+ * Deliberately thin. `paid` goes through `approvePayment` — the same function
+ * an admin's tap calls — so a card payment gets exactly the same amount check,
+ * the same idempotency and the same enqueue as a comprobante. A webhook
+ * redelivered five times lands as one approval and four `already_approved`s.
+ *
+ * The gateway amount is always passed through, never assumed. Stripe will not
+ * charge a different amount than the session asked for, but the session could
+ * have been created by something other than this code, and assuming would
+ * make that invisible.
+ */
+export async function settleGatewayCharge(
+  deps: PaymentDeps,
+  report: GatewayReport,
+): Promise<GatewaySettlement> {
+  if (report.state === 'paid') {
+    if (report.amountReceivedCents === null) {
+      // A paid report with no amount is not something to approve on trust.
+      return {
+        action: 'refused',
+        failure: {
+          code: 'AMOUNT_MISMATCH',
+          message: 'Gateway reported paid without an amount.',
+          expectedCents: 0,
+          receivedCents: 0,
+        },
+      };
+    }
+
+    const result = await approvePayment(deps, {
+      orderId: report.orderId,
+      amountReceivedCents: report.amountReceivedCents,
+      adminUserId: null,
+      reference: report.reference,
+    });
+
+    if (!result.ok) return { action: 'refused', failure: result.failure };
+    return result.alreadyApproved
+      ? { action: 'already_approved', orderNumber: result.orderNumber }
+      : { action: 'approved', orderNumber: result.orderNumber };
+  }
+
+  if (report.state === 'expired' || report.state === 'failed') {
+    const payable = await deps.store.findPayable(report.orderId);
+    if (!payable) return { action: 'ignored', reason: 'order not found' };
+
+    // Same line `expireOverduePayments` holds: only a payment nobody has acted
+    // on. A comprobante under review, or an approval that raced this event,
+    // must survive it.
+    if (payable.paymentStatus !== 'pending' || payable.orderStatus !== 'pending_payment') {
+      return { action: 'ignored', reason: `payment is ${payable.paymentStatus}` };
+    }
+
+    await deps.store.expirePayment({ orderId: payable.orderId, paymentId: payable.paymentId });
+    return { action: 'expired', orderNumber: payable.orderNumber };
+  }
+
+  if (report.state === 'refunded') {
+    // Diamonds cannot be recalled, so a refund issued from the gateway
+    // dashboard is a decision a person already made. Nothing to automate.
+    return { action: 'ignored', reason: 'refunds are handled by hand' };
+  }
+
+  return { action: 'ignored', reason: 'still pending' };
 }
 
 /**

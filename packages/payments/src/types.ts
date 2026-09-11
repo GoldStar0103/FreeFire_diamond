@@ -29,6 +29,12 @@ export interface CreateChargeInput {
   customerPhone?: string | null;
   /** OXXO vouchers and SPEI references expire; the order expires with them. */
   expiresAt?: Date | null;
+  /**
+   * Hosted-page gateways send the customer away and need somewhere to send
+   * them back to. Ignored by gateways that render instructions in place.
+   */
+  returnUrl?: string;
+  cancelUrl?: string;
 }
 
 /**
@@ -59,6 +65,10 @@ export interface ChargeSnapshot {
   /** What actually arrived. May differ from the amount requested. */
   amountReceivedCents: number | null;
   paidAt: Date | null;
+  /** The gateway's id for the money movement itself, kept as the payment reference. */
+  reference?: string | null;
+  /** An OXXO voucher the customer still has to pay at the till, when there is one. */
+  voucherUrl?: string | null;
 }
 
 /** A verified webhook, reduced to what the engine acts on. */
@@ -70,6 +80,7 @@ export interface PaymentEvent {
   /** Present on payment events; null on everything else. */
   state: ChargeState | null;
   amountReceivedCents: number | null;
+  reference?: string | null;
   occurredAt: Date;
   /** The raw payload, stored verbatim for audit. */
   raw: unknown;

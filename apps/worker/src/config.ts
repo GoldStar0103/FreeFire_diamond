@@ -27,7 +27,25 @@ export interface WorkerConfig {
     intervalMs: number;
     batchSize: number;
   };
+  catalogSync: {
+    /**
+     * How often the worker re-reads the provider catalog, and once at startup.
+     * `0` switches both off — for freezing the catalog during an incident.
+     */
+    intervalMs: number;
+  };
   telegram: { botToken: string; chatId: string } | null;
+  /**
+   * Server-side purchase reporting to Meta. Null unless both the pixel id and
+   * the Conversions API token are set — the browser Pixel alone needs neither
+   * the worker nor this.
+   */
+  meta: {
+    pixelId: string;
+    accessToken: string;
+    testEventCode: string | undefined;
+    siteOrigin: string;
+  } | null;
   /**
    * File touched periodically so a container healthcheck can tell a wedged
    * worker from a working one. Unset outside containers.
@@ -51,6 +69,29 @@ function number(name: string, fallback: number): number {
   return parsed;
 }
 
+function loadMeta(): WorkerConfig['meta'] {
+  const pixelId = process.env.META_PIXEL_ID?.trim();
+  const accessToken = process.env.META_CAPI_ACCESS_TOKEN?.trim();
+  if (!pixelId || !accessToken) return null;
+
+  if (!/^\d{8,20}$/.test(pixelId)) {
+    // Refuse to start rather than fail every report quietly for a week.
+    throw new Error(`META_PIXEL_ID must be the numeric pixel id, got ${JSON.stringify(pixelId)}`);
+  }
+
+  // Bare hostname in the env file, as for the legal pages; Meta wants a URL.
+  const domain = (process.env.PUBLIC_DOMAIN?.trim() || 'levelupstore.mx')
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '');
+
+  return {
+    pixelId,
+    accessToken,
+    testEventCode: process.env.META_CAPI_TEST_EVENT_CODE?.trim() || undefined,
+    siteOrigin: `https://${domain}`,
+  };
+}
+
 export function loadConfig(): WorkerConfig {
   const dryRun = process.env.WORKER_DRY_RUN === 'true';
 
@@ -65,6 +106,15 @@ export function loadConfig(): WorkerConfig {
     throw new Error(
       'TELEGRAM_BOT_TOKEN and TELEGRAM_ALERT_CHAT_ID are required. ' +
         'Set WORKER_DRY_RUN=true only for local runs.',
+    );
+  }
+
+  // Hourly by default. The provider changes ids and prices without notice, and
+  // before this ran on its own nobody learnt of a change until customers did.
+  const catalogSyncIntervalMs = number('CATALOG_SYNC_INTERVAL_MS', 60 * 60_000);
+  if (catalogSyncIntervalMs < 0) {
+    throw new Error(
+      `CATALOG_SYNC_INTERVAL_MS must be 0 (off) or a positive number, got ${catalogSyncIntervalMs}`,
     );
   }
 
@@ -87,7 +137,9 @@ export function loadConfig(): WorkerConfig {
       intervalMs: number('SWEEP_INTERVAL_MS', 30_000),
       batchSize: number('SWEEP_BATCH_SIZE', 25),
     },
+    catalogSync: { intervalMs: catalogSyncIntervalMs },
     telegram,
+    meta: loadMeta(),
     heartbeatFile: process.env.WORKER_HEARTBEAT_FILE?.trim() || undefined,
     dryRun,
   };

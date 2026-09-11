@@ -4,6 +4,12 @@ import { countCompletedOrders, listStorefront } from '@levelup/db';
 import { getDb } from '../lib/server';
 import { diamonds, mxn } from '../lib/format';
 import { flyerUrl } from '../lib/assets';
+// Imported through the bundler rather than served from `public/`: the build
+// emits it under /_next/static with a content hash, which the Docker image
+// copies and browsers may cache forever. `public/` is not copied into the
+// standalone image, so a logo there would boot fine locally and 404 in
+// production.
+import logo from '../assets/logo.webp';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +28,19 @@ export default async function HomePage() {
   return (
     <main className="page">
       <header className="hero">
+        {/* The client's own brand, first thing on the page. This market has
+            been scammed by stores that are a template and a price list; a
+            real logo is part of what separates this one from those. Explicit
+            dimensions so the heading does not jump when it arrives, and no
+            lazy-loading — it is above the fold on every phone. */}
+        <img
+          className="hero-logo"
+          src={logo.src}
+          width={104}
+          height={104}
+          alt="LevelUp Store"
+          decoding="async"
+        />
         <h1>
           RECARGAS <span className="grad">AL INSTANTE</span>
         </h1>

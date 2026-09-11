@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import { login, type LoginState } from './actions';
+import logo from '../../assets/logo.webp';
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(login, {});
@@ -10,7 +11,8 @@ export default function LoginPage() {
     <main className="login-page">
       <form className="card login-card" action={formAction}>
         <div className="brand" style={{ padding: '0 0 18px' }}>
-          LEVELUP STORE
+          <img src={logo.src} width={32} height={32} alt="" />
+          <span>LEVELUP STORE</span>
         </div>
 
         {state.error && <div className="alert bad">{state.error}</div>}

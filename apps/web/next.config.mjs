@@ -21,7 +21,13 @@ const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
 
-  transpilePackages: ['@levelup/db', '@levelup/engine', '@levelup/provider', '@levelup/shared'],
+  transpilePackages: [
+    '@levelup/db',
+    '@levelup/engine',
+    '@levelup/payments',
+    '@levelup/provider',
+    '@levelup/shared',
+  ],
   serverExternalPackages: ['postgres'],
 
   // Workspace packages import with explicit `.js` specifiers, which is correct

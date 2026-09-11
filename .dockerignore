@@ -25,6 +25,12 @@ dist
 .uploads
 phase0/out
 
+# Nightly database and upload dumps (scripts/backup.sh) — customer data. Left
+# in the build context they would be copied into the tools image by `COPY . .`,
+# and being root-owned 0600 they would also make a build run as the deploy
+# user fail with "permission denied" from the first night backups exist.
+backups
+
 .git
 .github
 .claude

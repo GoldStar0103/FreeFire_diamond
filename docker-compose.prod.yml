@@ -152,6 +152,10 @@ services:
     ports:
       - '80:80'
       - '443:443'
+      # HTTP/3 runs over UDP. Caddy serves it by default and the server
+      # firewall allows it (scripts/server-setup.sh); without this mapping
+      # browsers quietly fall back to TCP.
+      - '443:443/udp'
     environment:
       STORE_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN must be set}
       ADMIN_DOMAIN: ${ADMIN_DOMAIN:?ADMIN_DOMAIN must be set}

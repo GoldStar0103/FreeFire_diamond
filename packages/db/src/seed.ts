@@ -10,7 +10,7 @@
  *   pnpm db:seed
  */
 
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { pesosToCentavos, checkRecipe } from '@levelup/shared/money';
 import { CAMPAIGNS } from '../../../phase0/catalog.mjs';
 import { createDb } from './index.js';
@@ -113,10 +113,17 @@ async function seed() {
       await db.delete(comboItems).where(eq(comboItems.comboId, comboRow.id));
 
       for (const [sequence, denomination] of combo.recipe.entries()) {
+        // Active only, newest sync first. The provider can replace a product
+        // id, and the sync deactivates the old row rather than deleting it —
+        // so once that has happened there are two rows per denomination and
+        // an unfiltered lookup can bind a recipe to the retired one. That
+        // fails at the worst possible moment: when a paid order tries to buy
+        // a product the provider no longer sells.
         const [product] = await db
           .select({ id: baseProducts.id })
           .from(baseProducts)
-          .where(eq(baseProducts.diamondsBase, denomination))
+          .where(and(eq(baseProducts.diamondsBase, denomination), eq(baseProducts.active, true)))
+          .orderBy(desc(baseProducts.lastSyncedAt))
           .limit(1);
 
         if (!product) {

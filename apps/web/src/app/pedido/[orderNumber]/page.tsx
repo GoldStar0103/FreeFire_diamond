@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { findCustomerOrder, type CustomerOrderStatus } from '@levelup/db';
+import { findCustomerOrder, type CustomerOrder, type CustomerOrderStatus } from '@levelup/db';
 import { getDb } from '../../../lib/server';
+import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
+import { AutoRefresh, PurchasePixel } from './live';
 import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
 import { supportUrl } from '../../../lib/support';
@@ -50,6 +52,53 @@ const STATUS: Record<CustomerOrderStatus, { label: string; detail: string; tone:
   cancelado: { label: 'Pedido cancelado', detail: 'Este pedido ya no está activo.', tone: 'muted' },
 };
 
+/** What "waiting for payment" means depends on how they chose to pay. */
+const CARD_WAITING = {
+  label: 'Confirmando tu pago',
+  detail: 'Si ya pagaste con tarjeta, esto tarda solo unos segundos. No cierres esta página.',
+  tone: 'warn',
+};
+const OXXO_WAITING = {
+  label: 'Paga tu ficha en OXXO',
+  detail:
+    'Presenta tu ficha en cualquier OXXO y paga en efectivo. En cuanto se acredite, tu recarga entra sola — puede tardar unas horas.',
+  tone: 'warn',
+};
+
+/**
+ * Ask Stripe directly when a card order is still waiting.
+ *
+ * The webhook is the real confirmation, but it is also the part most likely to
+ * be misconfigured on day one, and it can lag. The customer has just paid and
+ * is looking at this page; asking costs one request and turns "why does it say
+ * waiting" into their diamonds arriving. Idempotent with the webhook.
+ */
+async function reconcileCard(order: CustomerOrder): Promise<{ voucherUrl: string | null }> {
+  const gateway = getStripe();
+  if (!gateway || order.gateway !== STRIPE || !order.gatewayChargeId) return { voucherUrl: null };
+  if (order.status !== 'esperando_pago') return { voucherUrl: null };
+
+  try {
+    const snapshot = await gateway.getCharge(order.gatewayChargeId);
+    if (!snapshot) return { voucherUrl: null };
+
+    if (snapshot.state !== 'pending' || snapshot.voucherUrl) {
+      await applyStripeReport({
+        gatewayChargeId: snapshot.gatewayChargeId,
+        state: snapshot.state,
+        amountReceivedCents: snapshot.amountReceivedCents,
+        reference: snapshot.reference ?? null,
+        voucherIssued: Boolean(snapshot.voucherUrl),
+      });
+    }
+    return { voucherUrl: snapshot.state === 'pending' ? (snapshot.voucherUrl ?? null) : null };
+  } catch (err) {
+    // The webhook will get there. Showing the page matters more.
+    console.error(`[pedido] could not re-check ${order.orderNumber} with Stripe`, err);
+    return { voucherUrl: null };
+  }
+}
+
 export default async function OrderPage({
   params,
   searchParams,
@@ -64,10 +113,29 @@ export default async function OrderPage({
   // authorisation model, so both must be present.
   if (!id) notFound();
 
-  const order = await findCustomerOrder(getDb(), orderNumber, id);
+  let order = await findCustomerOrder(getDb(), orderNumber, id);
   if (!order) notFound();
 
-  const status = STATUS[order.status];
+  const { voucherUrl } = await reconcileCard(order);
+  if (order.status === 'esperando_pago' && order.gateway === STRIPE) {
+    // The re-check may just have confirmed it.
+    order = (await findCustomerOrder(getDb(), orderNumber, id)) ?? order;
+  }
+
+  const byCard = order.gateway === STRIPE;
+  const status =
+    order.status === 'esperando_pago' && byCard
+      ? voucherUrl
+        ? OXXO_WAITING
+        : CARD_WAITING
+      : STATUS[order.status];
+
+  // Paid orders fire the browser Purchase; everything else is not a sale yet.
+  const paid = order.status === 'procesando' || order.status === 'completado';
+  // Keep refreshing while something is about to change on its own. Not for an
+  // OXXO voucher: that is hours away, and a page reloading under someone
+  // trying to show a barcode at the till is worse than useless.
+  const refreshing = order.status === 'procesando' || (byCard && order.status === 'esperando_pago' && !voucherUrl);
   const pct =
     order.advertisedDiamonds === 0
       ? 0
@@ -84,9 +152,25 @@ export default async function OrderPage({
 
   return (
     <main className="page narrow">
+      {refreshing && <AutoRefresh everyMs={6_000} />}
+      {paid && (
+        <PurchasePixel
+          orderNumber={order.orderNumber}
+          eventId={order.eventId}
+          value={order.priceMxnCents / 100}
+          comboKey={order.comboKey}
+        />
+      )}
+
       <div className={`card status-card ${status.tone}`}>
         <div className="status-label">{status.label}</div>
         <p className="status-detail">{status.detail}</p>
+
+        {voucherUrl && (
+          <a className="btn primary wide" href={voucherUrl} target="_blank" rel="noreferrer">
+            Ver mi ficha OXXO
+          </a>
+        )}
 
         {order.status === 'procesando' && (
           <>

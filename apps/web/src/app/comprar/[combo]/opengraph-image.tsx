@@ -2,6 +2,7 @@ import { ImageResponse } from 'next/og';
 import { getStorefrontCombo } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
+import { ogLogo } from '../../../lib/og-logo';
 
 /**
  * The preview card for a single offer.
@@ -23,6 +24,10 @@ import { diamonds, mxn } from '../../../lib/format';
  *
  * No emoji: satori resolves those by fetching from an external CDN at render
  * time, and fails silently when it cannot.
+ *
+ * The logo heads the card, smaller than on the site card so the offer stays
+ * the largest thing on it. Compiled in, not read from disk — see
+ * lib/og-logo-data.ts.
  */
 
 export const alt = 'Recarga de diamantes para Free Fire';
@@ -41,8 +46,6 @@ const BACKDROP = {
   fontFamily: 'sans-serif',
 };
 
-const WORDMARK = { fontSize: 28, letterSpacing: 10, color: '#8b91b5', fontWeight: 700 };
-
 export default async function Image({ params }: { params: Promise<{ combo: string }> }) {
   const { combo: comboKey } = await params;
   const combo = await getStorefrontCombo(getDb(), comboKey);
@@ -53,8 +56,8 @@ export default async function Image({ params }: { params: Promise<{ combo: strin
     return new ImageResponse(
       (
         <div style={BACKDROP}>
-          <div style={WORDMARK}>LEVELUP STORE</div>
-          <div style={{ fontSize: 88, fontWeight: 800, marginTop: 22, letterSpacing: -3 }}>
+          {ogLogo(176)}
+          <div style={{ fontSize: 88, fontWeight: 800, marginTop: 26, letterSpacing: -3 }}>
             RECARGAS AL INSTANTE
           </div>
           <div style={{ fontSize: 34, color: '#8b91b5', marginTop: 14 }}>
@@ -69,27 +72,27 @@ export default async function Image({ params }: { params: Promise<{ combo: strin
   return new ImageResponse(
     (
       <div style={BACKDROP}>
-        <div style={WORDMARK}>LEVELUP STORE</div>
+        {ogLogo(128)}
 
         <div
           style={{
-            fontSize: 116,
+            fontSize: 108,
             fontWeight: 800,
             color: '#a78bfa',
-            marginTop: 24,
+            marginTop: 14,
             letterSpacing: -4,
           }}
         >
           {diamonds(combo.advertisedDiamonds)}
         </div>
 
-        <div style={{ fontSize: 34, color: '#8b91b5' }}>diamantes para Free Fire</div>
+        <div style={{ fontSize: 34, color: '#8b91b5', marginTop: -6 }}>diamantes para Free Fire</div>
 
         <div
           style={{
-            fontSize: 46,
+            fontSize: 44,
             fontWeight: 700,
-            marginTop: 34,
+            marginTop: 26,
             padding: '14px 40px',
             borderRadius: 999,
             background: '#151829',
@@ -99,7 +102,7 @@ export default async function Image({ params }: { params: Promise<{ combo: strin
           {`${combo.name} · ${mxn(combo.priceMxnCents)}`}
         </div>
 
-        <div style={{ fontSize: 27, color: '#8b91b5', marginTop: 30 }}>
+        <div style={{ fontSize: 27, color: '#8b91b5', marginTop: 24 }}>
           Entrega automática · Pago seguro · Sin contraseñas
         </div>
       </div>

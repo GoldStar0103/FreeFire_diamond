@@ -55,6 +55,14 @@
 	}
 }
 
+# People type "www." out of habit, and a link that fails to load is read as a
+# fake store. One permanent redirect to the real address, which is also the
+# only address the canonical tags, sitemap and Stripe return URLs use.
+www.{$STORE_DOMAIN} {
+	import security_headers
+	redir https://{$STORE_DOMAIN}{uri} permanent
+}
+
 # ── admin panel ───────────────────────────────────────────────────────────────
 # A separate hostname rather than a path on the storefront, so a mistake in the
 # storefront's routing can never expose the panel, and so the panel can be

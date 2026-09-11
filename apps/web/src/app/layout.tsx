@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from 'next';
 import { siteOrigin } from '../lib/site';
 import { supportUrl } from '../lib/support';
+import { metaPixelId, tiktokPixelId } from '../lib/pixel-ids';
+import { MetaPixel } from './meta-pixel';
+import { TikTokPixel } from './tiktok-pixel';
+import logo from '../assets/logo.webp';
 import './globals.css';
 
 const DESCRIPTION =
@@ -59,13 +63,32 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const support = supportUrl();
+  // Each pixel is on only when its ID is configured and passes validation —
+  // see lib/pixel-ids.ts for why that check is a security boundary.
+  const metaId = metaPixelId();
+  const tiktokId = tiktokPixelId();
 
   return (
     <html lang="es-MX">
       <body>
+        {metaId && <MetaPixel pixelId={metaId} />}
+        {tiktokId && <TikTokPixel pixelId={tiktokId} />}
         {children}
         <footer className="site-footer">
-          <div className="footer-brand">LEVELUP STORE</div>
+          {/* The logo on every page, not just the home hero: a buyer who lands
+              straight on a shared /comprar link should still see whose store
+              this is. Decorative here — the name sits right beside it. */}
+          <div className="footer-brand">
+            <img
+              src={logo.src}
+              width={36}
+              height={36}
+              alt=""
+              loading="lazy"
+              decoding="async"
+            />
+            <span>LEVELUP STORE</span>
+          </div>
           <div className="footer-links">
             <a href="/">Inicio</a>
             <a href="/pedidos">Mis pedidos</a>

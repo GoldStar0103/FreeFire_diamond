@@ -1,15 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProviderSimulator } from '@levelup/provider';
-import { InMemoryLock } from '@levelup/engine';
-import { MemoryAlerter, MemoryStore, buildOrder } from '@levelup/engine/testing';
+import { ProviderSimulator, type UsdTenK } from '@levelup/provider';
+import { InMemoryLock, PROVIDER_LOCK_KEY } from '@levelup/engine';
+import {
+  MemoryAlerter,
+  MemoryCatalogStore,
+  MemoryStore,
+  buildOrder,
+} from '@levelup/engine/testing';
 import type {
+  AdvisoryLock,
   ExpiryStore,
   OverduePayment,
   RecoveryStore,
   StalledItem,
+  StoredProduct,
 } from '@levelup/engine';
 import { loadConfig } from './config.js';
-import { checkWallet, runFulfillmentLoop, ShutdownSignal, type RunnerDeps } from './runner.js';
+import {
+  CATALOG_SYNC_RETRY_MS,
+  CatalogSyncSchedule,
+  checkWallet,
+  ORDER_BOUNDARY_KEY,
+  runCatalogSync,
+  runFulfillmentLoop,
+  ShutdownSignal,
+  type RunnerDeps,
+} from './runner.js';
 
 class QueueStore extends MemoryStore implements RecoveryStore, ExpiryStore {
   async findPendingProviderItems(): Promise<StalledItem[]> {
@@ -65,15 +81,19 @@ function harness(claims: Array<{ id: string; orderNumber: string; recovered: boo
     depth: vi.fn(async () => ({ payment_confirmed: 1 })),
   };
 
+  const catalog = new MemoryCatalogStore();
+
   const deps: RunnerDeps = {
     queue,
     store,
+    catalog,
     provider,
     lock: new InMemoryLock(),
+    orderBoundary: new InMemoryLock(),
     alerter,
     config: testConfig(),
   };
-  return { deps, queue, store, alerter, provider };
+  return { deps, queue, store, catalog, alerter, provider };
 }
 
 describe('runFulfillmentLoop', () => {
@@ -142,6 +162,198 @@ describe('runFulfillmentLoop', () => {
   });
 });
 
+describe('runFulfillmentLoop and the catalog sync', () => {
+  it('holds the order boundary for the whole of each order', async () => {
+    // What keeps a re-point out of the gap between two calls of one combo.
+    const { deps } = harness([{ id: 'order-1', orderNumber: 'LU-1', recovered: false }]);
+    const boundary = vi.spyOn(deps.orderBoundary, 'withLock');
+
+    await runFulfillmentLoop(deps, new ShutdownSignal(), { maxIterations: 1 });
+
+    expect(boundary).toHaveBeenCalledWith(ORDER_BOUNDARY_KEY, expect.any(Function));
+  });
+});
+
+const usd = (n: number) => Math.round(n * 10_000) as UsdTenK;
+
+/** What the harness simulator's default catalog looks like once stored. */
+const storedLike = (idFor: (d: number) => string): StoredProduct[] =>
+  [100, 310, 520, 1060, 2180, 5600].map((d) => ({
+    id: `bp-${d}`,
+    providerProductId: idFor(d),
+    endpointKind: 'pins_recharge',
+    diamondsBase: d,
+    costUsd: usd(d === 100 ? 0.55 : 10),
+    active: true,
+  }));
+
+describe('runCatalogSync', () => {
+  it('stays quiet when nothing changed', async () => {
+    // It runs hourly. A channel that pings hourly with "all fine" gets muted.
+    const { deps, alerter } = harness([]);
+
+    await runCatalogSync(deps); // first sighting of all six
+    await runCatalogSync(deps);
+
+    expect(alerter.sent).toEqual([]);
+  });
+
+  it('warns when the provider moves a denomination to a new id', async () => {
+    const { deps, alerter } = harness([]);
+    const catalog = new MemoryCatalogStore(storedLike((d) => (d === 100 ? '351' : `d${d}`)));
+
+    const result = await runCatalogSync({ ...deps, catalog });
+
+    expect(result?.replaced).toHaveLength(1);
+    expect(catalog.repoints).toEqual([
+      expect.objectContaining({ fromProviderProductId: '351', toProviderProductId: 'd100' }),
+    ]);
+    expect(alerter.has('critical')).toBe(false);
+    const warning = alerter.sent.find((a) => a.level === 'warn');
+    expect(warning?.title).toMatch(/ids changed/i);
+    expect(String(warning?.detail?.replaced)).toContain('351 -> d100');
+  });
+
+  it('is critical when the catalog comes back empty, and deactivates nothing', async () => {
+    const { deps, alerter, provider, catalog } = harness([]);
+    await runCatalogSync(deps);
+    provider.programCatalog([]);
+
+    const result = await runCatalogSync(deps);
+
+    expect(result?.deactivationSkipped?.reason).toBe('empty_catalog');
+    expect(catalog.products.every((p) => p.active)).toBe(true);
+    expect(alerter.sent).toEqual([
+      expect.objectContaining({ level: 'critical', title: expect.stringMatching(/nothing was deactivated/) }),
+    ]);
+  });
+
+  it('is critical when a denomination disappears', async () => {
+    const { deps, alerter, provider } = harness([]);
+    const full = await provider.listFreeFireCatalog();
+    await runCatalogSync(deps);
+    provider.programCatalog(full.filter((p) => p.diamondsBase !== 310));
+
+    await runCatalogSync(deps);
+
+    expect(alerter.sent).toEqual([
+      expect.objectContaining({ level: 'critical', detail: expect.objectContaining({ missing: '310' }) }),
+    ]);
+  });
+
+  it('survives a provider failure and says so', async () => {
+    const { deps, alerter, provider, catalog } = harness([]);
+    provider.programCatalog(null, 'HTTP 502');
+
+    await expect(runCatalogSync(deps)).resolves.toBeNull();
+
+    expect(catalog.products).toEqual([]);
+    expect(alerter.sent[0]).toMatchObject({ level: 'warn', title: expect.stringMatching(/failed/) });
+  });
+
+  it('survives an alerter that throws', async () => {
+    const { deps, provider } = harness([]);
+    provider.programCatalog(null, 'HTTP 502');
+    const alerter = {
+      send: async () => {
+        throw new Error('telegram down');
+      },
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(runCatalogSync({ ...deps, alerter })).resolves.toBeNull();
+    error.mockRestore();
+  });
+
+  it('runs under the provider lock and the order boundary', async () => {
+    // The provider lock keeps a re-point out of any call in flight; the
+    // boundary keeps it out of the gaps between one combo's calls.
+    const { deps, catalog } = harness([]);
+    const held = new Set<string>();
+    const recording: AdvisoryLock = {
+      async withLock(key, fn) {
+        held.add(key);
+        try {
+          return await fn();
+        } finally {
+          held.delete(key);
+        }
+      },
+    };
+    const seen: string[][] = [];
+    const list = catalog.listStoredProducts.bind(catalog);
+    catalog.listStoredProducts = async () => {
+      seen.push([...held].sort());
+      return list();
+    };
+
+    await runCatalogSync({ ...deps, lock: recording, orderBoundary: recording });
+
+    expect(seen).toEqual([[PROVIDER_LOCK_KEY, ORDER_BOUNDARY_KEY].sort()]);
+    expect(held.size).toBe(0);
+  });
+
+  it('waits for the order in flight to finish before touching the catalog', async () => {
+    const { deps, catalog } = harness([]);
+    let finishOrder!: () => void;
+    const inFlight = deps.orderBoundary.withLock(
+      ORDER_BOUNDARY_KEY,
+      () => new Promise<void>((resolve) => (finishOrder = resolve)),
+    );
+    const list = vi.spyOn(catalog, 'listStoredProducts');
+
+    const sync = runCatalogSync(deps);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(list).not.toHaveBeenCalled();
+
+    finishOrder();
+    await inFlight;
+    await sync;
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CatalogSyncSchedule', () => {
+  it('runs at startup, then once per interval', async () => {
+    const { deps } = harness([]);
+    const schedule = new CatalogSyncSchedule(60_000);
+
+    expect((await schedule.runIfDue(deps, 1_000)).ran).toBe(true); // startup
+    expect((await schedule.runIfDue(deps, 30_000)).ran).toBe(false);
+    expect((await schedule.runIfDue(deps, 60_999)).ran).toBe(false);
+    expect((await schedule.runIfDue(deps, 61_000)).ran).toBe(true);
+  });
+
+  it('retries sooner than a full interval after a failure', async () => {
+    // On migration day, an hour between attempts is an hour of not knowing.
+    const { deps, provider } = harness([]);
+    provider.programCatalog(null, 'HTTP 502');
+    const schedule = new CatalogSyncSchedule(60 * 60_000);
+
+    expect(await schedule.runIfDue(deps, 0)).toEqual({ ran: true, result: null });
+    expect((await schedule.runIfDue(deps, CATALOG_SYNC_RETRY_MS - 1)).ran).toBe(false);
+
+    provider.programCatalog(null);
+    const retry = await schedule.runIfDue(deps, CATALOG_SYNC_RETRY_MS);
+    expect(retry.ran).toBe(true);
+    expect(retry.result?.mapped).toHaveLength(6);
+
+    // Back on the normal cadence once it succeeds.
+    expect((await schedule.runIfDue(deps, CATALOG_SYNC_RETRY_MS * 2)).ran).toBe(false);
+  });
+
+  it('is off entirely at 0, startup included', async () => {
+    const { deps, provider } = harness([]);
+    const list = vi.spyOn(provider, 'listFreeFireCatalog');
+    const schedule = new CatalogSyncSchedule(0);
+
+    expect(schedule.enabled).toBe(false);
+    expect((await schedule.runIfDue(deps, 0)).ran).toBe(false);
+    expect((await schedule.runIfDue(deps, 10 * 60 * 60_000)).ran).toBe(false);
+    expect(list).not.toHaveBeenCalled();
+  });
+});
+
 describe('checkWallet', () => {
   it('alerts when the balance drops below the threshold', async () => {
     const { deps, alerter } = harness([]);
@@ -202,5 +414,14 @@ describe('loadConfig', () => {
     const config = testConfig();
     expect(config.provider.interCallDelayMs).toBe(1500);
     expect(config.fulfillment.maxAttempts).toBe(3);
+    expect(config.catalogSync.intervalMs).toBe(60 * 60_000);
+  });
+
+  it('accepts 0 to switch the catalog sync off', () => {
+    expect(testConfig({ CATALOG_SYNC_INTERVAL_MS: '0' }).catalogSync.intervalMs).toBe(0);
+  });
+
+  it('rejects a negative catalog sync interval', () => {
+    expect(() => testConfig({ CATALOG_SYNC_INTERVAL_MS: '-1' })).toThrow(/CATALOG_SYNC_INTERVAL_MS/);
   });
 });

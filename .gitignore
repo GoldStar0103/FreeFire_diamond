@@ -36,6 +36,9 @@ Thumbs.db
 # common local choice of putting it inside the repo.
 .uploads/
 
+# Database and upload dumps from scripts/backup.sh. Customer data, and large.
+backups/
+
 # Personal Claude Code overrides. Team-wide settings belong in
 # .claude/settings.json, which is committed.
 .claude/settings.local.json

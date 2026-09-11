@@ -56,6 +56,28 @@ describe('happy path', () => {
     expect(store.current.items.every((i) => i.status === 'succeeded')).toBe(true);
   });
 
+  it('buys each item through the endpoint its catalog row names', async () => {
+    // The catalog sync can re-point a denomination onto a /buy/games package.
+    // This used to be hard-coded to /buy/pins, which would fail every call.
+    const order = chidos3000();
+    order.items[0]!.endpointKind = 'games';
+    order.items[1]!.endpointKind = 'pins_recharge';
+    // items[2] has none — an item whose product row is gone.
+    const { deps, sim } = harness(order);
+    sim.program({ mode: 'succeed' });
+
+    const seen: string[] = [];
+    const purchase = sim.purchase.bind(sim);
+    sim.purchase = async (request) => {
+      seen.push(request.endpointKind);
+      return purchase(request);
+    };
+
+    await fulfillOrder(deps, 'order-1');
+
+    expect(seen).toEqual(['games', 'pins_recharge', 'pins_recharge']);
+  });
+
   it('completes all eight calls of Mega Prime 48k', async () => {
     const { deps, sim } = harness(megaPrime48k());
     sim.program({ mode: 'succeed' });

@@ -228,6 +228,13 @@ export const orders = pgTable(
     fbc: text('fbc'),
     clientIp: text('client_ip'),
     userAgent: text('user_agent'),
+    /**
+     * When the server-side Purchase reached Meta. The worker reports every paid
+     * storefront order once; null means not yet, and the attempts counter stops
+     * it retrying forever against a revoked token.
+     */
+    capiSentAt: timestamp('capi_sent_at', { withTimezone: true }),
+    capiAttempts: integer('capi_attempts').notNull().default(0),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     paidAt: timestamp('paid_at', { withTimezone: true }),
@@ -238,6 +245,8 @@ export const orders = pgTable(
     uniqueIndex('orders_number_idx').on(t.orderNumber),
     index('orders_player_idx').on(t.playerId),
     index('orders_status_idx').on(t.status),
+    // What the conversions sweep scans: paid, not yet reported.
+    index('orders_capi_pending_idx').on(t.paidAt).where(sql`capi_sent_at IS NULL`),
 
     /**
      * The Mega Oferta is a loss leader marked "válido solo para clientes

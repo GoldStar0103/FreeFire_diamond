@@ -16,9 +16,9 @@
  * Everything here returns a shape a page renders directly.
  */
 
-import { and, asc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
-import { campaigns, combos, orderItems, orders } from '../schema.js';
+import { campaigns, combos, orderItems, orders, payments } from '../schema.js';
 
 // ── catalog ───────────────────────────────────────────────────────────────────
 
@@ -162,6 +162,21 @@ export interface CustomerOrder {
   completedAt: Date | null;
   /** True once an admin needs to intervene — the only time support is offered. */
   needsSupport: boolean;
+  /**
+   * How they chose to pay. Decides what "esperando pago" asks of them — a
+   * comprobante upload makes no sense to someone who paid by card.
+   */
+  paymentMethod: string | null;
+  /**
+   * The card gateway's session, for the page to re-check with the gateway on
+   * return. Server-side only: the page uses it and never renders it.
+   */
+  gateway: string | null;
+  gatewayChargeId: string | null;
+  /** Shared by the browser Pixel's Purchase and the server-side CAPI event. */
+  eventId: string;
+  /** The public combo key — already in the storefront URL, so nothing new leaks. */
+  comboKey: string;
 }
 
 /**
@@ -214,6 +229,8 @@ export async function findCustomerOrder(
       priceMxnCents: orders.priceMxnCents,
       comboSnapshot: orders.comboSnapshot,
       status: orders.status,
+      eventId: orders.eventId,
+      comboKey: orders.comboKey,
       createdAt: orders.createdAt,
       completedAt: orders.completedAt,
     })
@@ -228,17 +245,35 @@ export async function findCustomerOrder(
 
   if (!row) return null;
 
-  const items = await db
-    .select({ status: orderItems.status, diamondsBase: orderItems.diamondsBase })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, row.id));
+  const [items, [payment]] = await Promise.all([
+    db
+      .select({ status: orderItems.status, diamondsBase: orderItems.diamondsBase })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, row.id)),
+    // The latest attempt is the live one, as in `DrizzlePaymentStore.findPayable`.
+    db
+      .select({
+        method: payments.method,
+        status: payments.status,
+        gateway: payments.gateway,
+        gatewayChargeId: payments.gatewayChargeId,
+      })
+      .from(payments)
+      .where(eq(payments.orderId, row.id))
+      .orderBy(desc(payments.createdAt))
+      .limit(1),
+  ]);
 
   const deliveredDiamonds = items
     .filter((i) => i.status === 'succeeded')
     .reduce((sum, i) => sum + (i.diamondsBase * 110) / 100, 0);
 
   const snapshot = row.comboSnapshot as { name?: string; advertisedDiamonds?: number };
-  const status = toCustomerStatus(row.status, false);
+  // This used to pass a hardcoded `false`, so a customer who had already sent
+  // their comprobante was told to send it — to someone who has just paid and
+  // is refreshing to see whether we got it, the one message guaranteed to
+  // make them think the money vanished.
+  const status = toCustomerStatus(row.status, payment?.status === 'under_review');
 
   return {
     orderNumber: row.orderNumber,
@@ -254,6 +289,11 @@ export async function findCustomerOrder(
     // Support is surfaced only here — the client does not want a floating
     // WhatsApp button for a market full of curious children.
     needsSupport: status === 'con_problema',
+    paymentMethod: payment?.method ?? null,
+    gateway: payment?.gateway ?? null,
+    gatewayChargeId: payment?.gatewayChargeId ?? null,
+    eventId: row.eventId,
+    comboKey: row.comboKey,
   };
 }
 

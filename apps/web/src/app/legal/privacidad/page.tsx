@@ -63,8 +63,9 @@ export default function PrivacyPage() {
       </ul>
       <p>
         <strong>No pedimos ni almacenamos tu contraseña de Free Fire</strong>, ni datos de
-        tarjetas bancarias. Cuando pagas con tarjeta, esos datos los procesa directamente la
-        pasarela de pagos y nunca pasan por nuestros servidores.
+        tarjetas bancarias. Cuando pagas con tarjeta o en OXXO a través de Stripe, esos datos
+        los procesa directamente Stripe en su propia página segura y nunca pasan por nuestros
+        servidores.
       </p>
 
       <h2>Para qué los usamos</h2>
@@ -77,8 +78,9 @@ export default function PrivacyPage() {
       </ul>
       <p>
         No vendemos ni rentamos tus datos. No los compartimos con terceros salvo con nuestro
-        proveedor de recargas y nuestra pasarela de pagos, en la medida estrictamente
-        necesaria para completar tu compra, o cuando una autoridad lo requiera legalmente.
+        proveedor de recargas y nuestra pasarela de pagos (Stripe), en la medida estrictamente
+        necesaria para completar tu compra; con Meta y TikTok, para medir nuestra publicidad,
+        como se explica en «Cookies y medición»; o cuando una autoridad lo requiera legalmente.
       </p>
 
       <h2>Cuánto tiempo los conservamos</h2>
@@ -98,11 +100,34 @@ export default function PrivacyPage() {
         que marca la ley.
       </p>
 
+      {/* Written to match the code, like the rest of this notice. The two
+          pixels are not symmetrical: Meta also gets a server-side report from
+          the worker, TikTok gets only what its Pixel sees in the browser. If
+          TikTok's Events API is ever wired up, this section has to change with
+          it. Page addresses are mentioned because both pixels send them, and
+          the order page's address carries the order number and player ID. */}
       <h2>Cookies y medición</h2>
       <p>
-        Usamos herramientas de medición para entender cómo se usa el sitio y evaluar nuestra
-        publicidad. Puedes desactivar las cookies desde tu navegador; el sitio seguirá
-        funcionando.
+        Usamos el Píxel de Meta (Facebook e Instagram) y el Píxel de TikTok para saber qué
+        anuncios traen compras. Los dos guardan cookies en tu navegador y, desde ahí, les
+        avisan a Meta y a TikTok qué páginas de este sitio visitas (la de tu pedido incluye tu
+        número de pedido y tu ID de jugador) y cuándo ves un paquete, empiezas a pagar o
+        completas una compra, con el monto y el paquete. Esa información sale directamente de
+        tu navegador, junto con tu dirección IP y los datos de tu navegador.
+      </p>
+      <p>
+        Además, cuando se confirma el pago de un pedido, enviamos a Meta desde nuestros
+        servidores un aviso de la compra (monto, paquete y fecha) junto con tu dirección IP, tu
+        navegador, las cookies de su Píxel y, cifrados de forma irreversible, tu ID de jugador y
+        tu WhatsApp si nos lo diste. A TikTok no le enviamos nada desde nuestros servidores:
+        solo recibe lo que su Píxel registra en tu navegador. Meta y TikTok usan estos datos
+        para medir y mejorar nuestros anuncios; ninguno recibe tu comprobante ni datos de
+        tarjeta.
+      </p>
+      <p>
+        Puedes desactivar las cookies desde tu navegador y el sitio seguirá funcionando. Para
+        oponerte al envío a Meta de los datos de tu compra, escríbenos al correo de contacto
+        indicado arriba.
       </p>
 
       <h2>Cambios a este aviso</h2>

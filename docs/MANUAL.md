@@ -42,6 +42,35 @@ tienes que hacer nada más.
 Si el monto no coincide, no apruebes. Escríbele al cliente primero. Una vez
 aprobado, los diamantes se envían y **no se pueden recuperar**.
 
+### Pagos con tarjeta (Stripe)
+
+Cuando Stripe está activado, el cliente ve dos opciones al pagar:
+**💳 Tarjeta** y **🏦 Transferencia**. La transferencia con comprobante sigue
+funcionando igual que siempre.
+
+Si paga con tarjeta, **no tienes que aprobar nada**. Stripe nos avisa en cuanto
+el banco acepta el cobro y la recarga arranca sola, normalmente en segundos.
+Esos pedidos **no aparecen en Aprobaciones** porque no hay comprobante que
+revisar: el comprobante es el propio cobro en Stripe.
+
+En el detalle del pedido verás "Tarjeta u OXXO (Stripe)" y una referencia que
+empieza con `pi_`. Al darle clic se abre ese cobro en tu panel de Stripe, que
+es donde se atienden aclaraciones o devoluciones.
+
+Si activaste OXXO en Stripe, el cliente también puede pagar en efectivo: Stripe
+le da una ficha, la paga en cualquier OXXO, y cuando Stripe confirma el pago
+(puede tardar unas horas) la recarga entra sola. Si no la paga, el pedido se
+vence solo.
+
+**Si te llega una alerta "Pago con tarjeta recibido pero NO aprobado"**: alguien
+pagó pero el sistema no pudo aprobarlo solo — por ejemplo, el pedido ya se había
+vencido. Revisa el cobro en Stripe. Si el cliente sí debe recibir su recarga,
+créale un **pedido manual** (Pedidos → Nuevo pedido manual) marcado como pagado.
+Si no, devuélvele el dinero desde Stripe.
+
+**Devoluciones:** se hacen desde el panel de Stripe. Recuerda que si los
+diamantes ya se entregaron, no se pueden recuperar.
+
 ### Registrar una venta de WhatsApp
 
 Si alguien te compró por WhatsApp y ya te pagó, ve a **Pedidos → Nuevo pedido
@@ -64,8 +93,10 @@ intento que quedó a medias bloqueaba al cliente para siempre. Al vencerse, su
 lugar se libera y puede volver a intentarlo.
 
 Un pedido con comprobante subido **nunca se vence** — ése ya te pagó y está
-esperando que tú lo apruebes. Y si un pedido se venció pero resulta que el
-cliente sí había pagado, todavía puedes aprobarlo con "forzar".
+esperando que tú lo apruebes. Y si un pedido ya aparece como "Pago vencido" pero
+resulta que el cliente sí había pagado, créale un **pedido manual** (Pedidos →
+Nuevo pedido manual) marcado como pagado: el pedido vencido ya no se puede
+aprobar, y el manual entrega exactamente igual.
 
 ### Revisar pedidos
 
@@ -137,14 +168,34 @@ Actualízalo de vez en cuando para que tus márgenes se vean reales.
 ### Un pedido dice "Requiere revisión"
 
 Significa que el sistema no pudo estar seguro de si el proveedor ya cobró o no,
-y prefirió no adivinar.
+y prefirió no adivinar. Te llega una alerta por Telegram con el número de pedido.
 
-Entra al panel de RecargasAmérica, busca el movimiento por hora y monto, y:
+Abre el pedido en el panel. Arriba aparece el recuadro **"Resolver este pedido"**
+con cada recarga pendiente, su monto y la hora en que se envió.
 
-- Si sí se hizo la recarga, marca el pedido como entregado.
-- Si no se hizo, vuelve a intentarlo.
+1. Entra al panel de RecargasAmérica y busca cada una por **hora y monto**.
+2. Por cada recarga:
+   - Si la encontraste y sí se hizo: **✅ Sí llegó**.
+   - Si no aparece ni se cobró: marca la casilla *"Revisé en RecargasAmérica y
+     NO se cobró"* y presiona **↩ No llegó**.
+3. Cuando ya no quede ninguna "Sin confirmar", presiona **Reanudar entregas**:
+   se envían solas las recargas que falten.
 
-Nunca adivines. Los diamantes ya enviados no se pueden recuperar.
+Si todas quedan como entregadas, el pedido se completa solo.
+
+**Nunca adivines.** Si marcas "No llegó" en una recarga que sí se había
+cobrado, el cliente recibe doble y los diamantes no se pueden recuperar. Por eso
+el sistema te pide confirmarlo.
+
+**Si el pedido se pausó por falta de saldo:** recarga tu saldo en
+RecargasAmérica y presiona **Reanudar entregas**. No hay nada más que revisar.
+
+**Si no se puede entregar** (por ejemplo, la cuenta del cliente está
+suspendida): abre *"No se puede entregar — marcar para reembolso"*, escribe el
+motivo y confirma. Cuando le devuelvas el dinero, registra cómo lo hiciste con
+**Reembolso hecho** y el pedido queda cerrado.
+
+Todo lo que hagas aquí queda registrado con tu usuario.
 
 ### Los pedidos pagados no se están entregando
 
@@ -161,7 +212,7 @@ dice exactamente en qué punto está:
 
 | Estado | Qué significa |
 |---|---|
-| Esperando pago | No hemos recibido su comprobante |
+| Esperando pago | No hemos recibido su comprobante, o su pago con tarjeta u OXXO no se ha confirmado |
 | Revisando pago | Ya subió comprobante, falta que tú lo apruebes |
 | Procesando | Aprobado, los diamantes están entrando |
 | Completado | Ya se entregaron |
@@ -185,6 +236,10 @@ carpeta donde se guardan las imágenes.
   solo; no tienes que revisarlo.
 - **Los comprobantes de pago sólo se ven desde el panel**, con tu sesión
   iniciada. No son públicos ni se pueden abrir con una liga.
+- **El Píxel de Meta** registra solo las visitas y las compras de la tienda
+  para que tus anuncios de Facebook e Instagram sepan qué funciona. Cada compra
+  pagada se le reporta a Meta una sola vez, aunque el cliente recargue la
+  página. En Meta, las compras aparecen en el Administrador de eventos.
 
 ---
 

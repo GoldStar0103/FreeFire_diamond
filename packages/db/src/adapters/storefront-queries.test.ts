@@ -13,7 +13,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
 import { createOrder } from '@levelup/engine';
 import { createDb, type Database } from '../index.js';
-import { baseProducts, campaigns, comboItems, combos, orderItems, orders } from '../schema.js';
+import { baseProducts, campaigns, comboItems, combos, orderItems, orders, payments } from '../schema.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
 import {
   countCompletedOrders,
@@ -279,6 +279,28 @@ describe.skipIf(!PG_AVAILABLE)('findCustomerOrder', () => {
     expect(found?.orderNumber).toBe(order.orderNumber);
     expect(found?.comboName).toBe('Pack Insano');
     expect(found?.status).toBe('esperando_pago');
+  });
+
+  it('tells a customer whose comprobante is in, that it is being reviewed', async () => {
+    // Regression: this used to say "sube tu comprobante" to someone who had.
+    const order = await placeOrder();
+    await db.update(payments).set({ status: 'under_review' }).where(eq(payments.orderId, order.id));
+
+    const found = await findCustomerOrder(db, order.orderNumber, '7288567050');
+    expect(found?.status).toBe('pago_en_revision');
+    expect(found?.paymentMethod).toBe('transfer_manual');
+  });
+
+  it('carries the card session for the page to re-check, and the tracking event id', async () => {
+    const order = await placeOrder();
+    await db
+      .update(payments)
+      .set({ gateway: 'stripe', gatewayChargeId: 'cs_test_1' })
+      .where(eq(payments.orderId, order.id));
+
+    const found = await findCustomerOrder(db, order.orderNumber, '7288567050');
+    expect(found).toMatchObject({ gateway: 'stripe', gatewayChargeId: 'cs_test_1' });
+    expect(found?.eventId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('refuses the right number with the wrong player ID', async () => {

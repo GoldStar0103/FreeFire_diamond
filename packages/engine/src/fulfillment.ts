@@ -140,7 +140,12 @@ export async function fulfillOrder(
       await store.markItemSending(item.id, walletBefore);
 
       const outcome = await provider.purchase({
-        endpointKind: 'pins_recharge',
+        // From the product's catalog row. This was hard-coded to /buy/pins,
+        // which was true of all six launch products — but the catalog sync can
+        // re-point a denomination onto a `games` package when the provider
+        // changes its catalog, and a games id sent to /buy/pins fails every
+        // time. A `pins_code` product is refused by the client outright.
+        endpointKind: item.endpointKind ?? 'pins_recharge',
         providerProductId: item.providerProductId,
         playerId: order.playerId,
         ...(order.serverId ? { serverId: order.serverId } : {}),
