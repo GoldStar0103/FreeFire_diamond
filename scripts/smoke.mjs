@@ -89,6 +89,7 @@ await check('health endpoint reports ok', async () => {
 });
 
 let comboPath = null;
+let promoPath = null;
 
 // The homepage itself is a flyer rail now — most combos are one tap away at
 // /promocion/[key], not linked directly here. Only the permanent Mega Oferta
@@ -109,14 +110,15 @@ await check('homepage lists something to buy', async () => {
   if (promos.length === 0) {
     return { detail: 'no combos or promotions on the homepage — is the catalog seeded and active?' };
   }
+  promoPath = promos[0];
 
-  const promo = await get(`${STORE}${promos[0]}`);
+  const promo = await get(`${STORE}${promoPath}`);
   const viaPromo = [...promo.body.matchAll(/href="(\/comprar\/[a-z0-9_]+)"/g)].map((m) => m[1]);
   if (viaPromo.length === 0) {
-    return { detail: `${promos[0]} has no combos linked from it` };
+    return { detail: `${promoPath} has no combos linked from it` };
   }
   comboPath = viaPromo[0];
-  return { ok: true, detail: `${promos.length} promotion(s), e.g. ${new Set(viaPromo).size} combo(s) via ${promos[0]}` };
+  return { ok: true, detail: `${promos.length} promotion(s), e.g. ${new Set(viaPromo).size} combo(s) via ${promoPath}` };
 });
 
 await check('a combo page renders', async () => {
@@ -126,9 +128,20 @@ await check('a combo page renders', async () => {
 });
 
 await check('flyer images actually resolve', async () => {
-  const { body } = await get(`${STORE}/`);
-  const srcs = [...body.matchAll(/<img[^>]+class="flyer"[^>]+src="([^"]+)"/g)].map((m) => m[1]);
+  // Two layers now: the homepage rail's compact `promo-flyer` thumbnails, and
+  // the full-size `flyer` on whichever promotion page the previous check
+  // followed. Checking only the homepage would miss a flyer that 404s on the
+  // detail page but happens to still be cached/working as a thumbnail.
+  const { body: homeBody } = await get(`${STORE}/`);
+  const promoSrcs = [...homeBody.matchAll(/<img[^>]+class="promo-flyer"[^>]+src="([^"]+)"/g)].map((m) => m[1]);
 
+  let detailSrcs = [];
+  if (promoPath) {
+    const { body: detailBody } = await get(`${STORE}${promoPath}`);
+    detailSrcs = [...detailBody.matchAll(/<img[^>]+class="flyer"[^>]+src="([^"]+)"/g)].map((m) => m[1]);
+  }
+
+  const srcs = [...new Set([...promoSrcs, ...detailSrcs])];
   if (srcs.length === 0) return { warn: 'no flyers uploaded yet' };
 
   for (const src of srcs) {
