@@ -11,6 +11,17 @@ const nextConfig = {
   reactStrictMode: true,
 
   /**
+   * Next's Server Actions default to a 1MB request body, which is smaller
+   * than a single phone photo — checkout's own comprobante upload validates
+   * up to `MAX_UPLOAD_BYTES` (8MB, packages/shared/src/upload.ts) but never
+   * got the chance: the framework rejected anything over 1MB before that
+   * validation ran, surfacing as a generic "Algo salió mal" error boundary
+   * with no indication it was a size limit. Set above 8MB for multipart
+   * encoding overhead.
+   */
+  experimental: { serverActions: { bodySizeLimit: '10mb' } },
+
+  /**
    * Standalone bundles the server and only the files it traced into
    * `.next/standalone`, so the runtime image needs no node_modules and no
    * package manager. `outputFileTracingRoot` has to point at the workspace

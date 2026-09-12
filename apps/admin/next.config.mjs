@@ -10,6 +10,11 @@ loadRootEnv();
 const nextConfig = {
   reactStrictMode: true,
 
+  // See the storefront's config for why: Server Actions default to a 1MB
+  // body, well under a real flyer image or MAX_UPLOAD_BYTES (8MB,
+  // packages/shared/src/upload.ts). Set above 8MB for multipart overhead.
+  experimental: { serverActions: { bodySizeLimit: '10mb' } },
+
   // See the storefront's config: tracing must start at the workspace root or
   // the symlinked @levelup/* packages are left out of the standalone bundle.
   output: 'standalone',
