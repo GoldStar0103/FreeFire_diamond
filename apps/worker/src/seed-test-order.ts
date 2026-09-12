@@ -5,7 +5,14 @@
  * Useful locally, and on the client's staging environment when they want to
  * watch a combo run end to end before trusting it with money.
  *
- *   DATABASE_URL=... pnpm --filter @levelup/worker seed-test-order mega_prime_48k --approve
+ *   DATABASE_URL=... TEST_PLAYER_ID=... pnpm --filter @levelup/worker seed-test-order mega_prime_48k --approve
+ *
+ * TEST_PLAYER_ID has no default. Every Free Fire ID is a real account —
+ * there is no such thing as a made-up one that is safe to guess — and this
+ * script's own default silently pointed at an actual customer's account for
+ * most of this project, discovered only when a live run really delivered
+ * diamonds to them. Whoever runs this now has to consciously supply an ID
+ * they actually control or expect, rather than trusting a stale fallback.
  */
 
 import { createDb, DrizzleOrderingStore, DrizzlePaymentStore } from '@levelup/db';
@@ -13,7 +20,13 @@ import { approvePayment, createOrder } from '@levelup/engine';
 
 const comboKey = process.argv[2] ?? 'mega_prime_48k';
 const approve = process.argv.includes('--approve');
-const playerId = process.env.TEST_PLAYER_ID ?? '7288567050';
+const playerId = process.env.TEST_PLAYER_ID;
+if (!playerId) {
+  throw new Error(
+    'TEST_PLAYER_ID is required — every Free Fire ID is a real account, so ' +
+      'there is no safe default. Set it to an ID you actually control or expect.',
+  );
+}
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is not set');
