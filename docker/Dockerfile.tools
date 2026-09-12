@@ -41,6 +41,13 @@ FROM deps AS runtime
 # commands are.
 COPY . .
 
+# This container runs as root (no USER below), but it shares the `uploads`
+# volume with web/admin (docker-compose.prod.yml), which run as the
+# unprivileged `node` user. If this is ever the first container to mount a
+# fresh volume, Docker's copy-up needs this path to already exist with that
+# ownership — see docker/Dockerfile.next's identical step for why.
+RUN mkdir -p /srv/levelup/uploads && chown -R node:node /srv/levelup/uploads
+
 # Every real use overrides this with the command to run. A shell is the useful
 # default for poking around when something is wrong.
 CMD ["sh"]

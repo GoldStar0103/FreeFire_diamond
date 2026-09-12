@@ -66,9 +66,16 @@ COPY --from=build /repo/apps/${APP}/.next/standalone ./
 # the site boots, serves HTML, and every stylesheet and script 404s.
 COPY --from=build /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
 
-# node:alpine ships an unprivileged `node` user. The app never writes to its own
-# filesystem — uploads go to a mounted volume — so nothing here needs to be
-# owned by it.
+# The mount point for the `uploads` volume (docker-compose.prod.yml), created
+# here so Docker's first-mount copy-up gives the fresh named volume this
+# ownership. Skipping this left the volume root:root — the default for a
+# volume with nothing to copy up from — and every comprobante/flyer write
+# failed with EACCES the moment a real deployment tried to use it, since the
+# app runs as the unprivileged `node` user below, not root.
+RUN mkdir -p /srv/levelup/uploads && chown -R node:node /srv/levelup/uploads
+
+# node:alpine ships an unprivileged `node` user. The app itself never writes
+# outside that mounted volume.
 USER node
 
 EXPOSE 3000
