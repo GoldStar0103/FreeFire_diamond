@@ -18,6 +18,7 @@ import { DrizzleOrderingStore } from './ordering-store.js';
 import {
   countCompletedOrders,
   findCustomerOrder,
+  getStorefrontCampaign,
   getStorefrontCombo,
   listStorefront,
 } from './storefront-queries.js';
@@ -251,6 +252,48 @@ describe.skipIf(!PG_AVAILABLE)('getStorefrontCombo', () => {
 
   it('returns null for a combo that does not exist', async () => {
     expect(await getStorefrontCombo(db, 'no_existe')).toBeNull();
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('getStorefrontCampaign', () => {
+  beforeEach(async () => {
+    await seedCampaign({
+      key: 'super_packs',
+      name: 'SUPER PACKS',
+      flyer: 'https://cdn/superpacks.jpg',
+      combos: [
+        { key: 'pack_insano', name: 'Pack Insano', price: 86_000, advertised: 7200, recipe: [5600, 1060], sort: 1 },
+        { key: 'pack_huesito', name: 'Pack Huesito', price: 18_500, advertised: 1160, recipe: [1060], sort: 0 },
+      ],
+    });
+  });
+
+  it('returns the campaign with every one of its combos, in order', async () => {
+    const campaign = await getStorefrontCampaign(db, 'super_packs');
+    expect(campaign?.name).toBe('SUPER PACKS');
+    expect(campaign?.flyerAssetUrl).toBe('https://cdn/superpacks.jpg');
+    expect(campaign?.combos.map((c) => c.key)).toEqual(['pack_huesito', 'pack_insano']);
+  });
+
+  it('never exposes the recipe or the provider cost', async () => {
+    const campaign = await getStorefrontCampaign(db, 'super_packs');
+    expect(JSON.stringify(campaign)).not.toContain('5600');
+    expect(JSON.stringify(campaign)).not.toContain('33.27');
+  });
+
+  it('omits a combo that is switched off, without dropping the campaign', async () => {
+    await db.update(combos).set({ active: false }).where(eq(combos.key, 'pack_insano'));
+    const campaign = await getStorefrontCampaign(db, 'super_packs');
+    expect(campaign?.combos.map((c) => c.key)).toEqual(['pack_huesito']);
+  });
+
+  it('returns null for a campaign that is switched off', async () => {
+    await db.update(campaigns).set({ active: false }).where(eq(campaigns.key, 'super_packs'));
+    expect(await getStorefrontCampaign(db, 'super_packs')).toBeNull();
+  });
+
+  it('returns null for a campaign that does not exist', async () => {
+    expect(await getStorefrontCampaign(db, 'no_existe')).toBeNull();
   });
 });
 

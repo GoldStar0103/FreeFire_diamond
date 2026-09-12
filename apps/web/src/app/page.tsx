@@ -68,40 +68,43 @@ export default async function HomePage() {
         </p>
       )}
 
-      {(hero?.permanent ? rest : campaigns).map((campaign) => {
-        // What the database holds is a storage key, not a URL. Rendering it
-        // straight into `src` is what made every uploaded flyer a broken image.
-        const flyer = flyerUrl(campaign.flyerAssetUrl);
+      {/*
+        The homepage used to embed every campaign's full flyer plus its whole
+        combo grid inline — everything, all at once, before anyone had chosen
+        what they were interested in. This is the flyer-first view instead:
+        one tap on a campaign's own art is the only thing asked of a visitor
+        here. The detail (every combo, every price) lives one tap away at
+        /promocion/[key] — see that page for what used to be right here.
+      */}
+      {(hero?.permanent ? rest : campaigns).length > 0 && (
+        <div className="promo-rail">
+          {(hero?.permanent ? rest : campaigns).map((campaign) => {
+            // What the database holds is a storage key, not a URL. Rendering it
+            // straight into `src` is what made every uploaded flyer a broken image.
+            const flyer = flyerUrl(campaign.flyerAssetUrl);
 
-        return (
-          <section key={campaign.key} className="campaign">
-            <h2>{campaign.name}</h2>
-
-            {flyer && (
-              // The flyer is the brand — it is also what they post on social, so
-              // it stays. The purchasable combos are real cards beneath it, never
-              // text baked into the image.
-              <img
-                className="flyer"
-                src={flyer}
-                alt={campaign.name}
-                loading="lazy"
-                decoding="async"
-              />
-            )}
-
-            <div className="combo-grid">
-              {campaign.combos.map((combo) => (
-                <Link key={combo.key} href={`/comprar/${combo.key}`} className="card combo">
-                  <div className="combo-diamonds">{diamonds(combo.advertisedDiamonds)} 💎</div>
-                  <div className="combo-name">{combo.name}</div>
-                  <div className="combo-price">{mxn(combo.priceMxnCents)}</div>
-                </Link>
-              ))}
-            </div>
-          </section>
-        );
-      })}
+            return (
+              <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="promo-card">
+                {flyer ? (
+                  <img
+                    className="promo-flyer"
+                    src={flyer}
+                    alt={campaign.name}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  // A campaign the owner has not uploaded art for yet still has
+                  // to be reachable — a silent gap in the rail reads as broken,
+                  // not as "coming soon".
+                  <div className="promo-flyer promo-flyer-empty">{campaign.name}</div>
+                )}
+                <div className="promo-name">{campaign.name}</div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {campaigns.length === 0 && (
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>

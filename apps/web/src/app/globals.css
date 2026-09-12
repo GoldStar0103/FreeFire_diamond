@@ -105,8 +105,51 @@ img { max-width: 100%; display: block; }
 
 /* ── campaigns ─────────────────────────────────────────────────────────── */
 
-.campaign { margin-bottom: 30px; }
-.campaign h2 { font-size: 15px; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 10px; }
+/* The homepage rail: one flyer per campaign, full detail one tap away at
+   /promocion/[key]. Horizontal scroll-snap rather than a JS carousel library —
+   it needs no client bundle, no autoplay timer fighting a thumb mid-swipe, and
+   degrades to a plain scrollable row if anything about the styling fails to
+   load, instead of to nothing at all. */
+.promo-rail {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  margin: 0 -16px 26px;
+  padding: 0 16px 4px;
+  /* The page's own side padding is cancelled above so the rail can scroll
+     edge-to-edge on a phone; re-applied per-card via scroll-padding so the
+     first and last cards do not sit flush against the screen edge mid-scroll. */
+  scroll-padding-left: 16px;
+}
+.promo-card {
+  flex: 0 0 78%;
+  max-width: 300px;
+  scroll-snap-align: start;
+}
+.promo-flyer {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.promo-flyer-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 16px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 700;
+}
+.promo-name {
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
 .flyer { width: 100%; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 12px; }
 
 .combo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }

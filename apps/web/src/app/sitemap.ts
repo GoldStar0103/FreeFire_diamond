@@ -49,5 +49,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
   );
 
-  return [...staticPages, ...combos];
+  // Non-permanent campaigns get their own page (the homepage only links to
+  // it, not to every combo inside it — see /promocion/[key]).
+  const promotions: MetadataRoute.Sitemap = campaigns
+    .filter((campaign) => !campaign.permanent)
+    .map((campaign) => ({
+      url: siteUrl(`/promocion/${campaign.key}`),
+      lastModified: now,
+      changeFrequency: 'weekly' as const,
+      priority: 0.7,
+    }));
+
+  return [...staticPages, ...promotions, ...combos];
 }

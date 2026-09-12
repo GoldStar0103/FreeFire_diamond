@@ -113,6 +113,56 @@ export async function listStorefront(
   return [...byCampaign.values()];
 }
 
+/**
+ * One campaign with its combos, for its own promotion page.
+ *
+ * A dedicated query rather than filtering `listStorefront`'s result: the
+ * homepage now only ever needs a campaign's flyer and key, so fetching every
+ * other campaign's combos just to throw them away on every promotion-page
+ * request would be pure waste for a page that gets exactly this on every hit.
+ */
+export async function getStorefrontCampaign(
+  db: Database,
+  campaignKey: string,
+  now = new Date(),
+): Promise<StorefrontCampaign | null> {
+  const rows = await db
+    .select({
+      campaignKey: campaigns.key,
+      campaignName: campaigns.name,
+      flyerAssetUrl: campaigns.flyerAssetUrl,
+      badge: campaigns.badge,
+      permanent: campaigns.permanent,
+      comboKey: combos.key,
+      comboName: combos.name,
+      priceMxnCents: combos.priceMxnCents,
+      advertisedDiamonds: combos.advertisedDiamonds,
+      maxPerPlayer: combos.maxPerPlayer,
+    })
+    .from(combos)
+    .innerJoin(campaigns, eq(campaigns.id, combos.campaignId))
+    .where(and(eq(campaigns.key, campaignKey), ...liveConditions(now)))
+    .orderBy(asc(combos.sortOrder));
+
+  const first = rows[0];
+  if (!first) return null;
+
+  return {
+    key: first.campaignKey,
+    name: first.campaignName,
+    flyerAssetUrl: first.flyerAssetUrl,
+    badge: first.badge,
+    permanent: first.permanent,
+    combos: rows.map((r) => ({
+      key: r.comboKey,
+      name: r.comboName,
+      priceMxnCents: r.priceMxnCents,
+      advertisedDiamonds: r.advertisedDiamonds,
+      maxPerPlayer: r.maxPerPlayer,
+    })),
+  };
+}
+
 /** One combo, for the checkout page. Null when it is not currently on sale. */
 export async function getStorefrontCombo(
   db: Database,

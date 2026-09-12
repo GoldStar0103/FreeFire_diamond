@@ -90,16 +90,33 @@ await check('health endpoint reports ok', async () => {
 
 let comboPath = null;
 
+// The homepage itself is a flyer rail now — most combos are one tap away at
+// /promocion/[key], not linked directly here. Only the permanent Mega Oferta
+// hero still links straight to /comprar/. So this follows one promotion link
+// through to find a real combo, rather than expecting every combo to be
+// discoverable from the homepage's own HTML.
 await check('homepage lists something to buy', async () => {
   const { status, body } = await get(`${STORE}/`);
   if (status !== 200) return { detail: `HTTP ${status}` };
 
-  const combos = [...body.matchAll(/href="(\/comprar\/[a-z0-9_]+)"/g)].map((m) => m[1]);
-  if (combos.length === 0) {
-    return { detail: 'no combos on the homepage — is the catalog seeded and active?' };
+  const direct = [...body.matchAll(/href="(\/comprar\/[a-z0-9_]+)"/g)].map((m) => m[1]);
+  if (direct.length > 0) {
+    comboPath = direct[0];
+    return { ok: true, detail: `${new Set(direct).size} combo(s) linked directly` };
   }
-  comboPath = combos[0];
-  return { ok: true, detail: `${new Set(combos).size} combo(s)` };
+
+  const promos = [...body.matchAll(/href="(\/promocion\/[a-z0-9_]+)"/g)].map((m) => m[1]);
+  if (promos.length === 0) {
+    return { detail: 'no combos or promotions on the homepage — is the catalog seeded and active?' };
+  }
+
+  const promo = await get(`${STORE}${promos[0]}`);
+  const viaPromo = [...promo.body.matchAll(/href="(\/comprar\/[a-z0-9_]+)"/g)].map((m) => m[1]);
+  if (viaPromo.length === 0) {
+    return { detail: `${promos[0]} has no combos linked from it` };
+  }
+  comboPath = viaPromo[0];
+  return { ok: true, detail: `${promos.length} promotion(s), e.g. ${new Set(viaPromo).size} combo(s) via ${promos[0]}` };
 });
 
 await check('a combo page renders', async () => {
