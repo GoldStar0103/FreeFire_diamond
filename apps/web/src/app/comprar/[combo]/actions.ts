@@ -13,11 +13,12 @@ import {
 import { createOrder, rejectPayment, type CreateOrderFailure } from '@levelup/engine';
 import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
-import { diamonds } from '../../../lib/format';
+import { diamonds, mxn } from '../../../lib/format';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
+import { notifyNewOrder } from '../../../lib/telegram';
 import { trackingContext } from '../../../lib/tracking';
 
 // ── step 1: who is this player? ───────────────────────────────────────────────
@@ -274,6 +275,22 @@ export async function placeOrder(
   }
 
   await attachComprobante(created.order.id, stored.key);
+
+  // Best-effort and deliberately not awaited: the owner asked to hear about
+  // this the moment it happens rather than having to keep checking
+  // Aprobaciones, but a slow or unconfigured Telegram must never delay the
+  // redirect below, let alone fail an order that has already been created
+  // and stored — see notifyNewOrder's own doc comment. Safe to fire and
+  // forget here specifically because this is a long-running Node process
+  // (Dockerfile.next's standalone server), not a serverless function that
+  // could freeze before the request finishes.
+  notifyNewOrder({
+    orderNumber: created.order.orderNumber,
+    comboName: combo.name,
+    price: mxn(combo.priceMxnCents),
+  }).catch(() => {
+    /* notifyNewOrder already logs and never rejects; this is only a backstop. */
+  });
 
   redirect(`/pedido/${created.order.orderNumber}?id=${encodeURIComponent(playerId)}`);
 }
