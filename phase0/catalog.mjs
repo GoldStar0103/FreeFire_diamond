@@ -99,7 +99,9 @@ export const CAMPAIGNS = [
     permanent: false,
     note: 'Client typed names + prices; diamond counts read from the HD flyer.',
     combos: [
-      { key: 'pack_huesito', name: 'Pack Huesito', priceMxn: 185, advertised: 1100, advertisedSource: FLYER, recipe: [1060] },
+      // Client's flyer was updated to 1,160 (2026-09-12): the recipe delivers
+      // 1,166, so the new figure is still 6 under, same margin as before.
+      { key: 'pack_huesito', name: 'Pack Huesito', priceMxn: 185, advertised: 1160, advertisedSource: FLYER, recipe: [1060] },
       // Client relabelled the flyer from 3,600 to 3,500 (2026-09-08): the recipe
       // delivers 3,564, so the original figure was 36 short.
       { key: 'pack_good', name: 'Pack Good', priceMxn: 455, advertised: 3500, advertisedSource: CLIENT, recipe: [2180, 1060] },
