@@ -7,6 +7,7 @@
                     "start":  "tsx src/main.ts",
                     "dev":  "tsx watch src/main.ts",
                     "seed-test-order":  "tsx src/seed-test-order.ts",
+                    "reject-payment":  "tsx src/reject-payment.ts",
                     "typecheck":  "tsc --noEmit",
                     "test":  "vitest run",
                     "sync-catalog":  "tsx src/sync-catalog.ts"
