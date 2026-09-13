@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import { siteOrigin } from '../lib/site';
-import { supportUrl } from '../lib/support';
 import { metaPixelId, tiktokPixelId } from '../lib/pixel-ids';
 import { MetaPixel } from './meta-pixel';
 import { TikTokPixel } from './tiktok-pixel';
+import { BottomNav } from './bottom-nav';
 import logo from '../assets/logo.webp';
 import './globals.css';
 
@@ -62,7 +62,6 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const support = supportUrl();
   // Each pixel is on only when its ID is configured and passes validation —
   // see lib/pixel-ids.ts for why that check is a security boundary.
   const metaId = metaPixelId();
@@ -93,15 +92,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/">Inicio</a>
             <a href="/pedidos">Mis pedidos</a>
             <a href="/confianza">Confianza</a>
-            {/* Support lives here and on a failed order — never as a floating
-                button. The client's market is full of curious children.
-                Hidden entirely when no number is configured, rather than
-                linking to `https://wa.me/`, which opens an error page. */}
-            {support && (
-              <a href={support} target="_blank" rel="noreferrer">
-                Soporte
-              </a>
-            )}
+            {/* A real page now (see /soporte) rather than jumping straight to
+                WhatsApp — the client's own complaint was that support offered
+                nothing but a redirect. WhatsApp is still the fastest way to
+                actually reach someone; it is one tap away on that page. */}
+            <a href="/soporte">Soporte</a>
           </div>
           <div className="footer-links small">
             <a href="/legal/terminos">Términos y Condiciones</a>
@@ -112,6 +107,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <div className="footer-note">Juega más. Domina más.</div>
         </footer>
+        <BottomNav />
       </body>
     </html>
   );

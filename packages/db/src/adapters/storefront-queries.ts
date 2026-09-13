@@ -355,3 +355,17 @@ export async function countCompletedOrders(db: Database): Promise<number> {
     .where(eq(orders.status, 'completed'));
   return Number(row?.n ?? 0);
 }
+
+/**
+ * Distinct players who have completed at least one order — "how many
+ * customers trust us", as opposed to `countCompletedOrders`'s "how many
+ * recharges". A real number rather than a marketing round figure, for the
+ * same reason the testimonials only ever show real quotes.
+ */
+export async function countUniqueCustomers(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<string>`COUNT(DISTINCT ${orders.playerId})::text` })
+    .from(orders)
+    .where(eq(orders.status, 'completed'));
+  return Number(row?.n ?? 0);
+}

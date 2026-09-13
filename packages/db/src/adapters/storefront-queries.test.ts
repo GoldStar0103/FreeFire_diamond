@@ -17,6 +17,7 @@ import { baseProducts, campaigns, comboItems, combos, orderItems, orders, paymen
 import { DrizzleOrderingStore } from './ordering-store.js';
 import {
   countCompletedOrders,
+  countUniqueCustomers,
   findCustomerOrder,
   getStorefrontCampaign,
   getStorefrontCombo,
@@ -434,5 +435,32 @@ describe.skipIf(!PG_AVAILABLE)('countCompletedOrders', () => {
     await db.update(orders).set({ status: 'completed' }).where(eq(orders.playerId, '1111111111'));
 
     expect(await countCompletedOrders(db)).toBe(1);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('countUniqueCustomers', () => {
+  it('counts distinct players, not orders, among completed ones', async () => {
+    await seedCampaign({
+      key: 'super_packs',
+      name: 'SUPER PACKS',
+      combos: [
+        { key: 'pack_insano', name: 'Pack Insano', price: 86_000, advertised: 7200, recipe: [5600, 1060] },
+      ],
+    });
+
+    // The same player completes two orders; a second player completes one;
+    // a third never pays. "How many customers trust us" should say 2, not 3.
+    for (const playerId of ['1111111111', '1111111111', '2222222222', '3333333333']) {
+      await createOrder(
+        { store: new DrizzleOrderingStore(db) },
+        { comboKey: 'pack_insano', playerId, paymentMethod: 'transfer_manual', source: 'storefront' },
+      );
+    }
+    await db
+      .update(orders)
+      .set({ status: 'completed' })
+      .where(raw`${orders.playerId} IN ('1111111111', '2222222222')`);
+
+    expect(await countUniqueCustomers(db)).toBe(2);
   });
 });

@@ -7,9 +7,11 @@ interface Row {
   quote: string;
   author: string;
   combo: string;
+  /** '' means no rating on file — never defaulted to a number. */
+  rating: string;
 }
 
-const EMPTY: Row = { quote: '', author: '', combo: '' };
+const EMPTY: Row = { quote: '', author: '', combo: '', rating: '' };
 
 /** Matches MAX_QUOTE in the store, so the counter agrees with the validator. */
 const MAX_QUOTE = 400;
@@ -24,7 +26,12 @@ export function TestimonialsForm({ initial }: { initial: Row[] }) {
   // never loses what was typed.
   const [rows, setRows] = useState<Row[]>(
     state.draft?.length
-      ? state.draft.map((t) => ({ quote: t.quote, author: t.author, combo: t.combo ?? '' }))
+      ? state.draft.map((t) => ({
+          quote: t.quote ?? '',
+          author: t.author ?? '',
+          combo: t.combo ?? '',
+          rating: t.rating ? String(t.rating) : '',
+        }))
       : initial.length
         ? initial
         : [EMPTY],
@@ -80,6 +87,21 @@ export function TestimonialsForm({ initial }: { initial: Row[] }) {
                 onChange={(e) => update(i, 'combo', e.target.value)}
                 placeholder="Pack Insano"
               />
+            </label>
+            <label className="field" style={{ maxWidth: 160 }}>
+              <span>Calificación (opcional)</span>
+              <select
+                name="rating"
+                value={row.rating}
+                onChange={(e) => update(i, 'rating', e.target.value)}
+              >
+                <option value="">Sin calificación</option>
+                <option value="5">★★★★★ (5)</option>
+                <option value="4">★★★★ (4)</option>
+                <option value="3">★★★ (3)</option>
+                <option value="2">★★ (2)</option>
+                <option value="1">★ (1)</option>
+              </select>
             </label>
           </div>
         </div>

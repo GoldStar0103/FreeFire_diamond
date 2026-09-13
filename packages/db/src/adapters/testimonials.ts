@@ -26,12 +26,26 @@ export interface Testimonial {
   author: string;
   /** Optional: which combo they bought, for context. */
   combo?: string;
+  /**
+   * Optional: 1-5 stars, whatever the customer actually gave. Never inferred
+   * or defaulted — a testimonial with no rating on file shows none, rather
+   * than a made-up five stars. Same principle as the quote itself.
+   */
+  rating?: number;
 }
 
 export interface TestimonialIssue {
   /** Row number as the operator sees it, 1-based. */
   row: number;
   message: string;
+}
+
+/** What a submitted form actually hands over — `rating` arrives as text. */
+export interface TestimonialDraft {
+  quote?: string;
+  author?: string;
+  combo?: string;
+  rating?: string | number;
 }
 
 /**
@@ -47,7 +61,7 @@ export interface TestimonialIssue {
  * testimonial cut off mid-sentence on the trust page is worse than being told
  * to shorten it.
  */
-export function reviewTestimonials(drafts: readonly Partial<Testimonial>[]): {
+export function reviewTestimonials(drafts: readonly TestimonialDraft[]): {
   items: Testimonial[];
   issues: TestimonialIssue[];
 } {
@@ -59,8 +73,12 @@ export function reviewTestimonials(drafts: readonly Partial<Testimonial>[]): {
     const quote = draft.quote?.trim() ?? '';
     const author = draft.author?.trim() ?? '';
     const combo = draft.combo?.trim() ?? '';
+    // Blank is "no rating on file", not zero stars — only a value someone
+    // actually typed gets range-checked.
+    const ratingRaw = draft.rating;
+    const hasRating = ratingRaw !== undefined && ratingRaw !== null && String(ratingRaw).trim() !== '';
 
-    if (!quote && !author && !combo) return;
+    if (!quote && !author && !combo && !hasRating) return;
 
     const before = issues.length;
 
@@ -78,12 +96,22 @@ export function reviewTestimonials(drafts: readonly Partial<Testimonial>[]): {
     if (combo.length > MAX_COMBO) {
       issues.push({ row, message: `Fila ${row}: el nombre del paquete es demasiado largo.` });
     }
+    if (hasRating && (!Number.isInteger(Number(ratingRaw)) || Number(ratingRaw) < 1 || Number(ratingRaw) > 5)) {
+      issues.push({ row, message: `Fila ${row}: la calificación debe ser un número entero de 1 a 5.` });
+    }
 
     // `items` is the valid set, so a row that raised anything stays out of it.
     // Callers refuse to save while there are issues, but a function that
     // reports a problem and hands back the offending row anyway is one
     // refactor away from writing it.
-    if (issues.length === before) items.push({ quote, author, ...(combo ? { combo } : {}) });
+    if (issues.length === before) {
+      items.push({
+        quote,
+        author,
+        ...(combo ? { combo } : {}),
+        ...(hasRating ? { rating: Number(ratingRaw) } : {}),
+      });
+    }
   });
 
   if (items.length > MAX_TESTIMONIALS) {
@@ -119,11 +147,16 @@ export async function listTestimonials(db: Database): Promise<Testimonial[]> {
 
   // Filtered rather than trusted: this is operator-entered content rendered on
   // a public page, and a malformed entry should drop out, not break the page.
-  return value.items.filter(isTestimonial).map((t) => ({
-    quote: t.quote.trim().slice(0, MAX_QUOTE),
-    author: t.author.trim().slice(0, MAX_AUTHOR),
-    ...(t.combo ? { combo: String(t.combo).slice(0, MAX_COMBO) } : {}),
-  }));
+  return value.items.filter(isTestimonial).map((t) => {
+    const rating = Number(t.rating);
+    const validRating = Number.isInteger(rating) && rating >= 1 && rating <= 5;
+    return {
+      quote: t.quote.trim().slice(0, MAX_QUOTE),
+      author: t.author.trim().slice(0, MAX_AUTHOR),
+      ...(t.combo ? { combo: String(t.combo).slice(0, MAX_COMBO) } : {}),
+      ...(validRating ? { rating } : {}),
+    };
+  });
 }
 
 /**

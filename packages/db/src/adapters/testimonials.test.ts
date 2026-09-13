@@ -74,6 +74,28 @@ describe('reviewTestimonials', () => {
     expect(reviewTestimonials([])).toEqual({ items: [], issues: [] });
   });
 
+  it('accepts a rating and rounds off the string form data arrives as', () => {
+    const { items, issues } = reviewTestimonials([{ ...ok, rating: '5' }]);
+    expect(issues).toEqual([]);
+    expect(items[0]?.rating).toBe(5);
+  });
+
+  it('omits the rating rather than storing one nobody gave', () => {
+    const { items } = reviewTestimonials([ok]);
+    expect(items[0]).not.toHaveProperty('rating');
+  });
+
+  it('rejects a rating outside 1-5', () => {
+    const { items, issues } = reviewTestimonials([{ ...ok, rating: '6' }]);
+    expect(items).toHaveLength(0);
+    expect(issues[0]?.message).toMatch(/1 a 5/);
+  });
+
+  it('rejects a non-integer rating', () => {
+    const { issues } = reviewTestimonials([{ ...ok, rating: '4.5' }]);
+    expect(issues[0]?.message).toMatch(/1 a 5/);
+  });
+
   it('keeps the operator’s ordering', () => {
     const { items } = reviewTestimonials([
       { quote: 'primero', author: 'A' },

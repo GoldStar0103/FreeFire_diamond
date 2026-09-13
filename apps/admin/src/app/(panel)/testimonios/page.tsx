@@ -43,6 +43,7 @@ export default async function TestimonialsPage() {
           quote: t.quote,
           author: t.author,
           combo: t.combo ?? '',
+          rating: t.rating ? String(t.rating) : '',
         }))}
       />
     </>
