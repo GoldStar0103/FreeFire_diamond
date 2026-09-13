@@ -52,6 +52,57 @@ const STATUS: Record<CustomerOrderStatus, { label: string; detail: string; tone:
   cancelado: { label: 'Pedido cancelado', detail: 'Este pedido ya no está activo.', tone: 'muted' },
 };
 
+type TrackerStepState = 'done' | 'active' | 'pending' | 'error';
+
+const TRACKER_LABELS = [
+  'Recibimos tu pedido',
+  'Confirmando tu pago',
+  'Entregando tus diamantes',
+  '¡Listo! Diamantes entregados',
+] as const;
+
+/**
+ * Where the order sits on the four-stage tracker in the mockup ("Panel de
+ * Seguimiento").
+ *
+ * `con_problema` and `cancelado` are not later stages of the same journey —
+ * they are the two ways it stops early — so they freeze the tracker at the
+ * stage that actually broke instead of pretending the rest is still coming.
+ * `needs_review`/`refund_required` (con_problema) only happen after the
+ * engine has already spent the customer's money trying to fulfil the order,
+ * so payment is done and delivery is what failed; every other terminal path
+ * (expired, rejected) stops before delivery ever starts, at payment.
+ *
+ * `completedAt` overrides all of that: a delivered order can still land back
+ * in `refund_required` later (a dispute after the fact), and by then delivery
+ * genuinely happened — freezing step 3 as an error would contradict the real
+ * timestamp step 4 is about to show right below it.
+ */
+function trackerStates(status: CustomerOrderStatus, completedAt: Date | null): TrackerStepState[] {
+  if (completedAt) return ['done', 'done', 'done', 'done'];
+
+  switch (status) {
+    case 'esperando_pago':
+    case 'pago_en_revision':
+      return ['done', 'active', 'pending', 'pending'];
+    case 'procesando':
+      return ['done', 'done', 'active', 'pending'];
+    case 'completado':
+      return ['done', 'done', 'done', 'done'];
+    case 'con_problema':
+      return ['done', 'done', 'error', 'pending'];
+    case 'cancelado':
+      return ['done', 'error', 'pending', 'pending'];
+  }
+}
+
+const WHEN = new Intl.DateTimeFormat('es-MX', {
+  day: 'numeric',
+  month: 'short',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
 /** What "waiting for payment" means depends on how they chose to pay. */
 const CARD_WAITING = {
   label: 'Confirmando tu pago',
@@ -184,17 +235,34 @@ export default async function OrderPage({
             Ver mi ficha OXXO
           </a>
         )}
+      </div>
 
-        {order.status === 'procesando' && (
-          <>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="hint">
-              {diamonds(order.deliveredDiamonds)} de {diamonds(order.advertisedDiamonds)} 💎
-            </div>
-          </>
-        )}
+      <div className="card">
+        <ol className="tracker">
+          {TRACKER_LABELS.map((label, i) => {
+            const state = trackerStates(order.status, order.completedAt)[i];
+            return (
+              <li key={label} className={`tracker-step ${state}`}>
+                <span className="tracker-dot">
+                  {state === 'done' ? '✓' : state === 'error' ? '✕' : ''}
+                </span>
+                <div className="tracker-text">
+                  <div className="tracker-label">{label}</div>
+                  {i === 0 && <div className="tracker-time">{WHEN.format(order.createdAt)}</div>}
+                  {i === 2 && order.status === 'procesando' && (
+                    <div className="tracker-time">
+                      {diamonds(order.deliveredDiamonds)} de {diamonds(order.advertisedDiamonds)} 💎 (
+                      {Math.round(pct)}%)
+                    </div>
+                  )}
+                  {i === 3 && order.completedAt && (
+                    <div className="tracker-time">{WHEN.format(order.completedAt)}</div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       </div>
 
       <div className="card">
