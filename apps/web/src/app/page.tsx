@@ -10,6 +10,7 @@ import { flyerUrl } from '../lib/assets';
 // standalone image, so a logo there would boot fine locally and 404 in
 // production.
 import logo from '../assets/logo.webp';
+import { BoltIcon, LockIcon, ShieldIcon } from './icons';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,9 +47,15 @@ export default async function HomePage() {
         </h1>
         <p className="hero-sub">Diamantes de Free Fire directo a tu cuenta.</p>
         <div className="badges">
-          <span>⚡ Entrega automática</span>
-          <span>🛡️ Pago seguro</span>
-          <span>💎 Sin contraseñas</span>
+          <span>
+            <BoltIcon className="icon" /> Entrega automática
+          </span>
+          <span>
+            <ShieldIcon className="icon" /> Pago seguro
+          </span>
+          <span>
+            <LockIcon className="icon" /> Sin contraseñas
+          </span>
         </div>
       </header>
 

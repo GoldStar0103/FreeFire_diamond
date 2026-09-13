@@ -9,6 +9,7 @@ import {
   type ValidateState,
 } from './actions';
 import { trackPixel } from '../../../lib/pixel';
+import { BankIcon, CardIcon, StoreIcon } from '../../icons';
 
 interface PayTo {
   bank: string;
@@ -103,7 +104,7 @@ function CopyRow({ label, value, display }: { label: string; value: string; disp
 /** One tappable option on the "choose how to pay" screen. */
 function PayOptionCard({
   tone,
-  icon,
+  icon: Icon,
   badge,
   title,
   features,
@@ -112,7 +113,7 @@ function PayOptionCard({
   onClick,
 }: {
   tone: 'blue' | 'red' | 'purple';
-  icon: string;
+  icon: (props: { className?: string }) => React.ReactElement;
   badge?: string;
   title: string;
   features: string[];
@@ -123,9 +124,7 @@ function PayOptionCard({
   return (
     <div className={`pay-option ${tone}`}>
       <div className="pay-option-head">
-        <span className="pay-option-icon" aria-hidden="true">
-          {icon}
-        </span>
+        <Icon className="icon pay-option-icon" />
         {badge && <span className="pay-option-badge">{badge}</span>}
       </div>
       <div className="pay-option-title">{title}</div>
@@ -372,7 +371,7 @@ export function Checkout({
                 {cardOption && (
                   <PayOptionCard
                     tone="purple"
-                    icon="💳"
+                    icon={CardIcon}
                     title={cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta de crédito/débito'}
                     features={[
                       'Pago instantáneo',
@@ -386,7 +385,7 @@ export function Checkout({
                 {transferOption && (
                   <PayOptionCard
                     tone="blue"
-                    icon="🏦"
+                    icon={BankIcon}
                     badge="⭐ Recomendado"
                     title="Transferencia bancaria"
                     features={[
@@ -408,7 +407,7 @@ export function Checkout({
                 {oxxoOption && (
                   <PayOptionCard
                     tone="red"
-                    icon="🏪"
+                    icon={StoreIcon}
                     badge="🕐 Disponible 24/7"
                     title="Depósito OXXO"
                     features={[

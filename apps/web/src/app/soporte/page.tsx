@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { supportUrl } from '../../lib/support';
 import { legalIdentity } from '../../lib/legal';
 import { getStripe } from '../../lib/stripe';
+import { AlertIcon, ChatIcon, ClockIcon, HeadsetIcon, MailIcon, MoonIcon, UserIcon } from '../icons';
 
 export const metadata: Metadata = {
   title: 'Soporte',
@@ -30,14 +31,14 @@ export default function SupportPage() {
   return (
     <main className="page narrow">
       <h1 className="page-title">
-        <span aria-hidden="true">🎧</span> Soporte
+        <HeadsetIcon className="icon" /> Soporte
       </h1>
       <p className="page-sub">¿Necesitas ayuda? Estamos aquí para ti.</p>
 
       {chatUrl ? (
         <a href={chatUrl} target="_blank" rel="noreferrer" className="card support-cta">
           <div className="support-cta-title">
-            <span aria-hidden="true">💬</span> Soporte por WhatsApp
+            <ChatIcon className="icon" /> Soporte por WhatsApp
           </div>
           <ul className="support-cta-list">
             <li>Respuesta en minutos</li>
@@ -54,17 +55,23 @@ export default function SupportPage() {
 
       <div className="support-stats">
         <div className="card support-stat">
-          <div className="trust-icon">🕐</div>
+          <div className="trust-icon amber">
+            <ClockIcon className="icon" />
+          </div>
           <div className="mini-title">Tiempo de respuesta</div>
           <p className="hint">1 - 5 min.</p>
         </div>
         <div className="card support-stat">
-          <div className="trust-icon">🌙</div>
+          <div className="trust-icon blue">
+            <MoonIcon className="icon" />
+          </div>
           <div className="mini-title">Atención 24/7</div>
           <p className="hint">Siempre activos</p>
         </div>
         <div className="card support-stat">
-          <div className="trust-icon">🙋</div>
+          <div className="trust-icon pink">
+            <UserIcon className="icon" />
+          </div>
           <div className="mini-title">Asesoría personalizada</div>
           <p className="hint">Te guiamos</p>
         </div>
@@ -120,7 +127,7 @@ export default function SupportPage() {
       <div className="support-actions">
         {contactEmail && (
           <a href={`mailto:${contactEmail}`} className="btn wide">
-            ✉️ Enviar correo
+            <MailIcon className="icon" /> Enviar correo
             <span className="hint" style={{ display: 'block' }}>
               {contactEmail}
             </span>
@@ -128,7 +135,7 @@ export default function SupportPage() {
         )}
         {problemUrl && (
           <a href={problemUrl} target="_blank" rel="noreferrer" className="btn wide">
-            ⚠️ Reportar un problema
+            <AlertIcon className="icon" /> Reportar un problema
             <span className="hint" style={{ display: 'block' }}>
               Te ayudamos
             </span>

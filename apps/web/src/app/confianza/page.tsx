@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { countCompletedOrders, countUniqueCustomers, listTestimonials } from '@levelup/db';
 import { getDb } from '../../lib/server';
 import { initials } from '../../lib/format';
+import { BoltIcon, HeadsetIcon, LockIcon, ShieldIcon } from '../icons';
 
 // The brand is appended by the root layout's title template, so it is not
 // repeated here.
@@ -78,7 +79,9 @@ export default async function TrustPage() {
 
       <section className="trust-grid">
         <div className="card trust-item">
-          <div className="trust-icon">⚡</div>
+          <div className="trust-icon amber">
+            <BoltIcon className="icon" />
+          </div>
           <h2>Entrega al instante</h2>
           <p>
             En cuanto validamos tu pago, el sistema hace la recarga solo — no dependes de que
@@ -87,7 +90,9 @@ export default async function TrustPage() {
         </div>
 
         <div className="card trust-item">
-          <div className="trust-icon">🛡️</div>
+          <div className="trust-icon green">
+            <ShieldIcon className="icon" />
+          </div>
           <h2>Pagos seguros</h2>
           <p>
             Escribes tu ID y te mostramos el nombre de tu personaje antes de cobrarte. Si no eres
@@ -96,7 +101,9 @@ export default async function TrustPage() {
         </div>
 
         <div className="card trust-item">
-          <div className="trust-icon">🔒</div>
+          <div className="trust-icon cyan">
+            <LockIcon className="icon" />
+          </div>
           <h2>Sin contraseñas</h2>
           <p>
             La recarga entra directo a tu cuenta con tu ID de jugador. No necesitamos — ni
@@ -105,7 +112,9 @@ export default async function TrustPage() {
         </div>
 
         <div className="card trust-item">
-          <div className="trust-icon">🎧</div>
+          <div className="trust-icon pink">
+            <HeadsetIcon className="icon" />
+          </div>
           <h2>Soporte real 24/7</h2>
           <p>
             Cada compra tiene su número de seguimiento y un{' '}

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { ClipboardIcon, GiftIcon, HeadsetIcon, HomeIcon, ShieldIcon } from './icons';
 
 /**
  * The fixed bottom tab bar the client's own mockups show on every screen —
@@ -11,11 +12,11 @@ import { usePathname } from 'next/navigation';
  * never has to hunt for.
  */
 const ITEMS = [
-  { href: '/', label: 'Inicio', icon: '🏠' },
-  { href: '/promociones', label: 'Promociones', icon: '🎁' },
-  { href: '/pedidos', label: 'Mis pedidos', icon: '📋' },
-  { href: '/confianza', label: 'Confianza', icon: '🛡️' },
-  { href: '/soporte', label: 'Soporte', icon: '🎧' },
+  { href: '/', label: 'Inicio', icon: HomeIcon },
+  { href: '/promociones', label: 'Promociones', icon: GiftIcon },
+  { href: '/pedidos', label: 'Mis pedidos', icon: ClipboardIcon },
+  { href: '/confianza', label: 'Confianza', icon: ShieldIcon },
+  { href: '/soporte', label: 'Soporte', icon: HeadsetIcon },
 ] as const;
 
 export function BottomNav() {
@@ -25,6 +26,7 @@ export function BottomNav() {
     <nav className="bottom-nav" aria-label="Navegación principal">
       {ITEMS.map((item) => {
         const active = pathname === item.href;
+        const Icon = item.icon;
 
         return (
           <Link
@@ -32,8 +34,8 @@ export function BottomNav() {
             href={item.href}
             className={`bottom-nav-item${active ? ' active' : ''}`}
           >
-            <span className="bottom-nav-icon" aria-hidden="true">
-              {item.icon}
+            <span className="bottom-nav-icon">
+              <Icon className="icon" />
             </span>
             <span>{item.label}</span>
           </Link>
