@@ -186,8 +186,35 @@ img { max-width: 100%; display: block; }
   display: grid; place-items: center;
   font-size: 13px; font-weight: 800;
 }
-.step.disabled { opacity: 0.5; }
-.step.disabled .step-num { background: var(--surface-2); color: var(--muted); }
+
+/* Numbered progress header above the checkout steps (client's mockup). */
+.checkout-stepper { display: flex; align-items: flex-start; margin: 16px 0 18px; }
+.checkout-step-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
+.checkout-step-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--surface-2);
+  z-index: 0;
+}
+.checkout-step-item.done:not(:last-child)::after { background: var(--ok); }
+.checkout-step-dot {
+  width: 24px; height: 24px;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 800;
+  border: 2px solid var(--surface-2);
+  color: var(--muted);
+  background: var(--surface);
+  z-index: 1;
+}
+.checkout-step-item.done .checkout-step-dot { background: var(--ok); border-color: var(--ok); color: #0b0d18; }
+.checkout-step-item.active .checkout-step-dot { border-color: var(--accent); color: var(--accent); }
+.checkout-step-label { font-size: 11px; color: var(--muted); }
+.checkout-step-item.active .checkout-step-label { color: var(--text); font-weight: 700; }
 
 .confirm { text-align: center; padding: 14px 0 4px; }
 .confirm-q { color: var(--muted); font-size: 14px; }
@@ -200,20 +227,35 @@ img { max-width: 100%; display: block; }
 .pay-row span { color: var(--muted); }
 .pay-row.total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; font-size: 17px; }
 
-/* Card vs transfer. Big targets: this is chosen with a thumb. */
-.method-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.method-tab {
+/* Card vs transfer, as full-width rows with a radio dot — the client's
+   mockup shows payment methods as a list to tap, not a pair of tabs. */
+.method-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.method-card {
   font: inherit;
   font-weight: 700;
   font-size: 14px;
-  padding: 12px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
-  color: var(--muted);
+  color: var(--text);
   cursor: pointer;
+  text-align: left;
 }
-.method-tab.active { border-color: var(--accent); color: var(--text); background: rgba(139, 92, 246, 0.12); }
+.method-card.active { border-color: var(--accent); background: rgba(139, 92, 246, 0.12); }
+.method-card-icon { font-size: 18px; }
+.method-card-radio {
+  margin-left: auto;
+  width: 18px; height: 18px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  flex: none;
+}
+.method-card.active .method-card-radio { border-color: var(--accent); background: radial-gradient(var(--accent) 0 40%, transparent 44%); }
 
 .field { display: block; margin-bottom: 14px; }
 .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
