@@ -40,6 +40,7 @@ export default async function SettingsPage() {
           clabe: payTo?.clabe ?? '',
           holder: payTo?.holder ?? '',
           oxxo: payTo?.oxxo ?? '',
+          cardNumber: payTo?.cardNumber ?? '',
           fxRate: String(fxRate || DEFAULT_FX_RATE),
         }}
       />

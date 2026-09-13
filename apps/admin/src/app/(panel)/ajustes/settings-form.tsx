@@ -9,6 +9,7 @@ interface Props {
     clabe: string;
     holder: string;
     oxxo: string;
+    cardNumber: string;
     fxRate: string;
   };
   /** True when nothing is configured yet and the storefront cannot take money. */
@@ -79,6 +80,21 @@ export function SettingsForm({ initial, missing }: Props) {
           />
         </label>
         <p className="hint">Si lo dejas vacío, esa línea no aparece en la tienda.</p>
+
+        <label className="field">
+          <span>Número de tarjeta (16 dígitos, opcional)</span>
+          <input
+            name="cardNumber"
+            defaultValue={initial.cardNumber}
+            inputMode="numeric"
+            className="mono"
+            placeholder="Déjalo vacío si solo quieres mostrar la CLABE"
+          />
+        </label>
+        <p className="hint">
+          Se muestra junto a la CLABE — algunos clientes transfieren más rápido con el número de
+          tarjeta desde la app de su banco. Verificamos el dígito de control antes de guardar.
+        </p>
       </div>
 
       <div className="card">

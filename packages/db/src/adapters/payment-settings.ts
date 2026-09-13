@@ -28,11 +28,42 @@ export interface PaymentDetails {
   holder: string;
   /** Card or reference number for an OXXO deposit. Optional. */
   oxxo: string | null;
+  /**
+   * 16-digit debit card number, shown alongside the CLABE. Optional — SPEI
+   * accepts either, but a customer sending money from their phone's banking
+   * app often finds a card number faster to type than a CLABE.
+   */
+  cardNumber: string | null;
 }
 
 export interface SettingIssue {
-  field: 'bank' | 'clabe' | 'holder' | 'oxxo' | 'fxRate';
+  field: 'bank' | 'clabe' | 'holder' | 'oxxo' | 'cardNumber' | 'fxRate';
   message: string;
+}
+
+/**
+ * Card-number check digit (the standard used by every payment network).
+ *
+ * Same reasoning as `isValidClabe`: this field is optional, but once entered
+ * it is money-routing information exactly like the CLABE, so a single
+ * mistyped digit deserves the same catch before it reaches a customer.
+ */
+export function isValidCardNumber(value: string): boolean {
+  const d = digits(value);
+  if (d.length !== 16) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 16; i++) {
+    let n = Number(d[i]);
+    // Doubling every second digit counting from the right.
+    if (i % 2 === 0) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+  }
+
+  return sum % 10 === 0;
 }
 
 /** Digits only, so an operator can paste "012 180 01234567890 1" and it works. */
@@ -106,9 +137,28 @@ export function reviewPaymentDetails(draft: Partial<PaymentDetails>): {
     });
   }
 
+  const cardRaw = draft.cardNumber?.trim() ?? '';
+  const cardNumber = digits(cardRaw);
+  if (cardRaw) {
+    if (cardNumber.length !== 16) {
+      issues.push({
+        field: 'cardNumber',
+        message: `El número de tarjeta debe tener 16 dígitos; éste tiene ${cardNumber.length}.`,
+      });
+    } else if (!isValidCardNumber(cardNumber)) {
+      issues.push({
+        field: 'cardNumber',
+        message: 'El número de tarjeta tiene 16 dígitos pero no es válido. Revisa que no falte o sobre un número.',
+      });
+    }
+  }
+
   if (issues.length > 0) return { details: null, issues };
 
-  return { details: { bank, clabe, holder, oxxo: oxxo || null }, issues };
+  return {
+    details: { bank, clabe, holder, oxxo: oxxo || null, cardNumber: cardNumber || null },
+    issues,
+  };
 }
 
 function isPaymentDetails(value: unknown): value is PaymentDetails {
@@ -149,6 +199,7 @@ export async function getPaymentDetails(db: Database): Promise<PaymentDetails | 
       clabe: digits(v.clabe),
       holder: v.holder.trim(),
       oxxo: v.oxxo ? digits(String(v.oxxo)) || null : null,
+      cardNumber: v.cardNumber ? digits(String(v.cardNumber)) || null : null,
     };
   }
 
@@ -164,7 +215,8 @@ export function paymentDetailsFromEnv(env = process.env): PaymentDetails | null 
   if (!bank || !clabe || !holder) return null;
 
   const oxxo = env.PAY_OXXO ? digits(env.PAY_OXXO) : '';
-  return { bank, clabe, holder, oxxo: oxxo || null };
+  const cardNumber = env.PAY_CARD_NUMBER ? digits(env.PAY_CARD_NUMBER) : '';
+  return { bank, clabe, holder, oxxo: oxxo || null, cardNumber: cardNumber || null };
 }
 
 export async function savePaymentDetails(db: Database, details: PaymentDetails): Promise<void> {

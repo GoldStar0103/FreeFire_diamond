@@ -227,35 +227,81 @@ img { max-width: 100%; display: block; }
 .pay-row span { color: var(--muted); }
 .pay-row.total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; font-size: 17px; }
 
-/* Card vs transfer, as full-width rows with a radio dot — the client's
-   mockup shows payment methods as a list to tap, not a pair of tabs. */
-.method-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
-.method-card {
-  font: inherit;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 14px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
+/* Payment-method comparison cards (client's mockup: Transferencia vs OXXO,
+   side by side on their reference device). Stacked full-width here instead —
+   this site is mobile-first for phones as narrow as ~360px, and squeezing two
+   cards with a badge, four bullets, a bank list and a button each into two
+   columns there would make all of it too small to read. Same content, same
+   colors, one per row. */
+.pay-compare { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
+.pay-option {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--surface);
 }
-.method-card.active { border-color: var(--accent); background: rgba(139, 92, 246, 0.12); }
-.method-card-icon { font-size: 18px; }
-.method-card-radio {
-  margin-left: auto;
-  width: 18px; height: 18px;
+.pay-option.blue { border-color: #3b82f6; }
+.pay-option.red { border-color: #ef4444; }
+.pay-option.purple { border-color: var(--accent); }
+.pay-option-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pay-option-icon { font-size: 28px; }
+.pay-option-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 10px;
   border-radius: 999px;
-  border: 2px solid var(--border);
-  flex: none;
+  background: var(--surface-2);
+  color: var(--text);
 }
-.method-card.active .method-card-radio { border-color: var(--accent); background: radial-gradient(var(--accent) 0 40%, transparent 44%); }
+.pay-option-title { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.pay-option-manual {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 2px 9px;
+  margin: 4px 0 10px;
+}
+.pay-option-features { list-style: none; margin: 0 0 12px; padding: 0; font-size: 13px; }
+.pay-option-features li { padding: 4px 0; color: var(--text); }
+.pay-option-features li span { color: var(--ok); font-weight: 800; margin-right: 4px; }
+.pay-option-banks {
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+.pay-option-banks span { display: block; }
+.pay-option-note {
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.pay-option-cta.blue { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.pay-option-cta.red { background: #ef4444; border-color: #ef4444; color: #fff; }
+.pay-option-cta.purple { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Account-details screens (after choosing transfer or OXXO). */
+.pay-copy { display: flex; align-items: center; gap: 8px; }
+.copy-btn {
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+}
+.copy-btn:hover { color: var(--accent); }
+.pay-instructions { list-style: none; margin: 0 0 16px; padding: 0; font-size: 13px; color: var(--muted); }
+.pay-instructions li { padding: 6px 0; }
 
 .field { display: block; margin-bottom: 14px; }
 .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }

@@ -39,6 +39,7 @@ export async function saveSettings(
     clabe: String(formData.get('clabe') ?? ''),
     holder: String(formData.get('holder') ?? ''),
     oxxo: String(formData.get('oxxo') ?? ''),
+    cardNumber: String(formData.get('cardNumber') ?? ''),
   });
 
   const { rate, issues: fxIssues } = reviewFxRate(String(formData.get('fxRate') ?? ''));

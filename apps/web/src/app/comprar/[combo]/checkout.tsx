@@ -15,6 +15,7 @@ interface PayTo {
   clabe: string;
   holder: string;
   oxxo: string | null;
+  cardNumber: string | null;
 }
 
 interface Props {
@@ -34,7 +35,14 @@ interface Props {
   supportNumber: string;
 }
 
-type Method = 'card' | 'transfer';
+/**
+ * What's actually being paid, one screen at a time. `transferencia` and
+ * `oxxo` both submit as the same backend `transfer_manual` order — see
+ * schema.ts's own comment on that enum value — this is a display distinction
+ * for the two account numbers a customer might send money to, not two
+ * different payment integrations.
+ */
+type PayView = 'choose' | 'tarjeta' | 'transferencia' | 'oxxo';
 type Step = 'datos' | 'pago' | 'confirmacion';
 
 const STEPS: { key: Step; label: string }[] = [
@@ -46,6 +54,9 @@ const STEPS: { key: Step; label: string }[] = [
 /** 18 digits read as three groups, the way a bank statement prints them. */
 const groupClabe = (clabe: string): string =>
   clabe.replace(/^(\d{3})(\d{3})(\d{11})(\d)$/, '$1 $2 $3 $4');
+
+/** 16 digits read in the four groups printed on the card itself. */
+const groupCard = (card: string): string => card.replace(/(\d{4})(?=\d)/g, '$1 ');
 
 /** The numbered progress header from the client's mockup. */
 function Stepper({ step }: { step: Step }) {
@@ -65,6 +76,75 @@ function Stepper({ step }: { step: Step }) {
   );
 }
 
+/** A value next to a button that copies it — for an account number nobody wants to retype. */
+function CopyRow({ label, value, display }: { label: string; value: string; display: string }) {
+  return (
+    <div className="pay-row">
+      <span>{label}</span>
+      <span className="pay-copy">
+        <strong className="mono">{display}</strong>
+        <button
+          type="button"
+          className="copy-btn"
+          aria-label={`Copiar ${label}`}
+          onClick={() => {
+            navigator.clipboard?.writeText(value).catch(() => {
+              /* Clipboard access can be denied; the value is still on screen to copy by hand. */
+            });
+          }}
+        >
+          📋
+        </button>
+      </span>
+    </div>
+  );
+}
+
+/** One tappable option on the "choose how to pay" screen. */
+function PayOptionCard({
+  tone,
+  icon,
+  badge,
+  title,
+  features,
+  extra,
+  ctaLabel,
+  onClick,
+}: {
+  tone: 'blue' | 'red' | 'purple';
+  icon: string;
+  badge?: string;
+  title: string;
+  features: string[];
+  extra?: React.ReactNode;
+  ctaLabel: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className={`pay-option ${tone}`}>
+      <div className="pay-option-head">
+        <span className="pay-option-icon" aria-hidden="true">
+          {icon}
+        </span>
+        {badge && <span className="pay-option-badge">{badge}</span>}
+      </div>
+      <div className="pay-option-title">{title}</div>
+      <span className="pay-option-manual">MANUAL</span>
+      <ul className="pay-option-features">
+        {features.map((f) => (
+          <li key={f}>
+            <span aria-hidden="true">✓</span> {f}
+          </li>
+        ))}
+      </ul>
+      {extra}
+      <button type="button" className={`btn wide pay-option-cta ${tone}`} onClick={onClick}>
+        {ctaLabel}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Three full screens instead of stacked cards, matching the client's own
  * mockup (Compra-Datos / Método de Pago / Confirmación). The gate between
@@ -72,12 +152,13 @@ function Stepper({ step }: { step: Step }) {
  * reach payment until their Free Fire ID has been confirmed against the
  * game, since diamonds sent to a wrong ID are unrecoverable.
  *
- * Deliberately NOT in this version, even though the mockup shows them: a
- * "Servidor" field and a mid-checkout package-switch step (neither is real —
- * nothing downstream reads a server id, and the package is fixed by which
- * combo card the customer tapped to get here), and PayPal / a standalone
- * OXXO method (only card-via-Stripe and manual transfer actually work).
- * Showing controls that do nothing is worse than not matching a screenshot.
+ * Deliberately NOT in this version, even though earlier mockups showed them:
+ * a "Servidor" field and a mid-checkout package-switch step (neither is real
+ * — nothing downstream reads a server id, and the package is fixed by which
+ * combo card the customer tapped to get here), and PayPal (not built). The
+ * transfer/OXXO comparison cards ARE real — both submit the same
+ * `transfer_manual` order, just with a different account shown, exactly as
+ * `schema.ts`'s own comment on that enum value describes.
  */
 export function Checkout({
   comboKey,
@@ -104,14 +185,29 @@ export function Checkout({
     {},
   );
   const [step, setStep] = useState<Step>('datos');
-  // Card first when it exists: one tap to a familiar bank prompt beats typing
-  // a CLABE into a banking app and photographing the receipt.
-  const [method, setMethod] = useState<Method>(cardEnabled ? 'card' : 'transfer');
 
   const found = validation.status === 'found';
-  const noPaymentConfigured = !payTo && !cardEnabled;
-  const showMethodChooser = cardEnabled && Boolean(payTo);
-  const byCard = method === 'card' && cardEnabled;
+
+  const cardOption = cardEnabled;
+  const transferOption = payTo !== null;
+  const oxxoOption = payTo !== null && payTo.oxxo !== null;
+  const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
+  const noPaymentConfigured = optionCount === 0;
+
+  // Skip the comparison screen entirely when there is nothing to compare —
+  // same reasoning as the old two-tab version: a choice between one thing
+  // and nothing is not a choice.
+  const onlyOption: PayView | null =
+    optionCount === 1
+      ? cardOption
+        ? 'tarjeta'
+        : transferOption && !oxxoOption
+          ? 'transferencia'
+          : 'oxxo'
+      : null;
+
+  const [payView, setPayView] = useState<PayView>(onlyOption ?? 'choose');
+
   const pixel = { value: priceMxn, currency: 'MXN' as const, content_ids: [comboKey], content_type: 'product' as const };
 
   useEffect(() => {
@@ -124,6 +220,15 @@ export function Checkout({
     setStep('pago');
     trackPixel('InitiateCheckout', pixel);
   };
+
+  const methodLabel =
+    payView === 'tarjeta'
+      ? cardIncludesOxxo
+        ? 'Tarjeta u OXXO'
+        : 'Tarjeta'
+      : payView === 'oxxo'
+        ? 'Depósito OXXO'
+        : 'Transferencia bancaria';
 
   // The placeholder promises only what happens. Nothing messages the customer
   // automatically — the number reaches a person in the panel, who uses it if
@@ -141,6 +246,19 @@ export function Checkout({
         disabled={disabled}
       />
     </label>
+  );
+
+  const identityRow = (
+    <div className="row confirmed" style={{ marginBottom: 16 }}>
+      <div>
+        <div className="confirm-name">{validation.nickname}</div>
+        <div className="hint mono">ID {validation.playerId}</div>
+      </div>
+      <div className="spacer" />
+      <button type="button" className="btn ghost sm" onClick={() => setStep('datos')}>
+        Cambiar
+      </button>
+    </div>
   );
 
   return (
@@ -211,19 +329,17 @@ export function Checkout({
         <section className="card step">
           <div className="step-head">
             <span className="step-num">2</span>
-            <h2>Selecciona tu método de pago</h2>
+            <h2>
+              {payView === 'choose'
+                ? 'Selecciona tu método de pago'
+                : payView === 'tarjeta'
+                  ? 'Paga tu recarga'
+                  : `Datos para tu ${payView === 'oxxo' ? 'depósito' : 'transferencia'}`}
+            </h2>
+            {payView !== 'choose' && payView !== 'tarjeta' && <span className="pay-option-manual">MANUAL</span>}
           </div>
 
-          <div className="row confirmed" style={{ marginBottom: 16 }}>
-            <div>
-              <div className="confirm-name">{validation.nickname}</div>
-              <div className="hint mono">ID {validation.playerId}</div>
-            </div>
-            <div className="spacer" />
-            <button type="button" className="btn ghost sm" onClick={() => setStep('datos')}>
-              Cambiar
-            </button>
-          </div>
+          {identityRow}
 
           {noPaymentConfigured ? (
             /* No configured account and no card gateway. Showing the box with a
@@ -250,88 +366,159 @@ export function Checkout({
                 </a>
               )}
             </div>
-          ) : (
+          ) : payView === 'choose' ? (
             <>
-              {/* Only a choice when there are two things to choose between. */}
-              {showMethodChooser && (
-                <div className="method-cards" role="radiogroup" aria-label="Forma de pago">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={method === 'card'}
-                    className={method === 'card' ? 'method-card active' : 'method-card'}
-                    onClick={() => setMethod('card')}
-                  >
-                    <span className="method-card-icon">💳</span>
-                    <span>{cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta de crédito/débito'}</span>
-                    <span className="method-card-radio" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={method === 'transfer'}
-                    className={method === 'transfer' ? 'method-card active' : 'method-card'}
-                    onClick={() => setMethod('transfer')}
-                  >
-                    <span className="method-card-icon">🏦</span>
-                    <span>Transferencia bancaria</span>
-                    <span className="method-card-radio" aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-
-              {byCard ? (
-                <div className="pay-box">
-                  <div className="pay-row">
-                    <span>Aceptamos</span>
-                    <strong>
-                      Visa · Mastercard · Amex{cardIncludesOxxo ? ' · Efectivo en OXXO' : ''}
-                    </strong>
-                  </div>
-                  <div className="pay-row total">
-                    <span>Total</span>
-                    <strong>{price}</strong>
-                  </div>
-                </div>
-              ) : payTo ? (
-                <div className="pay-box">
-                  <div className="pay-row">
-                    <span>Transferencia {payTo.bank}</span>
-                    <strong className="mono">{groupClabe(payTo.clabe)}</strong>
-                  </div>
-                  <div className="pay-row">
-                    <span>A nombre de</span>
-                    <strong>{payTo.holder}</strong>
-                  </div>
-                  {/* Only when there is one. An empty OXXO row taught customers to
-                      distrust the rest of the box. */}
-                  {payTo.oxxo && (
-                    <div className="pay-row">
-                      <span>Depósito OXXO</span>
-                      <strong className="mono">{payTo.oxxo}</strong>
-                    </div>
-                  )}
-                  <div className="pay-row total">
-                    <span>Monto exacto</span>
-                    <strong>{price}</strong>
-                  </div>
-                </div>
-              ) : null}
-
-              <button
-                className="btn primary wide"
-                type="button"
-                onClick={() => setStep('confirmacion')}
-              >
-                {byCard ? 'Continuar →' : 'Ya transferí, continuar →'}
-              </button>
+              <div className="pay-compare">
+                {cardOption && (
+                  <PayOptionCard
+                    tone="purple"
+                    icon="💳"
+                    title={cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta de crédito/débito'}
+                    features={[
+                      'Pago instantáneo',
+                      'Visa · Mastercard · Amex',
+                      'Recarga automática al confirmarse',
+                    ]}
+                    ctaLabel="Pagar con tarjeta →"
+                    onClick={() => setPayView('tarjeta')}
+                  />
+                )}
+                {transferOption && (
+                  <PayOptionCard
+                    tone="blue"
+                    icon="🏦"
+                    badge="⭐ Recomendado"
+                    title="Transferencia bancaria"
+                    features={[
+                      'Paga desde tu app bancaria',
+                      'Sin comisiones extras',
+                      'Todos los bancos aceptados',
+                      'Sube tu comprobante de pago',
+                    ]}
+                    extra={
+                      <div className="pay-option-banks">
+                        <span>BBVA · Santander · Banamex · Banorte · HSBC · Scotiabank</span>
+                        <span className="hint">+20 bancos más — ¡todos los bancos aceptados!</span>
+                      </div>
+                    }
+                    ctaLabel="Pagar por transferencia →"
+                    onClick={() => setPayView('transferencia')}
+                  />
+                )}
+                {oxxoOption && (
+                  <PayOptionCard
+                    tone="red"
+                    icon="🏪"
+                    badge="🕐 Disponible 24/7"
+                    title="Depósito OXXO"
+                    features={[
+                      'Paga en cualquier tienda OXXO',
+                      'Sin necesidad de cuenta bancaria',
+                      'Mismo número de cuenta siempre',
+                      'Sube tu comprobante de pago',
+                    ]}
+                    extra={
+                      <div className="pay-option-note">
+                        🏬 Verás los datos de pago al dar clic en esta opción.
+                      </div>
+                    }
+                    ctaLabel="Pagar en OXXO →"
+                    onClick={() => setPayView('oxxo')}
+                  />
+                )}
+              </div>
               <p className="hint center">
-                🔒 Pagos 100% seguros.{' '}
-                {byCard
-                  ? 'Nunca vemos ni guardamos tu tarjeta.'
-                  : 'Revisamos tu comprobante y la recarga entra automáticamente.'}
+                🛡️ Pagos 100% seguros. Revisamos tu comprobante y la recarga entra automáticamente.
               </p>
             </>
+          ) : payView === 'tarjeta' ? (
+            <>
+              <div className="pay-box">
+                <div className="pay-row">
+                  <span>Aceptamos</span>
+                  <strong>
+                    Visa · Mastercard · Amex{cardIncludesOxxo ? ' · Efectivo en OXXO' : ''}
+                  </strong>
+                </div>
+                <div className="pay-row total">
+                  <span>Total</span>
+                  <strong>{price}</strong>
+                </div>
+              </div>
+              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+                Continuar →
+              </button>
+              <p className="hint center">🔒 Pagos 100% seguros. Nunca vemos ni guardamos tu tarjeta.</p>
+            </>
+          ) : payView === 'oxxo' && payTo?.oxxo ? (
+            <>
+              <div className="pay-box">
+                <div className="pay-row">
+                  <span>Método</span>
+                  <strong>SPIN OXXO</strong>
+                </div>
+                <CopyRow label="Titular" value={payTo.holder} display={payTo.holder} />
+                <CopyRow label="Número de cuenta" value={payTo.oxxo} display={groupCard(payTo.oxxo)} />
+                <div className="pay-row total">
+                  <span>Monto exacto</span>
+                  <strong>{price}</strong>
+                </div>
+              </div>
+              <ul className="pay-instructions">
+                <li>🏪 Acude a cualquier tienda OXXO</li>
+                <li>🧾 Indica en caja el número de cuenta</li>
+                <li>💲 Deposita el monto exacto para agilizar la validación</li>
+                <li>📤 Después sube tu comprobante</li>
+              </ul>
+              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+                Ya deposité, continuar →
+              </button>
+              <p className="hint center">
+                🔒 Tu comprobante será revisado automáticamente. La recarga se reflejará en unos
+                minutos.
+              </p>
+            </>
+          ) : payTo ? (
+            <>
+              <div className="pay-box">
+                <div className="pay-row">
+                  <span>Banco</span>
+                  <strong>{payTo.bank}</strong>
+                </div>
+                <CopyRow label="Titular" value={payTo.holder} display={payTo.holder} />
+                {payTo.cardNumber && (
+                  <CopyRow
+                    label="Número de tarjeta"
+                    value={payTo.cardNumber}
+                    display={groupCard(payTo.cardNumber)}
+                  />
+                )}
+                <CopyRow label="CLABE bancaria" value={payTo.clabe} display={groupClabe(payTo.clabe)} />
+                <div className="pay-row total">
+                  <span>Monto exacto</span>
+                  <strong>{price}</strong>
+                </div>
+              </div>
+              <ul className="pay-instructions">
+                <li>🏦 Puedes transferir desde cualquier banco</li>
+                <li>📋 Copia los datos y realiza tu pago</li>
+                <li>💲 Usa el monto exacto para agilizar la validación</li>
+                <li>📤 Después sube tu comprobante</li>
+              </ul>
+              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+                Ya transferí, continuar →
+              </button>
+              <p className="hint center">
+                🔒 Tu comprobante será revisado automáticamente. La recarga se reflejará en unos
+                minutos.
+              </p>
+            </>
+          ) : null}
+
+          {payView !== 'choose' && optionCount > 1 && (
+            <button type="button" className="btn ghost wide" onClick={() => setPayView('choose')}>
+              ← Elegir otro método
+            </button>
           )}
         </section>
       )}
@@ -354,10 +541,10 @@ export function Checkout({
             <dt>ID de jugador</dt>
             <dd className="mono">{validation.playerId}</dd>
             <dt>Método de pago</dt>
-            <dd>{byCard ? (cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta') : 'Transferencia bancaria'}</dd>
+            <dd>{methodLabel}</dd>
           </dl>
 
-          {byCard ? (
+          {payView === 'tarjeta' ? (
             <form action={cardAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />

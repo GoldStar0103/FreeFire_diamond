@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  isValidCardNumber,
   isValidClabe,
   paymentDetailsFromEnv,
   reviewFxRate,
@@ -8,6 +9,9 @@ import {
 
 /** Real CLABEs whose check digits are correct. */
 const VALID = ['032180000118359719', '002010077777777771', '646180157042875763'];
+
+/** Well-known Luhn-valid test card numbers (Stripe's own published test cards). */
+const VALID_CARDS = ['4242424242424242', '5555555555554444'];
 
 const draft = (over: Record<string, string> = {}) => ({
   bank: 'BBVA',
@@ -44,6 +48,26 @@ describe('isValidClabe', () => {
   );
 });
 
+describe('isValidCardNumber', () => {
+  it.each(VALID_CARDS)('accepts %s', (card) => {
+    expect(isValidCardNumber(card)).toBe(true);
+  });
+
+  it('accepts the spacing printed on the card', () => {
+    expect(isValidCardNumber('4242 4242 4242 4242')).toBe(true);
+  });
+
+  it('rejects a transposed digit', () => {
+    const swapped = '4242424242424224';
+    expect(swapped).toHaveLength(16);
+    expect(isValidCardNumber(swapped)).toBe(false);
+  });
+
+  it.each(['', '123', '42424242424242424', 'abcdefghijklmnop'])('rejects %p', (value) => {
+    expect(isValidCardNumber(value)).toBe(false);
+  });
+});
+
 describe('reviewPaymentDetails', () => {
   it('accepts a complete set and normalises it', () => {
     const { details, issues } = reviewPaymentDetails({
@@ -51,6 +75,7 @@ describe('reviewPaymentDetails', () => {
       clabe: '032 180 00011835971 9',
       holder: '  Jose Manuel Ramirez  ',
       oxxo: '4189 1420 0012 3456',
+      cardNumber: '4242 4242 4242 4242',
     });
     expect(issues).toEqual([]);
     expect(details).toEqual({
@@ -58,6 +83,7 @@ describe('reviewPaymentDetails', () => {
       clabe: '032180000118359719',
       holder: 'Jose Manuel Ramirez',
       oxxo: '4189142000123456',
+      cardNumber: '4242424242424242',
     });
   });
 
@@ -65,6 +91,24 @@ describe('reviewPaymentDetails', () => {
     const { details, issues } = reviewPaymentDetails(draft({ oxxo: '' }));
     expect(issues).toEqual([]);
     expect(details?.oxxo).toBeNull();
+  });
+
+  it('treats the card number as optional', () => {
+    const { details, issues } = reviewPaymentDetails(draft());
+    expect(issues).toEqual([]);
+    expect(details?.cardNumber).toBeNull();
+  });
+
+  it('rejects an implausible card number', () => {
+    expect(reviewPaymentDetails(draft({ cardNumber: '123' })).issues[0]?.field).toBe(
+      'cardNumber',
+    );
+  });
+
+  it('rejects a card number with the wrong check digit', () => {
+    expect(
+      reviewPaymentDetails(draft({ cardNumber: '4242424242424241' })).issues[0]?.field,
+    ).toBe('cardNumber');
   });
 
   it('never returns details alongside an issue', () => {
@@ -112,13 +156,21 @@ describe('paymentDetailsFromEnv', () => {
         PAY_CLABE: VALID[0]!,
         PAY_HOLDER: 'LEVELUP STORE',
         PAY_OXXO: '4189142000123456',
+        PAY_CARD_NUMBER: '4242424242424242',
       }),
     ).toEqual({
       bank: 'BBVA',
       clabe: VALID[0],
       holder: 'LEVELUP STORE',
       oxxo: '4189142000123456',
+      cardNumber: '4242424242424242',
     });
+  });
+
+  it('treats the card number as optional too', () => {
+    expect(
+      paymentDetailsFromEnv({ PAY_BANK: 'BBVA', PAY_CLABE: VALID[0]!, PAY_HOLDER: 'X' })?.cardNumber,
+    ).toBeNull();
   });
 
   it('returns null when anything required is missing, rather than a blank', () => {
