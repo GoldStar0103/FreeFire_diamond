@@ -211,6 +211,12 @@ export async function placeOrder(
     return { error: 'Sube la foto de tu comprobante de pago.' };
   }
 
+  // The form marks this required too — re-checked here for the same reason as
+  // the comprobante above: a crafted POST can skip a client-side `required`.
+  if (!whatsapp) {
+    return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
+  }
+
   /**
    * Re-confirm the player server-side.
    *

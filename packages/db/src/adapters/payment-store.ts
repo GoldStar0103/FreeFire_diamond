@@ -153,7 +153,7 @@ export class DrizzlePaymentStore implements PaymentStore {
 
       await tx
         .update(orders)
-        .set({ status: 'cancelled', updatedAt: new Date() })
+        .set({ status: 'cancelled', cancelReason: input.reason, updatedAt: new Date() })
         .where(eq(orders.id, input.orderId));
 
       await tx.insert(auditLog).values({

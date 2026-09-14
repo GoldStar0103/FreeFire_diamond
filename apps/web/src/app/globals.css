@@ -554,3 +554,141 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .legal strong { color: var(--text); }
 
 .footer-links.small { font-size: 12px; margin-top: 4px; }
+
+/* ── neon gamer pass (2026-09-14 client brief) ────────────────────────────── */
+
+/* A little glow throughout — the client's own words: visible from Inicio to
+   Soporte, not confined to one section. Kept subtle enough not to fight
+   readability: a soft border/shadow, not a full glow-everything treatment. */
+.card { box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.05), 0 6px 22px rgba(0, 0, 0, 0.28); }
+.btn.primary { box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); }
+.mega { box-shadow: 0 0 30px rgba(139, 92, 246, 0.25); }
+.section-title-lg {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0 0 4px;
+  text-shadow: 0 0 18px rgba(139, 92, 246, 0.35);
+}
+
+/* ── homepage brand bar (logo + name left, socials right) ────────────────── */
+
+.brand-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0 18px; }
+.brand-bar-id { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; }
+.brand-bar-id img { border-radius: 50%; }
+.brand-bar-sep { color: var(--border); font-weight: 300; }
+.social-links { display: flex; gap: 14px; }
+.social-links a { color: var(--text); opacity: 0.85; }
+.social-links a:hover { opacity: 1; color: var(--accent-2); }
+.social-links .icon { width: 22px; height: 22px; }
+
+/* ── auto-sliding banner ───────────────────────────────────────────────────
+   Plain stacked <img>s cross-fading via opacity rather than a carousel
+   library — same reasoning as .promo-rail: no client bundle beyond the tiny
+   interval/click logic in banner-slider.tsx, and it degrades to a static
+   first image if JS never runs. */
+.banner-slider {
+  position: relative;
+  aspect-ratio: 12 / 5;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.2);
+  cursor: pointer;
+}
+.banner-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.5s ease;
+}
+.banner-dots { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; justify-content: center; gap: 6px; }
+.banner-dot { width: 6px; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.35); }
+.banner-dot.active { background: #fff; width: 16px; transition: width 0.25s; }
+
+/* The "oferta de confianza" as the client's own art, once uploaded via the
+   campaign flyer field — same asset pipeline /promocion already uses. */
+.mega-flyer-link { display: block; margin-bottom: 14px; border-radius: var(--radius); overflow: hidden; box-shadow: 0 0 30px rgba(139, 92, 246, 0.3); }
+.mega-flyer { width: 100%; display: block; }
+
+.section-head-row { margin: 4px 0 12px; }
+
+.btn.ghost-neon {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+}
+
+/* ── ¿por qué elegir LevelUp Store? ────────────────────────────────────── */
+
+.why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.why-item h3 { font-size: 14px; margin: 8px 0 5px; letter-spacing: -0.01em; }
+.why-item p { color: var(--muted); font-size: 12.5px; margin: 0; }
+.why-item.glow-purple { border-color: rgba(139, 92, 246, 0.5); box-shadow: 0 0 16px rgba(139, 92, 246, 0.18); }
+.why-item.glow-cyan { border-color: rgba(34, 211, 238, 0.5); box-shadow: 0 0 16px rgba(34, 211, 238, 0.18); }
+.why-item.glow-green { border-color: rgba(34, 197, 94, 0.5); box-shadow: 0 0 16px rgba(34, 197, 94, 0.18); }
+.why-item.glow-pink { border-color: rgba(236, 72, 153, 0.5); box-shadow: 0 0 16px rgba(236, 72, 153, 0.18); }
+
+@media (max-width: 380px) {
+  .why-grid { grid-template-columns: 1fr; }
+}
+
+/* ── comunidad en tiempo real ─────────────────────────────────────────── */
+
+.community { margin-top: 26px; border-color: rgba(139, 92, 246, 0.35); }
+.community .stats-row { margin-top: 4px; }
+
+/* ── ¿cómo funciona? ──────────────────────────────────────────────────── */
+
+.steps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.step-card { position: relative; padding-top: 30px; }
+.step-card-num {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+.step-card-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--accent-2);
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+}
+.step-card-icon .icon { width: 19px; height: 19px; }
+.step-card h3 { font-size: 13px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.step-card p { color: var(--muted); font-size: 12px; margin: 0; }
+.step-card:nth-child(1) { border-color: rgba(139, 92, 246, 0.5); }
+.step-card:nth-child(2) { border-color: rgba(59, 130, 246, 0.5); }
+.step-card:nth-child(3) { border-color: rgba(236, 72, 153, 0.5); }
+.step-card:nth-child(4) { border-color: rgba(34, 211, 238, 0.5); }
+
+@media (max-width: 380px) {
+  .steps-grid { grid-template-columns: 1fr; }
+}
+
+/* ── 2026-09-14 alignment fixes ────────────────────────────────────────── */
+
+/* The purchase summary bar (order confirmation / checkout): baseline
+   alignment reads as uneven next to a much larger price figure. */
+.summary { align-items: center; }
+
+/* The 3 support boxes: .trust-icon is a fixed-size block, so the parent's
+   text-align: center never centered it — only the text below it. */
+.support-stat .trust-icon { margin-left: auto; margin-right: auto; }

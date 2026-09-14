@@ -200,6 +200,32 @@ export class DrizzleCatalogAdminStore {
     });
   }
 
+  /**
+   * Remove a combo the owner no longer wants cluttering the list.
+   *
+   * Safe to hard-delete: `orders.comboId` is `onDelete: 'set null'` and the
+   * order also keeps a denormalised `comboKey`/name, so past orders still show
+   * what was bought after the combo itself is gone. `combo_items` cascades.
+   */
+  async deleteCombo(comboKey: string, adminUserId: string | null): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [deleted] = await tx
+        .delete(combos)
+        .where(eq(combos.key, comboKey))
+        .returning({ id: combos.id, name: combos.name });
+
+      if (!deleted) throw new Error(`No combo with key ${comboKey}`);
+
+      await tx.insert(auditLog).values({
+        adminUserId,
+        action: 'combo.deleted',
+        entityType: 'combo',
+        entityId: deleted.id,
+        detail: { key: comboKey, name: deleted.name },
+      });
+    });
+  }
+
   async saveCampaign(
     draft: CampaignDraft,
     options: { sortOrder: number; flyerAssetUrl?: string | null; adminUserId: string | null },

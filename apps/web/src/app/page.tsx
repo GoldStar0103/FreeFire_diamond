@@ -1,79 +1,132 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { countCompletedOrders, listStorefront } from '@levelup/db';
+import { countCompletedOrders, countUniqueCustomers, listStorefront, listTestimonials } from '@levelup/db';
 import { getDb } from '../lib/server';
 import { diamonds, mxn } from '../lib/format';
 import { flyerUrl } from '../lib/assets';
+import { socialLinks } from '../lib/social';
 // Imported through the bundler rather than served from `public/`: the build
 // emits it under /_next/static with a content hash, which the Docker image
 // copies and browsers may cache forever. `public/` is not copied into the
 // standalone image, so a logo there would boot fine locally and 404 in
 // production.
 import logo from '../assets/logo.webp';
-import { BoltIcon, LockIcon, ShieldIcon } from './icons';
+import banner1 from '../assets/banner/banner-1.svg';
+import banner2 from '../assets/banner/banner-2.svg';
+import banner3 from '../assets/banner/banner-3.svg';
+import { BoltIcon, FacebookIcon, HeadsetIcon, InfinityIcon, InstagramIcon, ShieldIcon, TikTokIcon } from './icons';
+import { BannerSlider } from './banner-slider';
+import { HowItWorks } from './how-it-works';
+import { CountUp } from './count-up';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { alternates: { canonical: '/' } };
 
+const WHY_US = [
+  {
+    icon: BoltIcon,
+    tone: 'purple',
+    title: 'Recargas automáticas',
+    text: 'Diamantes directo a tu cuenta. Sin esperar, sin complicaciones.',
+  },
+  {
+    icon: ShieldIcon,
+    tone: 'cyan',
+    title: 'Pago 100% seguro',
+    text: 'Métodos de pago confiables. Tu compra protegida.',
+  },
+  {
+    icon: InfinityIcon,
+    tone: 'green',
+    title: 'Garantía de por vida',
+    text: 'Nuestros diamantes son libres de baneo o reembolso.',
+  },
+  {
+    icon: HeadsetIcon,
+    tone: 'pink',
+    title: 'Soporte LevelUp',
+    text: 'Estamos contigo antes y después de tu recarga.',
+  },
+] as const;
+
+// Placeholder art until the client's own banner photos are in — see
+// src/assets/banner/README for how to swap them.
+const BANNER_SLIDES = [
+  { src: banner1.src, alt: 'Promociones nuevas todos los meses' },
+  { src: banner2.src, alt: 'Más diamantes, mejores precios' },
+  { src: banner3.src, alt: 'Nuevos packs todos los meses' },
+];
+
 export default async function HomePage() {
-  const [campaigns, delivered] = await Promise.all([
+  const [campaigns, delivered, customers, testimonials] = await Promise.all([
     listStorefront(getDb()),
     countCompletedOrders(getDb()),
+    countUniqueCustomers(getDb()),
+    listTestimonials(getDb()),
   ]);
+
+  // Same "needs at least a few ratings to mean anything" rule as /confianza —
+  // one 5-star review is not an average.
+  const rated = testimonials.filter((t) => t.rating);
+  const avgRating =
+    rated.length >= 3 ? rated.reduce((sum, t) => sum + (t.rating ?? 0), 0) / rated.length : null;
 
   // Permanent campaigns sort first, so the $10 entry offer leads. It is the
   // trust-breaker for first-time buyers, not just another promo.
   const [hero, ...rest] = campaigns;
+  const heroCombo = hero?.permanent ? hero.combos[0] : null;
+  const heroFlyer = flyerUrl(hero?.flyerAssetUrl);
+  const social = socialLinks();
+  const hasSocial = social.facebook || social.instagram || social.tiktok;
 
   return (
     <main className="page">
-      <header className="hero">
-        {/* The client's own brand, first thing on the page. This market has
-            been scammed by stores that are a template and a price list; a
-            real logo is part of what separates this one from those. Explicit
-            dimensions so the heading does not jump when it arrives, and no
-            lazy-loading — it is above the fold on every phone. */}
-        <img
-          className="hero-logo"
-          src={logo.src}
-          width={104}
-          height={104}
-          alt="LevelUp Store"
-          decoding="async"
-        />
-        <h1>
-          RECARGAS <span className="grad">AL INSTANTE</span>
-        </h1>
-        <p className="hero-sub">Diamantes de Free Fire directo a tu cuenta.</p>
-        <div className="badges">
-          <span>
-            <BoltIcon className="icon" /> Entrega automática
+      <div className="brand-bar">
+        <div className="brand-bar-id">
+          <img src={logo.src} width={40} height={40} alt="" decoding="async" />
+          <span className="brand-bar-sep" aria-hidden="true">
+            |
           </span>
-          <span>
-            <ShieldIcon className="icon" /> Pago seguro
-          </span>
-          <span>
-            <LockIcon className="icon" /> Sin contraseñas
-          </span>
+          <span>LevelUp Store México</span>
         </div>
-      </header>
+        {hasSocial && (
+          <div className="social-links">
+            {social.facebook && (
+              <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
+                <FacebookIcon className="icon" />
+              </a>
+            )}
+            {social.instagram && (
+              <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
+                <InstagramIcon className="icon" />
+              </a>
+            )}
+            {social.tiktok && (
+              <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
+                <TikTokIcon className="icon" />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
 
-      {hero?.permanent && hero.combos[0] && (
-        <Link href={`/comprar/${hero.combos[0].key}`} className="card mega">
-          <div className="mega-tag">{hero.badge ?? 'Solo clientes nuevos'}</div>
-          <div className="mega-name">{hero.name}</div>
-          <div className="mega-diamonds">{diamonds(hero.combos[0].advertisedDiamonds)} 💎</div>
-          <div className="mega-price">{mxn(hero.combos[0].priceMxnCents)}</div>
-          <div className="mega-cta">Probar ahora →</div>
-        </Link>
-      )}
+      <BannerSlider slides={BANNER_SLIDES} />
 
-      {delivered > 0 && (
-        <p className="trust-line">
-          <strong>{delivered.toLocaleString('es-MX')}</strong> recargas entregadas
-        </p>
-      )}
+      {heroCombo &&
+        (heroFlyer ? (
+          <Link href={`/comprar/${heroCombo.key}`} className="mega-flyer-link">
+            <img className="mega-flyer" src={heroFlyer} alt={hero!.name} decoding="async" />
+          </Link>
+        ) : (
+          <Link href={`/comprar/${heroCombo.key}`} className="card mega">
+            <div className="mega-tag">{hero!.badge ?? 'Solo clientes nuevos'}</div>
+            <div className="mega-name">{hero!.name}</div>
+            <div className="mega-diamonds">{diamonds(heroCombo.advertisedDiamonds)} 💎</div>
+            <div className="mega-price">{mxn(heroCombo.priceMxnCents)}</div>
+            <div className="mega-cta">Probar ahora →</div>
+          </Link>
+        ))}
 
       {/*
         The homepage used to embed every campaign's full flyer plus its whole
@@ -84,38 +137,103 @@ export default async function HomePage() {
         /promocion/[key] — see that page for what used to be right here.
       */}
       {(hero?.permanent ? rest : campaigns).length > 0 && (
-        <div className="promo-rail">
-          {(hero?.permanent ? rest : campaigns).map((campaign) => {
-            // What the database holds is a storage key, not a URL. Rendering it
-            // straight into `src` is what made every uploaded flyer a broken image.
-            const flyer = flyerUrl(campaign.flyerAssetUrl);
+        <>
+          <div className="row section-head-row">
+            <h2 className="section-title-lg">Ofertas disponibles</h2>
+            <div className="spacer" />
+            <Link href="/promociones" className="btn sm ghost-neon">
+              Ver más →
+            </Link>
+          </div>
+          <div className="promo-rail">
+            {(hero?.permanent ? rest : campaigns).map((campaign) => {
+              // What the database holds is a storage key, not a URL. Rendering it
+              // straight into `src` is what made every uploaded flyer a broken image.
+              const flyer = flyerUrl(campaign.flyerAssetUrl);
 
-            return (
-              <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="promo-card">
-                {flyer ? (
-                  <img
-                    className="promo-flyer"
-                    src={flyer}
-                    alt={campaign.name}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  // A campaign the owner has not uploaded art for yet still has
-                  // to be reachable — a silent gap in the rail reads as broken,
-                  // not as "coming soon".
-                  <div className="promo-flyer promo-flyer-empty">{campaign.name}</div>
-                )}
-                <div className="promo-name">{campaign.name}</div>
-              </Link>
-            );
-          })}
-        </div>
+              return (
+                <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="promo-card">
+                  {flyer ? (
+                    <img
+                      className="promo-flyer"
+                      src={flyer}
+                      alt={campaign.name}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    // A campaign the owner has not uploaded art for yet still has
+                    // to be reachable — a silent gap in the rail reads as broken,
+                    // not as "coming soon".
+                    <div className="promo-flyer promo-flyer-empty">{campaign.name}</div>
+                  )}
+                  <div className="promo-name">{campaign.name}</div>
+                </Link>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {campaigns.length === 0 && (
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>
       )}
+
+      <section>
+        <h2 className="section-title-lg center">
+          ¿Por qué elegir <span className="grad">LevelUp Store</span>?
+        </h2>
+        <div className="why-grid">
+          {WHY_US.map(({ icon: Icon, tone, title, text }) => (
+            <div key={title} className={`card why-item glow-${tone}`}>
+              <div className={`trust-icon ${tone}`}>
+                <Icon className="icon" />
+              </div>
+              <h3>{title}</h3>
+              <p>{text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {(delivered > 0 || customers > 0 || avgRating) && (
+        <section className="card community">
+          <h2 className="section-title-lg center">
+            Comunidad <span className="grad">en tiempo real</span>
+          </h2>
+          <p className="page-sub center" style={{ marginBottom: 18 }}>
+            Miles de jugadores ya confían en nosotros
+          </p>
+          <div className="stats-row">
+            {customers > 0 && (
+              <div className="counter">
+                <div className="counter-value">
+                  <CountUp value={customers} />
+                </div>
+                <div className="counter-label">clientes satisfechos</div>
+              </div>
+            )}
+            {delivered > 0 && (
+              <div className="counter">
+                <div className="counter-value">
+                  <CountUp value={delivered} />
+                </div>
+                <div className="counter-label">recargas realizadas</div>
+              </div>
+            )}
+            {avgRating && (
+              <div className="counter">
+                <div className="counter-value">
+                  <CountUp value={avgRating} decimals={1} suffix="/5" />
+                </div>
+                <div className="counter-label">valoración promedio</div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <HowItWorks />
     </main>
   );
 }

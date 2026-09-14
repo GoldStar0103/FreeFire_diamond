@@ -210,6 +210,9 @@ export const orders = pgTable(
     /** Denormalised so the Mega Oferta partial unique index can reference it. */
     comboKey: text('combo_key').notNull(),
 
+    /** Set on `payment.rejected` so the customer's own tracking page can show why — see rejectPayment. */
+    cancelReason: text('cancel_reason'),
+
     /**
      * The combo frozen at creation: name, price, advertised diamonds, full
      * recipe. Fulfilment reads ONLY this. An OXXO voucher paid on 2 Oct for a

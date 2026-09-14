@@ -229,6 +229,9 @@ export default async function OrderPage({
       <div className={`card status-card ${status.tone}`}>
         <div className="status-label">{status.label}</div>
         <p className="status-detail">{status.detail}</p>
+        {order.status === 'cancelado' && order.cancelReason && (
+          <p className="status-detail">Motivo: {order.cancelReason}</p>
+        )}
 
         {voucherUrl && (
           <a className="btn primary wide" href={voucherUrl} target="_blank" rel="noreferrer">

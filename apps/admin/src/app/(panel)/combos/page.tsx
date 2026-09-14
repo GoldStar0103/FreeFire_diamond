@@ -5,6 +5,7 @@ import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { diamonds, mxn, usd } from '../../../lib/format';
 import { retireCampaign, toggleCombo } from './actions';
+import { DeleteComboButton } from './delete-combo-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -132,15 +133,18 @@ export default async function CombosPage() {
                   )}
                 </td>
                 <td>
-                  {/* Re-validated server-side on the way on, in case the
-                      provider withdrew a denomination since it was saved. */}
-                  <form action={toggleCombo}>
-                    <input type="hidden" name="comboKey" value={c.key} />
-                    <input type="hidden" name="active" value={String(!c.active)} />
-                    <button className="btn sm" type="submit">
-                      {c.active ? 'Apagar' : 'Activar'}
-                    </button>
-                  </form>
+                  <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                    {/* Re-validated server-side on the way on, in case the
+                        provider withdrew a denomination since it was saved. */}
+                    <form action={toggleCombo}>
+                      <input type="hidden" name="comboKey" value={c.key} />
+                      <input type="hidden" name="active" value={String(!c.active)} />
+                      <button className="btn sm" type="submit">
+                        {c.active ? 'Apagar' : 'Activar'}
+                      </button>
+                    </form>
+                    <DeleteComboButton comboKey={c.key} comboName={c.name} />
+                  </div>
                 </td>
               </tr>
             ))}

@@ -22,6 +22,13 @@
       "when": 1789123349137,
       "tag": "0002_admin_totp_replay_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789391929052,
+      "tag": "0003_order_cancel_reason",
+      "breakpoints": true
     }
   ]
 }

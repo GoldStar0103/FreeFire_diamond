@@ -234,15 +234,16 @@ export function Checkout({
   // something about the order needs sorting out. "We'll let you know when it's
   // ready" was a promise to a market that has been lied to before, and a
   // customer waiting for a message that never comes assumes the worst.
-  const whatsappField = (disabled: boolean) => (
+  const whatsappField = (disabled: boolean, required = false) => (
     <label className="field">
-      <span>Tu WhatsApp (opcional)</span>
+      <span>Tu WhatsApp{required ? '' : ' (opcional)'}</span>
       <input
         type="tel"
         name="whatsapp"
         inputMode="tel"
         placeholder="Solo por si necesitamos contactarte"
         disabled={disabled}
+        required={required}
       />
     </label>
   );
@@ -577,7 +578,7 @@ export function Checkout({
                 />
               </label>
 
-              {whatsappField(placing)}
+              {whatsappField(placing, true)}
 
               {transfer.error && <div className="alert bad">{transfer.error}</div>}
 

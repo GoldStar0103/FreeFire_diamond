@@ -183,3 +183,38 @@ export function AlertIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/** "Garantía de por vida" — the ∞ shape, not a clock or a badge, is the point. */
+export function InfinityIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M7 9a3.5 3.5 0 1 0 0 7c1.9 0 3.2-1.6 5-4.5C13.8 8.6 15.1 7 17 7a3.5 3.5 0 1 1 0 7c-1.9 0-3.2-1.6-5-4.5" />
+    </svg>
+  );
+}
+
+export function FacebookIcon({ className }: IconProps) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" className={className}>
+      <path d="M14 9h2.5V5.5h-2.5c-2.2 0-4 1.8-4 4V12H8v3.5h2v6.4c.65.07 1.32.1 2 .1s1.35-.03 2-.1v-6.4h2.6l.4-3.5H14v-2c0-.55.45-1 1-1Z" />
+    </svg>
+  );
+}
+
+export function InstagramIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17" cy="7" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function TikTokIcon({ className }: IconProps) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" className={className}>
+      <path d="M16.5 3h-3v13a2.6 2.6 0 1 1-2-2.53v-3.06a5.6 5.6 0 1 0 5 5.57V9.9a7.4 7.4 0 0 0 4 1.18v-3a4.4 4.4 0 0 1-4-4.4V3Z" />
+    </svg>
+  );
+}

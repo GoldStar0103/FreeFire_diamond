@@ -5,6 +5,7 @@ import { getStorefrontCampaign } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { diamonds, mxn } from '../../../lib/format';
 import { flyerUrl } from '../../../lib/assets';
+import { HowItWorks } from '../../how-it-works';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +69,10 @@ export default async function PromotionPage({
             <div className="combo-price">{mxn(combo.priceMxnCents)}</div>
           </Link>
         ))}
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        <HowItWorks />
       </div>
     </main>
   );

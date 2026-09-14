@@ -145,6 +145,15 @@ export async function toggleCombo(formData: FormData): Promise<void> {
   revalidatePath('/combos');
 }
 
+export async function deleteCombo(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const comboKey = String(formData.get('comboKey') ?? '');
+  if (!comboKey) return;
+
+  await store().deleteCombo(comboKey, session.adminUserId);
+  revalidatePath('/combos');
+}
+
 export async function saveCampaign(
   _prev: CampaignFormState,
   formData: FormData,

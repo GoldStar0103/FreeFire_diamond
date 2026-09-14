@@ -18,6 +18,7 @@ export function dateTime(value: Date | null): string {
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'America/Mexico_City',
   }).format(value);
 }
 

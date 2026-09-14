@@ -227,6 +227,8 @@ export interface CustomerOrder {
   eventId: string;
   /** The public combo key — already in the storefront URL, so nothing new leaks. */
   comboKey: string;
+  /** Why a cancelled order was rejected, in the admin's own words — null for any other status. */
+  cancelReason: string | null;
 }
 
 /**
@@ -283,6 +285,7 @@ export async function findCustomerOrder(
       comboKey: orders.comboKey,
       createdAt: orders.createdAt,
       completedAt: orders.completedAt,
+      cancelReason: orders.cancelReason,
     })
     .from(orders)
     .where(
@@ -344,6 +347,7 @@ export async function findCustomerOrder(
     gatewayChargeId: payment?.gatewayChargeId ?? null,
     eventId: row.eventId,
     comboKey: row.comboKey,
+    cancelReason: status === 'cancelado' ? row.cancelReason : null,
   };
 }
 
