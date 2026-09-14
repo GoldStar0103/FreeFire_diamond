@@ -6,7 +6,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { RecargasAmericaProvider } from './recargasamerica.js';
+import { ProviderProtocolError, RecargasAmericaProvider } from './recargasamerica.js';
+import { ValidationUnsupportedError } from './types.js';
 
 /** A fetch that answers from a fixed script, one response per call. */
 function fakeFetch(responses: Array<{ status: number; body: unknown }>) {
@@ -98,5 +99,77 @@ describe('purchase failure mapping', () => {
       retryable: false,
       httpStatus: 404,
     });
+  });
+});
+
+describe('validatePlayer', () => {
+  // The client reported this exact pattern in production: a brand-new
+  // player ID fails validation the first time and then succeeds on an
+  // immediate retry with the identical request — the provider's own lookup
+  // is flaky on a cold ID, not our request. One silent retry here is what
+  // turns that into a single successful search instead of a customer having
+  // to click twice (or worse, giving up).
+  it('retries once on a failed lookup and returns the result of the second attempt', async () => {
+    const result = await provider(
+      fakeFetch([
+        { status: 502, body: { success: false, error: 'Upstream error' } },
+        { status: 200, body: { success: true, data: { status: true, account_name: 'ShadowFF' } } },
+      ]),
+    ).validatePlayer('351', '182938102');
+
+    expect(result).toEqual({ found: true, nickname: 'ShadowFF' });
+  });
+
+  it('throws if the retry also fails, without retrying a second time', async () => {
+    const calls: Array<{ status: number; body: unknown }> = [
+      { status: 502, body: { success: false, error: 'Upstream error' } },
+      { status: 502, body: { success: false, error: 'Still down' } },
+    ];
+    let callCount = 0;
+    const countingFetch = (async () => {
+      callCount += 1;
+      const next = calls.shift();
+      return new Response(JSON.stringify(next?.body ?? { success: false }), {
+        status: next?.status ?? 500,
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(provider(countingFetch).validatePlayer('351', '182938102')).rejects.toThrow(
+      ProviderProtocolError,
+    );
+    expect(callCount).toBe(2);
+  });
+
+  it('does not retry INVALID_PRODUCT_TYPE — it is a definitive capability error, not a flake', async () => {
+    const calls: Array<{ status: number; body: unknown }> = [
+      { status: 422, body: { success: false, error: 'Tipo no soportado', code: 'INVALID_PRODUCT_TYPE' } },
+    ];
+    let callCount = 0;
+    const countingFetch = (async () => {
+      callCount += 1;
+      const next = calls.shift();
+      return new Response(JSON.stringify(next?.body ?? { success: false }), {
+        status: next?.status ?? 500,
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(provider(countingFetch).validatePlayer('351', '182938102')).rejects.toThrow(
+      ValidationUnsupportedError,
+    );
+    expect(callCount).toBe(1);
+  });
+
+  it('does not retry a found result — the fast path stays fast', async () => {
+    let callCount = 0;
+    const countingFetch = (async () => {
+      callCount += 1;
+      return new Response(
+        JSON.stringify({ success: true, data: { status: true, account_name: 'ShadowFF' } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    await provider(countingFetch).validatePlayer('351', '182938102');
+    expect(callCount).toBe(1);
   });
 });

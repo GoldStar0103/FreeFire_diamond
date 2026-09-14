@@ -184,11 +184,24 @@ export class RecargasAmericaProvider implements TopupProvider {
   }
 
   async validatePlayer(providerProductId: string, playerId: string): Promise<PlayerValidation> {
-    const res = await this.call<{ status: boolean; account_name: string | null }>(
-      'POST',
-      '/pins/validate',
-      { product_id: coerceId(providerProductId), service_user_id: playerId },
-    );
+    const attempt = () =>
+      this.call<{ status: boolean; account_name: string | null }>('POST', '/pins/validate', {
+        product_id: coerceId(providerProductId),
+        service_user_id: playerId,
+      });
+
+    let res = await attempt();
+
+    // The provider's own lookup is observably flaky on a brand-new player ID:
+    // the exact same request that just failed reliably succeeds on an
+    // immediate retry, which is otherwise indistinguishable from "come back
+    // later" to a first-time buyer deciding whether this store is real. One
+    // silent retry here is cheaper than losing that buyer to a false alarm —
+    // never retried again after this, so a genuinely dead endpoint still
+    // surfaces as an error rather than doubling every request's latency.
+    if (!res.ok && res.code !== 'INVALID_PRODUCT_TYPE') {
+      res = await attempt();
+    }
 
     if (!res.ok) {
       // The API rejects anything that is not type=recharge. Surface that as a
