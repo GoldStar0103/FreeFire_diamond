@@ -11,9 +11,9 @@ import { socialLinks } from '../lib/social';
 // standalone image, so a logo there would boot fine locally and 404 in
 // production.
 import logo from '../assets/logo.webp';
-import banner1 from '../assets/banner/banner-1.svg';
-import banner2 from '../assets/banner/banner-2.svg';
-import banner3 from '../assets/banner/banner-3.svg';
+import banner1 from '../assets/banner/banner-1.webp';
+import banner2 from '../assets/banner/banner-2.webp';
+import banner3 from '../assets/banner/banner-3.webp';
 import { BoltIcon, FacebookIcon, HeadsetIcon, InfinityIcon, InstagramIcon, ShieldIcon, TikTokIcon } from './icons';
 import { BannerSlider } from './banner-slider';
 import { HowItWorks } from './how-it-works';
@@ -50,12 +50,10 @@ const WHY_US = [
   },
 ] as const;
 
-// Placeholder art until the client's own banner photos are in — see
-// src/assets/banner/README for how to swap them.
 const BANNER_SLIDES = [
-  { src: banner1.src, alt: 'Promociones nuevas todos los meses' },
-  { src: banner2.src, alt: 'Más diamantes, mejores precios' },
-  { src: banner3.src, alt: 'Nuevos packs todos los meses' },
+  { src: banner1.src, alt: 'Recargas al instante — diamantes directo a tu cuenta' },
+  { src: banner2.src, alt: 'Promociones nuevas todos los meses' },
+  { src: banner3.src, alt: 'Desde 2024, la mejor página para tus diamantes' },
 ];
 
 export default async function HomePage() {
