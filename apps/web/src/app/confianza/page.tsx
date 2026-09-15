@@ -150,8 +150,8 @@ export default async function TrustPage() {
       <section className="card">
         <h2 className="mini-title">¿Primera vez?</h2>
         <p className="hint">
-          Prueba con la oferta de $10. Es la forma más barata de comprobar que somos
-          reales, y por eso la tenemos.
+          Prueba con la oferta de confianza: 110 diamantes x $15. Es la forma más barata de
+          comprobar que somos reales, y por eso la tenemos.
         </p>
         <Link href="/" className="btn primary wide" style={{ marginTop: 12 }}>
           Ver la oferta

@@ -204,7 +204,7 @@ img { max-width: 100%; display: block; }
 }
 
 /* Numbered progress header above the checkout steps (client's mockup). */
-.checkout-stepper { display: flex; align-items: flex-start; margin: 16px 0 18px; }
+.checkout-stepper { display: flex; align-items: flex-start; list-style: none; margin: 16px 0 18px; padding: 0; }
 .checkout-step-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
 .checkout-step-item:not(:last-child)::after {
   content: '';
@@ -612,7 +612,16 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /* The "oferta de confianza" as the client's own art, once uploaded via the
    campaign flyer field — same asset pipeline /promocion already uses. */
-.mega-flyer-link { display: block; margin-bottom: 14px; border-radius: var(--radius); overflow: hidden; box-shadow: 0 0 30px rgba(139, 92, 246, 0.3); }
+.mega-flyer-link {
+  display: block;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1.5px solid rgba(139, 92, 246, 0.6);
+  box-shadow:
+    0 0 16px rgba(139, 92, 246, 0.55),
+    0 0 40px rgba(34, 211, 238, 0.3);
+}
 .mega-flyer { width: 100%; display: block; }
 
 .section-head-row { margin: 4px 0 12px; }
