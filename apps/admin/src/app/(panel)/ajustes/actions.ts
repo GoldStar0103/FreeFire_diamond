@@ -2,12 +2,14 @@
 
 import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
+import { revalidatePath } from 'next/cache';
 import {
   adminUsers,
   reviewFxRate,
   reviewPaymentDetails,
   saveFxRate,
   savePaymentDetails,
+  savePaymentMethodsEnabled,
 } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
@@ -53,6 +55,17 @@ export async function saveSettings(
 
   await savePaymentDetails(getDb(), details);
   await saveFxRate(getDb(), rate);
+  await savePaymentMethodsEnabled(getDb(), {
+    card: formData.get('methodCard') === 'on',
+    transfer: formData.get('methodTransfer') === 'on',
+    oxxo: formData.get('methodOxxo') === 'on',
+  });
+
+  // Without this, the page keeps serving the props it fetched on the initial
+  // load — `useActionState`'s re-render only updates `state`, not the parent
+  // Server Component's data, so the form would report "Guardado" while still
+  // showing the pre-save checkbox/field values until a manual reload.
+  revalidatePath('/ajustes');
 
   return { saved: true };
 }

@@ -9,9 +9,10 @@
  * decimal string; formatting is the UI's job, never arithmetic.
  */
 
-import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { baseProducts, campaigns, combos, orderItems, orders, payments } from '../schema.js';
+import { mexicoCityDayRange } from './mexico-city-time.js';
 
 // ── the approval queue ────────────────────────────────────────────────────────
 
@@ -356,9 +357,13 @@ export interface DashboardStats {
   missingProducts: number[];
 }
 
-export async function getDashboardStats(db: Database): Promise<DashboardStats> {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+export async function getDashboardStats(db: Database, now = new Date()): Promise<DashboardStats> {
+  // Mexico City calendar day, not the container's own UTC day — a sale at
+  // 7pm local time is "today" to the owner reading this at 9am the next UTC
+  // day. See mexico-city-time.ts's doc comment for why this isn't `new
+  // Date().setHours(0,0,0,0)` (that reads the host's own clock, and only
+  // ever agreed with Mexico City by coincidence).
+  const { start: startOfDay, end: endOfDay } = mexicoCityDayRange(now);
 
   const statusRows = await db
     .select({ status: orders.status, n: count() })
@@ -373,7 +378,13 @@ export async function getDashboardStats(db: Database): Promise<DashboardStats> {
       revenue: sql<string>`COALESCE(SUM(${orders.priceMxnCents}), 0)::text`,
     })
     .from(orders)
-    .where(and(eq(orders.status, 'completed'), gte(orders.completedAt, startOfDay)));
+    .where(
+      and(
+        eq(orders.status, 'completed'),
+        gte(orders.completedAt, startOfDay),
+        lt(orders.completedAt, endOfDay),
+      ),
+    );
 
   const inactive = await db
     .select({ key: combos.key, name: combos.name })

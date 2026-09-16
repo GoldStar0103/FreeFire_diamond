@@ -31,6 +31,10 @@ interface Props {
   cardEnabled: boolean;
   /** Stripe Checkout also offers OXXO cash vouchers. */
   cardIncludesOxxo: boolean;
+  /** Owner switch, independent of whether payTo is configured — see Ajustes. */
+  transferEnabled: boolean;
+  /** Owner switch for the manual OXXO/SPIN reference — distinct from Stripe's own OXXO. */
+  oxxoEnabled: boolean;
   /** The customer came back from Stripe without paying. */
   cancelledNotice: string | null;
   supportNumber: string;
@@ -168,6 +172,8 @@ export function Checkout({
   payTo,
   cardEnabled,
   cardIncludesOxxo,
+  transferEnabled,
+  oxxoEnabled,
   cancelledNotice,
   supportNumber,
 }: Props) {
@@ -188,8 +194,8 @@ export function Checkout({
   const found = validation.status === 'found';
 
   const cardOption = cardEnabled;
-  const transferOption = payTo !== null;
-  const oxxoOption = payTo !== null && payTo.oxxo !== null;
+  const transferOption = payTo !== null && transferEnabled;
+  const oxxoOption = payTo !== null && payTo.oxxo !== null && oxxoEnabled;
   const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
   const noPaymentConfigured = optionCount === 0;
 

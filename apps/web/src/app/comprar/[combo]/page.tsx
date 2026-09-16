@@ -1,7 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { findCustomerOrder, getPaymentDetails, getStorefrontCombo } from '@levelup/db';
+import {
+  findCustomerOrder,
+  getPaymentDetails,
+  getPaymentMethodsEnabled,
+  getStorefrontCombo,
+} from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { diamonds, mxn } from '../../../lib/format';
@@ -110,9 +115,10 @@ export default async function BuyPage({
   const cancelledNotice =
     cancelado && id ? await handleCancelledCheckout(cancelado, id) : null;
 
-  const [combo, payTo] = await Promise.all([
+  const [combo, payTo, methodsEnabled] = await Promise.all([
     getStorefrontCombo(getDb(), comboKey),
     getPaymentDetails(getDb()),
+    getPaymentMethodsEnabled(getDb()),
   ]);
 
   if (!combo) notFound();
@@ -144,8 +150,10 @@ export default async function BuyPage({
         priceMxn={combo.priceMxnCents / 100}
         diamonds={diamonds(combo.advertisedDiamonds)}
         payTo={payTo}
-        cardEnabled={stripe !== null}
+        cardEnabled={stripe !== null && methodsEnabled.card}
         cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
+        transferEnabled={methodsEnabled.transfer}
+        oxxoEnabled={methodsEnabled.oxxo}
         cancelledNotice={cancelledNotice}
         supportNumber={supportNumber() ?? ''}
       />

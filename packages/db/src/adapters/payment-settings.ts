@@ -271,3 +271,52 @@ export async function saveFxRate(db: Database, rate: number): Promise<void> {
     .values({ key: FX_RATE_KEY, value: { rate } })
     .onConflictDoUpdate({ target: settings.key, set: { value: { rate } } });
 }
+
+// ── which payment methods are offered right now ────────────────────────────
+
+export const PAYMENT_METHODS_KEY = 'payment_methods_enabled';
+
+export interface PaymentMethodsEnabled {
+  /** Card (and Stripe's own OXXO voucher, bundled into the same button). */
+  card: boolean;
+  /** Manual bank transfer. */
+  transfer: boolean;
+  /** Manual OXXO/SPIN deposit reference — distinct from Stripe's OXXO. */
+  oxxo: boolean;
+}
+
+const DEFAULT_METHODS_ENABLED: PaymentMethodsEnabled = { card: true, transfer: true, oxxo: true };
+
+function isPaymentMethodsEnabled(value: unknown): value is PaymentMethodsEnabled {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.card === 'boolean' && typeof v.transfer === 'boolean' && typeof v.oxxo === 'boolean';
+}
+
+/**
+ * Which of card/transfer/OXXO the owner currently wants offered.
+ *
+ * Defaults all-true when nothing has been saved yet, so an unconfigured
+ * deployment (or one that predates this setting) behaves exactly as it did
+ * before this existed — nobody's checkout silently loses a payment method
+ * because a settings row was never written.
+ */
+export async function getPaymentMethodsEnabled(db: Database): Promise<PaymentMethodsEnabled> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, PAYMENT_METHODS_KEY))
+    .limit(1);
+
+  return isPaymentMethodsEnabled(row?.value) ? row.value : DEFAULT_METHODS_ENABLED;
+}
+
+export async function savePaymentMethodsEnabled(
+  db: Database,
+  value: PaymentMethodsEnabled,
+): Promise<void> {
+  await db
+    .insert(settings)
+    .values({ key: PAYMENT_METHODS_KEY, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value } });
+}

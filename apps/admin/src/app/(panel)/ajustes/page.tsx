@@ -1,5 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { adminUsers, DEFAULT_FX_RATE, getFxRate, getPaymentDetails } from '@levelup/db';
+import {
+  adminUsers,
+  DEFAULT_FX_RATE,
+  getFxRate,
+  getPaymentDetails,
+  getPaymentMethodsEnabled,
+} from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { SettingsForm } from './settings-form';
@@ -18,9 +24,10 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   const session = await requireSession();
 
-  const [payTo, fxRate, [admin]] = await Promise.all([
+  const [payTo, fxRate, methodsEnabled, [admin]] = await Promise.all([
     getPaymentDetails(getDb()),
     getFxRate(getDb()),
+    getPaymentMethodsEnabled(getDb()),
     getDb()
       .select({ totpSecret: adminUsers.totpSecret })
       .from(adminUsers)
@@ -35,6 +42,7 @@ export default async function SettingsPage() {
 
       <SettingsForm
         missing={payTo === null}
+        methodsEnabled={methodsEnabled}
         initial={{
           bank: payTo?.bank ?? '',
           clabe: payTo?.clabe ?? '',

@@ -14,13 +14,50 @@ interface Props {
   };
   /** True when nothing is configured yet and the storefront cannot take money. */
   missing: boolean;
+  methodsEnabled: { card: boolean; transfer: boolean; oxxo: boolean };
 }
 
-export function SettingsForm({ initial, missing }: Props) {
+export function SettingsForm({ initial, missing, methodsEnabled }: Props) {
   const [state, action, saving] = useActionState<SettingsFormState, FormData>(saveSettings, {});
 
   return (
     <form action={action}>
+      <div className="card">
+        <h2 style={{ marginTop: 0, fontSize: 16 }}>Métodos de pago activos</h2>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Apaga los que no quieras ofrecer ahora mismo — por ejemplo, deja solo Tarjeta cuando no
+          haya nadie disponible para revisar transferencias u OXXO a mano.
+        </p>
+
+        <label className="row" style={{ gap: 8 }}>
+          <input
+            key={`methodCard-${methodsEnabled.card}`}
+            type="checkbox"
+            name="methodCard"
+            defaultChecked={methodsEnabled.card}
+          />
+          <span>Tarjeta (y OXXO por Stripe, si está activo)</span>
+        </label>
+        <label className="row" style={{ gap: 8, marginTop: 8 }}>
+          <input
+            key={`methodTransfer-${methodsEnabled.transfer}`}
+            type="checkbox"
+            name="methodTransfer"
+            defaultChecked={methodsEnabled.transfer}
+          />
+          <span>Transferencia bancaria</span>
+        </label>
+        <label className="row" style={{ gap: 8, marginTop: 8 }}>
+          <input
+            key={`methodOxxo-${methodsEnabled.oxxo}`}
+            type="checkbox"
+            name="methodOxxo"
+            defaultChecked={methodsEnabled.oxxo}
+          />
+          <span>Depósito con ticket/comprobante en OXXO</span>
+        </label>
+      </div>
+
       {missing && (
         <div className="alert bad">
           <strong>La tienda no puede recibir pagos ahora mismo.</strong>
