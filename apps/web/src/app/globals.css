@@ -448,6 +448,74 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .bottom-nav-icon { font-size: 20px; line-height: 1; }
 .bottom-nav-icon .icon { width: 20px; height: 20px; vertical-align: 0; }
 
+/* ── WhatsApp channel popup ────────────────────────────────────────────── */
+
+.wa-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(5, 6, 12, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.wa-popup {
+  position: relative;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  border-color: rgba(37, 211, 102, 0.45);
+  background: linear-gradient(180deg, rgba(37, 211, 102, 0.1), var(--surface) 65%);
+}
+.wa-popup-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 6px;
+  cursor: pointer;
+}
+.wa-popup-icon {
+  width: 52px;
+  height: 52px;
+  margin: 4px auto 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(37, 211, 102, 0.16);
+  color: #25d366;
+}
+.wa-popup-icon .icon { width: 26px; height: 26px; }
+.wa-popup-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 8px; }
+.wa-popup-text { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+.wa-popup-cta {
+  background: #25d366;
+  border-color: #25d366;
+  color: #05130a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.wa-popup-cta .icon { width: 18px; height: 18px; }
+.wa-popup-hide-link {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 10px;
+  padding: 4px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 /* ── footer ────────────────────────────────────────────────────────────── */
 
 .site-footer { border-top: 1px solid var(--border); padding: 26px 16px 34px; text-align: center; }

@@ -20,20 +20,10 @@ export interface NewOrderNotice {
   price: string;
 }
 
-export async function notifyNewOrder(
-  notice: NewOrderNotice,
-  fetchImpl: typeof fetch = fetch,
-): Promise<void> {
+async function sendTelegramNotice(text: string, label: string, fetchImpl: typeof fetch): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_ALERT_CHAT_ID;
   if (!token || !chatId) return;
-
-  const text = [
-    '🛒 Nuevo pedido esperando aprobación',
-    `Pedido: ${notice.orderNumber}`,
-    `Paquete: ${notice.comboName}`,
-    `Monto: ${notice.price}`,
-  ].join('\n');
 
   try {
     const res = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -43,9 +33,41 @@ export async function notifyNewOrder(
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      console.error(`[telegram] new-order notice rejected: HTTP ${res.status}`);
+      console.error(`[telegram] ${label} notice rejected: HTTP ${res.status}`);
     }
   } catch (err) {
-    console.error(`[telegram] could not send new-order notice: ${String(err)}`);
+    console.error(`[telegram] could not send ${label} notice: ${String(err)}`);
   }
+}
+
+/** The manual transfer/OXXO flow — needs a human to check the comprobante. */
+export async function notifyNewOrder(
+  notice: NewOrderNotice,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const text = [
+    '🛒 Nuevo pedido esperando aprobación',
+    `Pedido: ${notice.orderNumber}`,
+    `Paquete: ${notice.comboName}`,
+    `Monto: ${notice.price}`,
+  ].join('\n');
+  await sendTelegramNotice(text, 'new-order', fetchImpl);
+}
+
+/**
+ * A card payment that just settled. Distinct wording from `notifyNewOrder` on
+ * purpose — nobody needs to approve this one, the recharge is already on its
+ * way, so "esperando aprobación" would be actively misleading here.
+ */
+export async function notifyCardSale(
+  notice: NewOrderNotice,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const text = [
+    '✅ Venta con tarjeta',
+    `Pedido: ${notice.orderNumber}`,
+    `Paquete: ${notice.comboName}`,
+    `Monto: ${notice.price}`,
+  ].join('\n');
+  await sendTelegramNotice(text, 'card-sale', fetchImpl);
 }

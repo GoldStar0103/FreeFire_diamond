@@ -199,19 +199,11 @@ export function Checkout({
   const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
   const noPaymentConfigured = optionCount === 0;
 
-  // Skip the comparison screen entirely when there is nothing to compare —
-  // same reasoning as the old two-tab version: a choice between one thing
-  // and nothing is not a choice.
-  const onlyOption: PayView | null =
-    optionCount === 1
-      ? cardOption
-        ? 'tarjeta'
-        : transferOption && !oxxoOption
-          ? 'transferencia'
-          : 'oxxo'
-      : null;
-
-  const [payView, setPayView] = useState<PayView>(onlyOption ?? 'choose');
+  // Always shows the comparison screen, even with exactly one method
+  // enabled — the owner turns methods on/off from Ajustes (e.g. card-only
+  // overnight), and a customer landing straight on "Paga tu recarga" with no
+  // card to tap first reads as broken, not as a shortcut.
+  const [payView, setPayView] = useState<PayView>('choose');
 
   const pixel = { value: priceMxn, currency: 'MXN' as const, content_ids: [comboKey], content_type: 'product' as const };
 

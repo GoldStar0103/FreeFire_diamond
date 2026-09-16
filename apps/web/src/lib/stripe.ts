@@ -30,6 +30,8 @@ import {
 } from '@levelup/engine';
 import { getDb } from './server';
 import { notifyOps } from './ops';
+import { notifyCardSale } from './telegram';
+import { mxn } from './format';
 
 export const STRIPE = 'stripe';
 
@@ -131,6 +133,18 @@ export async function applyStripeReport(report: StripeReport): Promise<AppliedRe
       code: settlement.failure.code,
       detail: settlement.failure.message,
       reference: report.reference,
+    });
+  }
+
+  // Only on the genuine first transition, never on 'already_approved' — the
+  // webhook and the order-page fallback (this module's own doc comment) can
+  // both reach here for the same event, and `settleGatewayCharge`'s own
+  // compare-and-set is what guarantees only one of them sees 'approved'.
+  if (settlement.action === 'approved') {
+    await notifyCardSale({
+      orderNumber: payment.orderNumber,
+      comboName: payment.comboName,
+      price: mxn(payment.priceMxnCents),
     });
   }
 

@@ -4,6 +4,8 @@ import { metaPixelId, tiktokPixelId } from '../lib/pixel-ids';
 import { MetaPixel } from './meta-pixel';
 import { TikTokPixel } from './tiktok-pixel';
 import { BottomNav } from './bottom-nav';
+import { WhatsappChannelPopup } from './whatsapp-channel-popup';
+import { whatsappChannelUrl } from '../lib/whatsapp-channel';
 import logo from '../assets/logo.webp';
 import './globals.css';
 
@@ -66,12 +68,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // see lib/pixel-ids.ts for why that check is a security boundary.
   const metaId = metaPixelId();
   const tiktokId = tiktokPixelId();
+  const channelUrl = whatsappChannelUrl();
 
   return (
     <html lang="es-MX">
       <body>
         {metaId && <MetaPixel pixelId={metaId} />}
         {tiktokId && <TikTokPixel pixelId={tiktokId} />}
+        {channelUrl && <WhatsappChannelPopup channelUrl={channelUrl} />}
         {children}
         <footer className="site-footer">
           {/* The logo on every page, not just the home hero: a buyer who lands

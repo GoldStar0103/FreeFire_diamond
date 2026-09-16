@@ -42,6 +42,9 @@ export interface GatewayPayment {
   orderNumber: string;
   playerId: string;
   comboKey: string;
+  /** From the combo snapshot taken at order creation — for the card-sale Telegram alert. */
+  comboName: string;
+  priceMxnCents: number;
   paymentStatus: string;
   orderStatus: string;
   expiresAt: Date | null;
@@ -60,6 +63,8 @@ export async function findGatewayPayment(
       orderNumber: orders.orderNumber,
       playerId: orders.playerId,
       comboKey: orders.comboKey,
+      comboSnapshot: orders.comboSnapshot,
+      priceMxnCents: orders.priceMxnCents,
       paymentStatus: payments.status,
       orderStatus: orders.status,
       expiresAt: payments.expiresAt,
@@ -70,7 +75,10 @@ export async function findGatewayPayment(
     .orderBy(desc(payments.createdAt))
     .limit(1);
 
-  return row ?? null;
+  if (!row) return null;
+  const { comboSnapshot, ...rest } = row;
+  const snapshot = comboSnapshot as { name?: string };
+  return { ...rest, comboName: snapshot.name ?? 'Recarga' };
 }
 
 /**
