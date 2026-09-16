@@ -111,6 +111,7 @@ function PayOptionCard({
   icon: Icon,
   badge,
   title,
+  manual,
   features,
   extra,
   ctaLabel,
@@ -120,6 +121,8 @@ function PayOptionCard({
   icon: (props: { className?: string }) => React.ReactElement;
   badge?: string;
   title: string;
+  /** Card/Stripe is instant, not manual — the badge must not lie on that card. */
+  manual: boolean;
   features: string[];
   extra?: React.ReactNode;
   ctaLabel: string;
@@ -132,7 +135,7 @@ function PayOptionCard({
         {badge && <span className="pay-option-badge">{badge}</span>}
       </div>
       <div className="pay-option-title">{title}</div>
-      <span className="pay-option-manual">MANUAL</span>
+      {manual && <span className="pay-option-manual">MANUAL</span>}
       <ul className="pay-option-features">
         {features.map((f) => (
           <li key={f}>
@@ -372,6 +375,7 @@ export function Checkout({
                     tone="purple"
                     icon={CardIcon}
                     title={cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta de crédito/débito'}
+                    manual={false}
                     features={[
                       'Pago instantáneo',
                       'Visa · Mastercard · Amex',
@@ -387,6 +391,7 @@ export function Checkout({
                     icon={BankIcon}
                     badge="⭐ Recomendado"
                     title="Transferencia bancaria"
+                    manual={true}
                     features={[
                       'Paga desde tu app bancaria',
                       'Sin comisiones extras',
@@ -409,6 +414,7 @@ export function Checkout({
                     icon={StoreIcon}
                     badge="🕐 Disponible 24/7"
                     title="Depósito OXXO"
+                    manual={true}
                     features={[
                       'Paga en cualquier tienda OXXO',
                       'Sin necesidad de cuenta bancaria',
