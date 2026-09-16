@@ -111,7 +111,6 @@ function PayOptionCard({
   icon: Icon,
   badge,
   title,
-  manual,
   features,
   extra,
   ctaLabel,
@@ -121,8 +120,6 @@ function PayOptionCard({
   icon: (props: { className?: string }) => React.ReactElement;
   badge?: string;
   title: string;
-  /** Card/Stripe is instant, not manual — the badge must not lie on that card. */
-  manual: boolean;
   features: string[];
   extra?: React.ReactNode;
   ctaLabel: string;
@@ -135,12 +132,11 @@ function PayOptionCard({
         {badge && <span className="pay-option-badge">{badge}</span>}
       </div>
       <div className="pay-option-title">{title}</div>
-      {/* Labels the payment CONFIRMATION step, not the recharge — a
-          comprobante needs a human to check it, but the diamonds still land
-          automatically the moment it's approved. "MANUAL" alone read as "your
-          whole order is manual", which is precisely backwards from what
-          reassures a first-time buyer. */}
-      {manual && <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>}
+      {/* Same label on every method: card is instant, and transfer/OXXO still
+          land the diamonds automatically once the comprobante is approved.
+          First-time buyers read this as "my diamonds arrive by themselves",
+          which is the promise the owner wants on the whole comparison screen. */}
+      <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>
       <ul className="pay-option-features">
         {features.map((f) => (
           <li key={f}>
@@ -342,7 +338,7 @@ export function Checkout({
                   ? 'Paga tu recarga'
                   : `Datos para tu ${payView === 'oxxo' ? 'depósito' : 'transferencia'}`}
             </h2>
-            {payView !== 'choose' && payView !== 'tarjeta' && (
+            {payView !== 'choose' && (
               <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>
             )}
           </div>
@@ -382,7 +378,6 @@ export function Checkout({
                     tone="purple"
                     icon={CardIcon}
                     title={cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta de crédito/débito'}
-                    manual={false}
                     features={[
                       'Pago instantáneo',
                       'Visa · Mastercard · Amex',
@@ -398,7 +393,6 @@ export function Checkout({
                     icon={BankIcon}
                     badge="⭐ Recomendado"
                     title="Transferencia bancaria"
-                    manual={true}
                     features={[
                       'Paga desde tu app bancaria',
                       'Sin comisiones extras',
@@ -421,7 +415,6 @@ export function Checkout({
                     icon={StoreIcon}
                     badge="🕐 Disponible 24/7"
                     title="Depósito OXXO"
-                    manual={true}
                     features={[
                       'Paga en cualquier tienda OXXO',
                       'Sin necesidad de cuenta bancaria',
