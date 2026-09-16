@@ -80,10 +80,25 @@ export default async function DashboardPage() {
         </div>
 
         <div className="card">
-          <div className="stat-label">Vendido hoy</div>
+          <div className="stat-label">Ventas brutas hoy</div>
           <div className="stat-value">{mxn(stats.revenueTodayCents)}</div>
         </div>
+
+        <div className="card">
+          <div className="stat-label">Ventas netas hoy</div>
+          <div className={`stat-value${stats.netRevenueTodayCents < 0 ? ' bad' : ' ok'}`}>
+            {mxn(stats.netRevenueTodayCents)}
+          </div>
+        </div>
       </div>
+      <p className="hint">
+        Ventas netas = ventas brutas − costo de recargas − comisión estimada de la plataforma de
+        pago. Ve el detalle completo en{' '}
+        <Link href="/contabilidad" style={{ textDecoration: 'underline' }}>
+          Contabilidad
+        </Link>
+        .
+      </p>
     </>
   );
 }

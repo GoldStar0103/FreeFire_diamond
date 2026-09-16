@@ -179,15 +179,18 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
       priceMxnCents: 10_000,
       paymentMethod: 'card',
       paymentGateway: 'stripe',
+      // 10,000 - 3,000 cost - 766 estimated fee — an estimate here only
+      // because the fee itself is an estimate for card payments.
+      netProfitCents: 10_000 - 3_000 - 766,
     });
   });
 
-  it('charges no estimated fee for the manual transfer flow', async () => {
+  it('charges no estimated fee for the manual transfer flow, and reports an exact net profit', async () => {
     const order = await placeOrder('2222222222');
     const inRange = new Date('2026-09-14T18:00:00Z');
     await completeOrder(order.id, {
       completedAt: inRange,
-      costUsd: '1.0000',
+      costUsd: '1.0000', // $1.00 USD * 20 = $20.00 MXN = 2000 cents
       method: 'transfer_manual',
       gateway: null,
       amountReceivedCents: 10_000,
@@ -195,6 +198,8 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
 
     const summary = await getAccountingSummary(db, mexicoCityDayRange(inRange));
     expect(summary.estimatedFeeCents).toBe(0);
+    // No processing fee on this method, so this is exact, not an estimate.
+    expect(summary.movements[0]?.netProfitCents).toBe(10_000 - 2_000);
   });
 
   it('excludes an order completed outside the requested range', async () => {
@@ -237,6 +242,9 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
     const summary = await getAccountingSummary(db, mexicoCityDayRange(inRange));
     expect(summary.costDataIncomplete).toBe(true);
     expect(summary.recargaCostCents).toBe(0);
+    // Never silently treated as zero cost — that would overstate this order's
+    // profit rather than admit it isn't known.
+    expect(summary.movements[0]?.netProfitCents).toBeNull();
   });
 
   it('buckets order counts by creation date and by the client\'s three words', async () => {

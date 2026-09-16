@@ -1,58 +1,11 @@
 import Link from 'next/link';
-import {
-  getAccountingSummary,
-  mexicoCityCustomRange,
-  mexicoCityDayRange,
-  mexicoCityMonthRange,
-  mexicoCityTodayYmd,
-  mexicoCityWeekRange,
-  type DateRange,
-} from '@levelup/db';
+import { getAccountingSummary, mexicoCityTodayYmd } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, mxn } from '../../../lib/format';
+import { METHOD_LABELS, RANGES, parseRangeKey, resolveRange } from './range';
 
 export const dynamic = 'force-dynamic';
-
-type RangeKey = 'hoy' | 'semana' | 'mes' | 'personalizado';
-
-const RANGES: { value: RangeKey; label: string }[] = [
-  { value: 'hoy', label: 'Hoy' },
-  { value: 'semana', label: 'Semana' },
-  { value: 'mes', label: 'Mes' },
-  { value: 'personalizado', label: 'Personalizado' },
-];
-
-function resolveRange(
-  rango: RangeKey,
-  desde: string | undefined,
-  hasta: string | undefined,
-): DateRange {
-  const now = new Date();
-  switch (rango) {
-    case 'semana':
-      return mexicoCityWeekRange(now);
-    case 'mes':
-      return mexicoCityMonthRange(now);
-    case 'personalizado': {
-      const start = desde || mexicoCityTodayYmd(now);
-      const end = hasta || start;
-      return mexicoCityCustomRange(start, end);
-    }
-    case 'hoy':
-    default:
-      return mexicoCityDayRange(now);
-  }
-}
-
-/** MXN methods have a Spanish label the client reads, not the enum value. */
-const METHOD_LABELS: Record<string, string> = {
-  card: 'Tarjeta',
-  oxxo: 'OXXO (Stripe)',
-  spei: 'SPEI (Stripe)',
-  transfer_manual: 'Transferencia/OXXO manual',
-  paypal: 'PayPal',
-};
 
 export default async function ContabilidadPage({
   searchParams,
@@ -61,30 +14,39 @@ export default async function ContabilidadPage({
 }) {
   await requireSession();
   const params = await searchParams;
-  const rango = (RANGES.find((r) => r.value === params.rango)?.value ?? 'hoy') as RangeKey;
+  const rango = parseRangeKey(params.rango);
   const range = resolveRange(rango, params.desde, params.hasta);
 
   const summary = await getAccountingSummary(getDb(), range);
+
+  const reportQuery = new URLSearchParams({ rango });
+  if (params.desde) reportQuery.set('desde', params.desde);
+  if (params.hasta) reportQuery.set('hasta', params.hasta);
 
   return (
     <>
       <h1 style={{ marginBottom: 0 }}>Contabilidad</h1>
       <p className="subtitle">
-        Ventas, costos y ganancia estimada.{' '}
-        <strong>La comisión de plataforma de pago es una estimación</strong>, no el monto exacto
-        que cobra Stripe.
+        Ventas, costos y ganancia.{' '}
+        <strong>La comisión de tarjeta es una estimación</strong>, no el monto exacto que cobra
+        Stripe — para transferencia y OXXO la ganancia es exacta, no hay comisión que estimar.
       </p>
 
-      <div className="row" style={{ marginBottom: 6 }}>
-        {RANGES.map((r) => (
-          <Link
-            key={r.value}
-            href={`/contabilidad?rango=${r.value}`}
-            className={`btn sm${rango === r.value ? ' primary' : ''}`}
-          >
-            {r.label}
-          </Link>
-        ))}
+      <div className="row" style={{ marginBottom: 6, justifyContent: 'space-between' }}>
+        <div className="row" style={{ margin: 0 }}>
+          {RANGES.map((r) => (
+            <Link
+              key={r.value}
+              href={`/contabilidad?rango=${r.value}`}
+              className={`btn sm${rango === r.value ? ' primary' : ''}`}
+            >
+              {r.label}
+            </Link>
+          ))}
+        </div>
+        <a className="btn sm" href={`/contabilidad/reporte?${reportQuery.toString()}`}>
+          Descargar reporte (CSV)
+        </a>
       </div>
 
       {rango === 'personalizado' && (
@@ -121,11 +83,11 @@ export default async function ContabilidadPage({
           <div className="stat-value">{mxn(summary.recargaCostCents)}</div>
         </div>
         <div className="card">
-          <div className="stat-label">Comisión estimada</div>
+          <div className="stat-label">Comisión estimada (tarjeta)</div>
           <div className="stat-value">{mxn(summary.estimatedFeeCents)}</div>
         </div>
         <div className="card">
-          <div className="stat-label">Ganancia estimada</div>
+          <div className="stat-label">Ganancia neta</div>
           <div className={`stat-value${summary.estimatedProfitCents < 0 ? ' bad' : ' ok'}`}>
             {mxn(summary.estimatedProfitCents)}
           </div>
@@ -185,7 +147,7 @@ export default async function ContabilidadPage({
                 <th>Combo</th>
                 <th className="num">Precio</th>
                 <th>Método</th>
-                <th className="num">Comisión est.</th>
+                <th className="num">Ganancia neta</th>
                 <th>Fecha</th>
               </tr>
             </thead>
@@ -196,7 +158,7 @@ export default async function ContabilidadPage({
                   <td>{m.comboName}</td>
                   <td className="num">{mxn(m.priceMxnCents)}</td>
                   <td>{m.paymentMethod ? (METHOD_LABELS[m.paymentMethod] ?? m.paymentMethod) : '—'}</td>
-                  <td className="num">{mxn(m.estimatedFeeCents)}</td>
+                  <td className="num">{m.netProfitCents === null ? 'N/D' : mxn(m.netProfitCents)}</td>
                   <td>{dateTime(m.completedAt)}</td>
                 </tr>
               ))}

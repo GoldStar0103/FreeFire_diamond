@@ -13,6 +13,7 @@ import { and, count, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { baseProducts, campaigns, combos, orderItems, orders, payments } from '../schema.js';
 import { mexicoCityDayRange } from './mexico-city-time.js';
+import { getSalesTotals } from './accounting-queries.js';
 
 // ── the approval queue ────────────────────────────────────────────────────────
 
@@ -351,6 +352,12 @@ export interface DashboardStats {
   needsReview: number;
   completedToday: number;
   revenueTodayCents: number;
+  /**
+   * Gross revenue minus recharge cost minus the estimated payment-platform
+   * fee — same figure the Contabilidad report calls `netSalesCents` for the
+   * same day, via the shared `getSalesTotals` (see its doc comment).
+   */
+  netRevenueTodayCents: number;
   /** Combos blocked from sale because their recipe under-delivers. */
   inactiveCombos: Array<{ key: string; name: string }>;
   /** Denominations with no active provider product — combos using them will fail. */
@@ -386,6 +393,10 @@ export async function getDashboardStats(db: Database, now = new Date()): Promise
       ),
     );
 
+  // Same query the Contabilidad report runs for "Hoy" — reused rather than
+  // reimplemented so the two screens can never quietly disagree.
+  const { netSalesCents } = await getSalesTotals(db, { start: startOfDay, end: endOfDay });
+
   const inactive = await db
     .select({ key: combos.key, name: combos.name })
     .from(combos)
@@ -405,6 +416,7 @@ export async function getDashboardStats(db: Database, now = new Date()): Promise
     needsReview: byStatus['needs_review'] ?? 0,
     completedToday: today?.n ?? 0,
     revenueTodayCents: Number(today?.revenue ?? 0),
+    netRevenueTodayCents: netSalesCents,
     inactiveCombos: inactive,
     missingProducts,
   };
