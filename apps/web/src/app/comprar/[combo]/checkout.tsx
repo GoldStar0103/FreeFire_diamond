@@ -135,7 +135,12 @@ function PayOptionCard({
         {badge && <span className="pay-option-badge">{badge}</span>}
       </div>
       <div className="pay-option-title">{title}</div>
-      {manual && <span className="pay-option-manual">MANUAL</span>}
+      {/* Labels the payment CONFIRMATION step, not the recharge — a
+          comprobante needs a human to check it, but the diamonds still land
+          automatically the moment it's approved. "MANUAL" alone read as "your
+          whole order is manual", which is precisely backwards from what
+          reassures a first-time buyer. */}
+      {manual && <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>}
       <ul className="pay-option-features">
         {features.map((f) => (
           <li key={f}>
@@ -337,7 +342,9 @@ export function Checkout({
                   ? 'Paga tu recarga'
                   : `Datos para tu ${payView === 'oxxo' ? 'depósito' : 'transferencia'}`}
             </h2>
-            {payView !== 'choose' && payView !== 'tarjeta' && <span className="pay-option-manual">MANUAL</span>}
+            {payView !== 'choose' && payView !== 'tarjeta' && (
+              <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>
+            )}
           </div>
 
           {identityRow}

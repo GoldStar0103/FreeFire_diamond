@@ -192,7 +192,7 @@ img { max-width: 100%; display: block; }
 .summary-diamonds { color: var(--muted); }
 .summary-price { margin-left: auto; font-size: 21px; font-weight: 800; color: var(--accent-2); }
 
-.step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.step-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 12px; }
 .step-head h2 { font-size: 16px; margin: 0; }
 .step-num {
   width: 24px; height: 24px; flex: none;
@@ -275,6 +275,8 @@ img { max-width: 100%; display: block; }
 .pay-option-title { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
 .pay-option-manual {
   display: inline-block;
+  flex: none;
+  white-space: nowrap;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
