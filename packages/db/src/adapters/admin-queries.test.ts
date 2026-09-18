@@ -214,6 +214,27 @@ describe.skipIf(!PG_AVAILABLE)('listPendingApprovals', () => {
 
     expect(queue[0]?.contactWhatsapp).toBeNull();
   });
+
+  it('excludes a card order sitting in pending — there is no comprobante to review, Stripe settles it', async () => {
+    // Real incident, 2026-09-18: an admin working this queue by habit
+    // rejected a card order as "sin comprobante" 22 seconds after checkout
+    // started, before Stripe's own webhook could confirm the real payment
+    // that succeeded six minutes later (order LU-260918-0RTQ). A card order
+    // must never be a candidate for that button in the first place.
+    const cardResult = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      { comboKey: 'pack_insano', playerId: '7288567050', paymentMethod: 'card', source: 'storefront' },
+    );
+    if (!cardResult.ok) throw new Error(`seed order failed: ${cardResult.failure.code}`);
+
+    // A manual order in the same query, so this proves exclusion, not an
+    // empty-table false positive.
+    const manual = await placeOrder('mega_10');
+
+    const queue = await listPendingApprovals(db);
+
+    expect(queue.map((q) => q.orderNumber)).toEqual([manual.orderNumber]);
+  });
 });
 
 describe.skipIf(!PG_AVAILABLE)('listOrders', () => {

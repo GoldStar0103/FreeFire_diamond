@@ -237,6 +237,20 @@ describe('rejection', () => {
     expect(store.rejectPayment).not.toHaveBeenCalled();
   });
 
+  it('refuses to reject a card payment — Stripe settles it, there is no comprobante', async () => {
+    // Real incident, 2026-09-18: a card order was rejected as "sin
+    // comprobante" 22 seconds after checkout started; the customer's $750
+    // MXN charge succeeded in Stripe six minutes later, but the order was
+    // already cancelled and the real approval got refused (order
+    // LU-260918-0RTQ). This is the guard that stops that specific mistake.
+    const { deps, store } = harness(payable({ method: 'card', paymentStatus: 'pending' }));
+
+    expect(
+      await rejectPayment(deps, { orderId: 'order-1', reason: 'Sin comprobante de pago' }),
+    ).toMatchObject({ failure: { code: 'CARD_PAYMENT_NOT_REJECTABLE' } });
+    expect(store.rejectPayment).not.toHaveBeenCalled();
+  });
+
   it('turns a race lost at the store into a typed failure, not a thrown error', async () => {
     // The read above only catches a payment that was ALREADY paid when this
     // function started. The store's own guarded write is what catches one

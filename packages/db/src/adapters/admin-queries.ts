@@ -9,7 +9,7 @@
  * decimal string; formatting is the UI's job, never arithmetic.
  */
 
-import { and, count, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { baseProducts, campaigns, combos, orderItems, orders, payments } from '../schema.js';
 import { mexicoCityDayRange } from './mexico-city-time.js';
@@ -44,6 +44,19 @@ export interface PendingApproval {
  * This is the screen that replaces the manual WhatsApp back-and-forth: the
  * customer sends a comprobante, an admin taps approve, fulfilment runs itself.
  * Oldest first — a customer who has been waiting longest is the most annoyed.
+ *
+ * Card/Stripe orders are deliberately EXCLUDED — there is no comprobante to
+ * check, Stripe's webhook confirms the payment on its own. A card order sits
+ * here identically to a stalled manual transfer while the customer is still
+ * mid-checkout on Stripe's page, and an admin working through this queue by
+ * habit has no way to tell the difference — which is exactly how a real,
+ * successfully-paid card order got rejected as "sin comprobante" 22 seconds
+ * after checkout started, before Stripe's own confirmation could land (real
+ * incident, 2026-09-18, order LU-260918-0RTQ — the customer's $750 MXN
+ * charge succeeded in Stripe but the order was already cancelled here).
+ * Rejecting one now is also blocked at the engine level (`rejectPayment` in
+ * packages/engine/src/payments.ts), but keeping it off this list in the first
+ * place is what stops the mistake from being tempting to make.
  */
 export async function listPendingApprovals(
   db: Database,
@@ -73,6 +86,7 @@ export async function listPendingApprovals(
       and(
         eq(orders.status, 'pending_payment'),
         inArray(payments.status, ['pending', 'under_review', 'amount_mismatch']),
+        ne(payments.method, 'card'),
       ),
     )
     .orderBy(orders.createdAt)

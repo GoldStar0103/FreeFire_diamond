@@ -20,6 +20,8 @@ function explain(code: string, message: string): string {
       return `${message} Puedes aprobarlo de todos modos con "forzar".`;
     case 'NOT_AWAITING_PAYMENT':
       return message;
+    case 'CARD_PAYMENT_NOT_REJECTABLE':
+      return 'Este es un pago con tarjeta — se confirma solo cuando Stripe lo reporta. No hay nada que rechazar; espera a que se confirme o caduque.';
     case 'ORDER_NOT_FOUND':
       return 'Ese pedido ya no existe.';
     default:

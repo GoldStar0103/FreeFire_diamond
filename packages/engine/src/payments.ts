@@ -53,6 +53,7 @@ export type PaymentFailure =
   | { code: 'ORDER_NOT_FOUND'; message: string }
   | { code: 'NOT_AWAITING_PAYMENT'; message: string; paymentStatus: PaymentState }
   | { code: 'PAYMENT_EXPIRED'; message: string }
+  | { code: 'CARD_PAYMENT_NOT_REJECTABLE'; message: string }
   | {
       code: 'AMOUNT_MISMATCH';
       message: string;
@@ -199,6 +200,27 @@ export async function rejectPayment(
         code: 'NOT_AWAITING_PAYMENT',
         message: `${payable.orderNumber} is already paid — use a refund, not a rejection.`,
         paymentStatus: payable.paymentStatus,
+      },
+    };
+  }
+
+  // There is no comprobante to reject on a card order — Stripe's webhook is
+  // what settles it, on its own, with no human step. A card payment sitting
+  // here is simply a customer still on Stripe's page (or one who abandoned
+  // it, which the expiry sweep already handles once the session's grace
+  // period actually passes). Rejecting it by hand can beat that webhook to
+  // the punch: a real incident (2026-09-18, order LU-260918-0RTQ) had a card
+  // order rejected as "sin comprobante" 22 seconds after checkout started —
+  // the customer's $750 MXN charge succeeded in Stripe six minutes later, but
+  // by then the order was already cancelled and the approval was refused.
+  if (payable.method === 'card') {
+    return {
+      ok: false,
+      failure: {
+        code: 'CARD_PAYMENT_NOT_REJECTABLE',
+        message:
+          `${payable.orderNumber} is a card payment — it confirms itself automatically ` +
+          `once Stripe reports it. There is nothing to reject; wait for it to settle or expire.`,
       },
     };
   }
