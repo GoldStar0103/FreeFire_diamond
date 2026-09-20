@@ -3,8 +3,7 @@ import {
   BASE_DENOMINATIONS,
   extractDiamonds,
   mapDenominations,
-  normaliseGameProduct,
-  normalisePinProduct,
+  normaliseCatalogProduct,
   rankProduct,
 } from './catalog.js';
 
@@ -55,32 +54,57 @@ describe('extractDiamonds', () => {
   });
 });
 
-describe('normaliseGameProduct and normalisePinProduct with delivered-figure names', () => {
-  it('still maps a /buy/games product renamed to its delivered count', () => {
-    const product = normaliseGameProduct({
+describe('normaliseCatalogProduct with delivered-figure names', () => {
+  it('still maps a games-family product (player_id) renamed to its delivered count', () => {
+    const product = normaliseCatalogProduct({
       id: 1,
-      game: 'Free Fire',
-      package: '1166 Diamantes',
+      name: 'Free Fire 1166 Diamantes',
+      type: 'recharge',
+      required_fields: ['player_id'],
       price: 6.59,
     });
     expect(product.diamondsBase).toBe(1060);
+    expect(product.endpointKind).toBe('games');
+    expect(product.canValidate).toBe(false);
   });
 
-  it('still maps a /buy/pins recharge product renamed to its delivered count', () => {
-    const product = normalisePinProduct({
+  it('still maps a direct-to-account recharge product renamed to its delivered count', () => {
+    const product = normaliseCatalogProduct({
       id: 5,
       sku: 'FFCH110',
       name: '110 Diamantes',
       type: 'recharge',
+      required_fields: ['manual_id'],
       price: 0.7,
     });
     expect(product.diamondsBase).toBe(100);
+    expect(product.endpointKind).toBe('pins_recharge');
     expect(product.canValidate).toBe(true);
+  });
+
+  it('maps a "pin" (redeemable code) product as pins_code, never validatable', () => {
+    const product = normaliseCatalogProduct({
+      id: 11,
+      sku: 'ADS011',
+      name: 'Pin Free Fire 100 Diamantes',
+      type: 'pin',
+      required_fields: [],
+      price: 0.68,
+    });
+    expect(product.endpointKind).toBe('pins_code');
+    expect(product.canValidate).toBe(false);
   });
 
   it('lets mapDenominations pick up a renamed product for its base slot', () => {
     const products = [
-      normalisePinProduct({ id: 5, sku: 'FFCH110', name: '110 Diamantes', type: 'recharge', price: 0.7 }),
+      normaliseCatalogProduct({
+        id: 5,
+        sku: 'FFCH110',
+        name: '110 Diamantes',
+        type: 'recharge',
+        required_fields: ['manual_id'],
+        price: 0.7,
+      }),
     ];
     const matches = mapDenominations(products);
     const hundred = matches.find((m) => m.denomination === 100);
@@ -90,9 +114,21 @@ describe('normaliseGameProduct and normalisePinProduct with delivered-figure nam
 
 describe('rankProduct', () => {
   it('prefers a validatable recharge over a games package over a redeemable code', () => {
-    const recharge = normalisePinProduct({ id: 1, name: '100', type: 'recharge', price: 1 });
-    const game = normaliseGameProduct({ id: 2, game: 'Free Fire', package: '100', price: 1 });
-    const code = normalisePinProduct({ id: 3, name: '100', type: 'pin', price: 1 });
+    const recharge = normaliseCatalogProduct({
+      id: 1,
+      name: '100',
+      type: 'recharge',
+      required_fields: ['manual_id'],
+      price: 1,
+    });
+    const game = normaliseCatalogProduct({
+      id: 2,
+      name: 'Free Fire 100',
+      type: 'recharge',
+      required_fields: ['player_id'],
+      price: 1,
+    });
+    const code = normaliseCatalogProduct({ id: 3, name: '100', type: 'pin', required_fields: [], price: 1 });
     expect(rankProduct(recharge)).toBeLessThan(rankProduct(game));
     expect(rankProduct(game)).toBeLessThan(rankProduct(code));
   });

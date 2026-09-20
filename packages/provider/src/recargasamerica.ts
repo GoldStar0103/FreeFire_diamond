@@ -8,6 +8,18 @@
  * is expensive: treat an ambiguous timeout as a failure and you double-deliver
  * diamonds you cannot claw back; treat a definitive failure as ambiguous and
  * every hiccup lands on an admin's desk.
+ *
+ * `/products/games`, `/products/pins` and `/pins/validate` were retired
+ * without notice on 2026-09-20 in favour of the unified `/products/catalog` +
+ * `/catalog/validate` — see catalog.ts's own doc comment for how the unified
+ * shape was reverse-engineered against the live API (no public docs found for
+ * it). `/buy/games` and `/buy/pins` were still answering normally at the time
+ * of that migration (real orders completed minutes before the listing
+ * endpoints went dark), so purchase is deliberately left untouched here —
+ * changing a working, money-moving call on the strength of "the sibling
+ * endpoints broke" would be guessing with real charges. Revisit if RA
+ * confirms (or those endpoints start failing) that a `/buy/catalog` migration
+ * is needed too.
  */
 
 import {
@@ -21,27 +33,15 @@ import {
   type TopupProvider,
   type UsdTenK,
 } from './types.js';
-import {
-  isFreeFire,
-  normaliseGameProduct,
-  normalisePinProduct,
-  type ProviderProduct,
-} from './catalog.js';
+import { isFreeFire, normaliseCatalogProduct, type ProviderProduct } from './catalog.js';
 
-interface RawGameRow {
-  id?: number | string;
-  game?: string;
-  package?: string;
-  price?: number | string;
-  input_fields?: Array<{ name?: string; label?: string }>;
-}
-
-interface RawPinRow {
+interface RawCatalogRow {
   id?: number | string;
   sku?: string;
   name?: string;
   type?: string;
   price?: number | string;
+  required_fields?: string[];
 }
 
 export interface RecargasAmericaOptions {
@@ -161,20 +161,14 @@ export class RecargasAmericaProvider implements TopupProvider {
   }
 
   async listFreeFireCatalog(): Promise<ProviderProduct[]> {
-    const [games, pins] = await Promise.all([
-      this.call<RawGameRow[]>('GET', '/products/games'),
-      this.call<RawPinRow[]>('GET', '/products/pins'),
-    ]);
+    const res = await this.call<RawCatalogRow[]>('GET', '/products/catalog');
+    if (!res.ok) throw new ProviderProtocolError(`Could not list catalog: ${res.message}`);
 
-    // Both endpoints must answer. Half a catalog would look like products
-    // disappearing, and the sync would deactivate SKUs that are perfectly fine.
-    if (!games.ok) throw new ProviderProtocolError(`Could not list games: ${games.message}`);
-    if (!pins.ok) throw new ProviderProtocolError(`Could not list pins: ${pins.message}`);
-
-    return [
-      ...games.data.filter((p) => isFreeFire(`${p.game} ${p.package}`)).map(normaliseGameProduct),
-      ...pins.data.filter((p) => isFreeFire(`${p.name} ${p.sku}`)).map(normalisePinProduct),
-    ];
+    // The unified catalog covers every game this reseller account can sell,
+    // not just Free Fire — the filter is load-bearing, not tidiness.
+    return res.data
+      .filter((p) => isFreeFire(`${p.name} ${p.sku}`))
+      .map(normaliseCatalogProduct);
   }
 
   async getBalance(): Promise<UsdTenK> {
@@ -185,10 +179,11 @@ export class RecargasAmericaProvider implements TopupProvider {
 
   async validatePlayer(providerProductId: string, playerId: string): Promise<PlayerValidation> {
     const attempt = () =>
-      this.call<{ status: boolean; account_name: string | null }>('POST', '/pins/validate', {
-        product_id: coerceId(providerProductId),
-        service_user_id: playerId,
-      });
+      this.call<{ supported: boolean; status: boolean; account_name: string | null }>(
+        'POST',
+        '/catalog/validate',
+        { product_id: coerceId(providerProductId), service_user_id: playerId },
+      );
 
     let res = await attempt();
 
@@ -199,18 +194,24 @@ export class RecargasAmericaProvider implements TopupProvider {
     // silent retry here is cheaper than losing that buyer to a false alarm —
     // never retried again after this, so a genuinely dead endpoint still
     // surfaces as an error rather than doubling every request's latency.
-    if (!res.ok && res.code !== 'INVALID_PRODUCT_TYPE') {
+    //
+    // Unlike the old /pins/validate, a capability rejection is not a
+    // transport-level failure any more — it comes back as `res.ok` with
+    // `supported: false` (handled below) — so unconditionally retrying a real
+    // `!res.ok` here is correct: there is no longer a definitive-failure case
+    // hiding inside it worth skipping the retry for.
+    if (!res.ok) {
       res = await attempt();
     }
 
     if (!res.ok) {
-      // The API rejects anything that is not type=recharge. Surface that as a
-      // capability problem, not as "player not found" — the difference decides
-      // whether checkout shows a nickname gate or a double-entry fallback.
-      if (res.code === 'INVALID_PRODUCT_TYPE') {
-        throw new ValidationUnsupportedError(providerProductId);
-      }
       throw new ProviderProtocolError(`Validation failed: ${res.message}`);
+    }
+
+    // The capability check itself: only the manual_id recharge family
+    // supports pre-purchase validation — see catalog.ts's doc comment.
+    if (!res.data.supported) {
+      throw new ValidationUnsupportedError(providerProductId);
     }
 
     return res.data.status

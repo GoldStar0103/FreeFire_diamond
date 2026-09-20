@@ -1,11 +1,36 @@
 /**
  * Provider catalog parsing.
  *
- * The provider exposes Free Fire across two endpoints with three delivery
- * behaviours, and its product names are free text. Turning that into the six
- * base denominations LevelUp actually builds combos from is guesswork on
- * strings, so it lives here — one implementation, tested, shared by both the
- * Phase 0 discovery script and the catalog sync.
+ * RecargasAmérica retired the old two-endpoint catalog (`/products/games` +
+ * `/products/pins`) on 2026-09-20 in favour of one unified `/products/catalog`
+ * — the "catálogo unificado" that had existed as an additive BETA since
+ * 2026-09-11 (see recargasamerica.ts's own doc comment) suddenly became the
+ * only option, with no migration window. The three delivery behaviours this
+ * module has always cared about still exist, just distinguished by
+ * `type`/`required_fields` instead of by which endpoint a row came from:
+ *
+ *   - `type: "recharge"`, `required_fields: ["manual_id"]` — direct top-up to
+ *     the player's account, WITH pre-purchase validation. This is the old
+ *     `/products/pins` "type=recharge" row, and the only kind of product
+ *     LevelUp's six combos are actually built from (`pins_recharge`).
+ *   - `type: "recharge"`, `required_fields: ["player_id"]` — direct top-up,
+ *     no validation. The old `/products/games` row (`games`).
+ *   - anything else (`type: "pin"`) — a redeemable code, not a top-up
+ *     (`pins_code`) — never sold as a recarga, same as before.
+ *
+ * Confirmed empirically against the live API on 2026-09-20 (no public docs
+ * for the unified shape were found): `POST /catalog/validate` for a
+ * `pins_recharge`-shaped product returns
+ * `{"supported":true,"status":true,"account_name":"…"}` for a known player,
+ * and `{"supported":false}` for a `games`- or `pins_code`-shaped one — so
+ * `supported` is the new capability flag replacing the old API's
+ * `INVALID_PRODUCT_TYPE` error code, while `status`/`account_name` are
+ * unchanged from before.
+ *
+ * Its product names are still free text. Turning that into the six base
+ * denominations LevelUp actually builds combos from is guesswork on strings,
+ * so it lives here — one implementation, tested, shared by both the Phase 0
+ * discovery script and the catalog sync.
  */
 
 import type { EndpointKind, UsdTenK } from './types.js';
@@ -86,20 +111,14 @@ export function extractDiamonds(text: unknown): number | null {
   return null;
 }
 
-interface RawGameProduct {
-  id?: number | string;
-  game?: string;
-  package?: string;
-  price?: number | string;
-  input_fields?: Array<{ name?: string; label?: string }>;
-}
-
-interface RawPinProduct {
+interface RawCatalogProduct {
   id?: number | string;
   sku?: string;
   name?: string;
+  /** "recharge" or "pin" — orthogonal to `required_fields`, see module doc. */
   type?: string;
   price?: number | string;
+  required_fields?: string[];
 }
 
 const safeUsd = (value: unknown): UsdTenK | null => {
@@ -111,39 +130,43 @@ const safeUsd = (value: unknown): UsdTenK | null => {
   }
 };
 
-/** `/products/games` — direct top-up, pollable, but no pre-purchase validation. */
-export function normaliseGameProduct(raw: RawGameProduct): ProviderProduct {
-  const name = [raw.game, raw.package].filter(Boolean).join(' ');
-  const inputFields = Array.isArray(raw.input_fields) ? raw.input_fields : [];
-
-  return {
-    providerProductId: String(raw.id ?? ''),
-    endpointKind: 'games',
-    name,
-    sku: null,
-    diamondsBase: extractDiamonds(name),
-    costUsd: safeUsd(raw.price),
-    requiresServerId: inputFields.some((f) => /server/i.test(`${f.label ?? ''} ${f.name ?? ''}`)),
-    // /pins/validate rejects anything that is not a pins recharge product.
-    canValidate: false,
-    raw,
-  };
-}
-
-/** `/products/pins` — `type` decides whether this is a top-up or a code. */
-export function normalisePinProduct(raw: RawPinProduct): ProviderProduct {
+/**
+ * `/products/catalog` — the unified endpoint. `type` + `required_fields`
+ * together decide which of the three delivery behaviours a row is; see the
+ * module doc comment for what each combination means and how that was
+ * confirmed.
+ */
+export function normaliseCatalogProduct(raw: RawCatalogProduct): ProviderProduct {
   const name = raw.name ?? raw.sku ?? '';
+  const fields = Array.isArray(raw.required_fields) ? raw.required_fields : [];
   const isRecharge = raw.type === 'recharge';
+  const isDirectToAccount = isRecharge && fields.includes('manual_id');
+
+  if (isRecharge && fields.includes('player_id') && !fields.includes('manual_id')) {
+    return {
+      providerProductId: String(raw.id ?? ''),
+      endpointKind: 'games',
+      name,
+      sku: raw.sku ?? null,
+      diamondsBase: extractDiamonds(name),
+      costUsd: safeUsd(raw.price),
+      requiresServerId: fields.some((f) => /server/i.test(f)),
+      // /catalog/validate reports supported:false for anything but the
+      // manual_id recharge family.
+      canValidate: false,
+      raw,
+    };
+  }
 
   return {
     providerProductId: String(raw.id ?? ''),
-    endpointKind: isRecharge ? 'pins_recharge' : 'pins_code',
+    endpointKind: isDirectToAccount ? 'pins_recharge' : 'pins_code',
     name,
     sku: raw.sku ?? null,
     diamondsBase: extractDiamonds(`${name} ${raw.sku ?? ''}`),
     costUsd: safeUsd(raw.price),
     requiresServerId: false,
-    canValidate: isRecharge,
+    canValidate: isDirectToAccount,
     raw,
   };
 }

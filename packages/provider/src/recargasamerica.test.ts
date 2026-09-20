@@ -113,7 +113,10 @@ describe('validatePlayer', () => {
     const result = await provider(
       fakeFetch([
         { status: 502, body: { success: false, error: 'Upstream error' } },
-        { status: 200, body: { success: true, data: { status: true, account_name: 'ShadowFF' } } },
+        {
+          status: 200,
+          body: { success: true, data: { supported: true, status: true, account_name: 'ShadowFF' } },
+        },
       ]),
     ).validatePlayer('351', '182938102');
 
@@ -140,16 +143,16 @@ describe('validatePlayer', () => {
     expect(callCount).toBe(2);
   });
 
-  it('does not retry INVALID_PRODUCT_TYPE — it is a definitive capability error, not a flake', async () => {
-    const calls: Array<{ status: number; body: unknown }> = [
-      { status: 422, body: { success: false, error: 'Tipo no soportado', code: 'INVALID_PRODUCT_TYPE' } },
-    ];
+  it('does not retry a capability rejection (supported:false) — it is a 200, not a transport failure', async () => {
+    // Unlike the old /pins/validate, an unsupported product is not an HTTP
+    // error any more — the request itself succeeds and the capability
+    // question is answered in the body, so there is nothing transient here
+    // for a retry to fix.
     let callCount = 0;
     const countingFetch = (async () => {
       callCount += 1;
-      const next = calls.shift();
-      return new Response(JSON.stringify(next?.body ?? { success: false }), {
-        status: next?.status ?? 500,
+      return new Response(JSON.stringify({ success: true, data: { supported: false } }), {
+        status: 200,
       });
     }) as unknown as typeof fetch;
 
@@ -164,7 +167,7 @@ describe('validatePlayer', () => {
     const countingFetch = (async () => {
       callCount += 1;
       return new Response(
-        JSON.stringify({ success: true, data: { status: true, account_name: 'ShadowFF' } }),
+        JSON.stringify({ success: true, data: { supported: true, status: true, account_name: 'ShadowFF' } }),
         { status: 200 },
       );
     }) as unknown as typeof fetch;
