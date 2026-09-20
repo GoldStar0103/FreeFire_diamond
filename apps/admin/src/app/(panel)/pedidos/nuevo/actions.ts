@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { baseProducts, DrizzleOrderingStore, DrizzlePaymentStore } from '@levelup/db';
 import { approvePayment, createOrder, type CreateOrderFailure } from '@levelup/engine';
 import { getDb } from '../../../../lib/db';
-import { provider } from '../../../../lib/provider';
+import { getProvider } from '../../../../lib/provider';
 import { requireSession } from '../../../../lib/session';
 
 export interface LookupState {
@@ -51,7 +51,7 @@ export async function lookupPlayer(
   }
 
   try {
-    const result = await provider.validatePlayer(productId, playerId);
+    const result = await getProvider().validatePlayer(productId, playerId);
     return result.found && result.nickname
       ? { status: 'found', playerId, nickname: result.nickname }
       : { status: 'not_found', playerId, message: 'No existe esa cuenta de Free Fire.' };
@@ -105,7 +105,7 @@ export async function createManualOrder(
 
   let nickname: string;
   try {
-    const check = await provider.validatePlayer(productId, playerId);
+    const check = await getProvider().validatePlayer(productId, playerId);
     if (!check.found || !check.nickname) {
       return { error: 'No existe esa cuenta de Free Fire. Revisa el ID.' };
     }

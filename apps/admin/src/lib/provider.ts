@@ -1,9 +1,19 @@
 /**
  * Provider singleton for the admin panel.
  *
- * Only used to confirm a player ID before creating a manual order. The panel
- * never purchases — the worker owns that, and keeping it that way means there
- * is exactly one place in the system that spends money.
+ * Used to confirm a player ID before creating a manual order, and to read the
+ * wallet balance for the Inicio dashboard tile. The panel never purchases —
+ * the worker owns that, and keeping it that way means there is exactly one
+ * place in the system that spends money.
+ *
+ * Built on first use, not at import — the same lesson apps/web's own
+ * `getProvider()` already documents. An eager `build()` at module scope broke
+ * the *admin build itself*: importing this module from a page.tsx (the
+ * Inicio dashboard, to show the wallet balance) made Next.js evaluate it
+ * while "collecting page data" during `next build`, where RA_API_KEY isn't
+ * set — a `use server` action file happened not to trigger this the same
+ * way, which is why this went unnoticed until something imported it from a
+ * page directly.
  */
 
 import 'server-only';
@@ -33,5 +43,10 @@ function build(): TopupProvider {
   });
 }
 
-export const provider: TopupProvider = globalThis.__adminProvider ?? build();
-if (process.env.NODE_ENV !== 'production') globalThis.__adminProvider = provider;
+export function getProvider(): TopupProvider {
+  const existing = globalThis.__adminProvider;
+  if (existing) return existing;
+  const built = build();
+  if (process.env.NODE_ENV !== 'production') globalThis.__adminProvider = built;
+  return built;
+}

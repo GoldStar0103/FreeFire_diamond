@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { getDashboardStats, getPaymentDetails } from '@levelup/db';
 import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
-import { provider } from '../../lib/provider';
+import { getProvider } from '../../lib/provider';
 import { mxn, usd } from '../../lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  */
 async function providerBalanceUsd(): Promise<number | null> {
   try {
-    return (await provider.getBalance()) / 10_000;
+    return (await getProvider().getBalance()) / 10_000;
   } catch {
     return null;
   }
