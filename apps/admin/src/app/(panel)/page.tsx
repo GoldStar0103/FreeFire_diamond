@@ -2,16 +2,34 @@ import Link from 'next/link';
 import { getDashboardStats, getPaymentDetails } from '@levelup/db';
 import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
-import { mxn } from '../../lib/format';
+import { provider } from '../../lib/provider';
+import { mxn, usd } from '../../lib/format';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Read live, never cached — this is the same number `getBalance()` reports to
+ * the worker's low-balance alert, and a client once worried it had gone
+ * stale after a top-up specifically because there was nowhere in the panel
+ * to just look at it themselves. Null means the provider could not be
+ * reached just now, not that the balance is zero — never conflate the two.
+ */
+async function providerBalanceUsd(): Promise<number | null> {
+  try {
+    return (await provider.getBalance()) / 10_000;
+  } catch {
+    return null;
+  }
+}
+
 export default async function DashboardPage() {
   await requireSession();
-  const [stats, payTo] = await Promise.all([
+  const [stats, payTo, balanceUsd] = await Promise.all([
     getDashboardStats(getDb()),
     getPaymentDetails(getDb()),
+    providerBalanceUsd(),
   ]);
+  const lowBalanceThreshold = Number(process.env.RA_LOW_BALANCE_USD ?? 100);
 
   return (
     <>
@@ -88,6 +106,17 @@ export default async function DashboardPage() {
           <div className="stat-label">Ventas netas hoy</div>
           <div className={`stat-value${stats.netRevenueTodayCents < 0 ? ' bad' : ' ok'}`}>
             {mxn(stats.netRevenueTodayCents)}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="stat-label">Saldo del proveedor</div>
+          <div
+            className={`stat-value${
+              balanceUsd === null || balanceUsd < lowBalanceThreshold ? ' bad' : ' ok'
+            }`}
+          >
+            {balanceUsd === null ? 'No disponible' : usd(balanceUsd.toFixed(2))}
           </div>
         </div>
       </div>
