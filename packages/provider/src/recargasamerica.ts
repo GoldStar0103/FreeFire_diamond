@@ -13,13 +13,33 @@
  * without notice on 2026-09-20 in favour of the unified `/products/catalog` +
  * `/catalog/validate` — see catalog.ts's own doc comment for how the unified
  * shape was reverse-engineered against the live API (no public docs found for
- * it). `/buy/games` and `/buy/pins` were still answering normally at the time
- * of that migration (real orders completed minutes before the listing
- * endpoints went dark), so purchase is deliberately left untouched here —
- * changing a working, money-moving call on the strength of "the sibling
- * endpoints broke" would be guessing with real charges. Revisit if RA
- * confirms (or those endpoints start failing) that a `/buy/catalog` migration
- * is needed too.
+ * it). `/buy/games` and `/buy/pins` were still answering normally at first
+ * (real orders completed minutes after that migration), so purchase was left
+ * untouched at first — but RA extended the retirement to them too a couple of
+ * hours later, confirmed both by real orders failing in production
+ * (`ENDPOINT_DISABLED`) and by a deliberately safe empty-body probe against
+ * `/buy/pins` returning the same "Este endpoint fue dado de baja."
+ *
+ * The replacement is `/buy/catalog`. Its required fields were found the same
+ * safe way as `/catalog/validate`'s — reading the "missing field" errors from
+ * incomplete requests, never a request complete enough to actually purchase
+ * something:
+ *
+ *   POST /buy/catalog {}                    -> "product id es requerido"
+ *   POST /buy/catalog {product_id:5}        -> {"error":"Campo requerido: manual_id","code":"MISSING_FIELD"}
+ *
+ * `product_id` is unchanged from the old `/buy/pins` body. The player-id field
+ * was renamed `redemption_id` -> `manual_id`, matching the field name
+ * `/products/catalog` itself declares in `required_fields` for this product
+ * family — see catalog.ts. The probe deliberately stopped there rather than
+ * supplying a real player id alongside a real product id, which risks
+ * actually completing a purchase; `client_name` was kept as before (already
+ * documented as optional) since nothing indicated otherwise. The `games`
+ * family (`/buy/games`, unused by any of today's combos) is migrated the same
+ * way but its exact contract past `product_id` is NOT empirically confirmed —
+ * only mirrored from `/products/catalog`'s own declared `required_fields:
+ * ["player_id"]` for that family, since there is no live traffic to safely
+ * probe it against.
  */
 
 import {
@@ -303,23 +323,23 @@ export function buildPurchaseBody(request: PurchaseRequest): {
   const productId = coerceId(request.providerProductId);
 
   if (request.endpointKind === 'games') {
+    // Unverified against live traffic — see this file's doc comment. Mirrors
+    // `/products/catalog`'s own required_fields:["player_id"] for this family.
     const body: Record<string, unknown> = {
-      package_id: productId,
-      input1: request.playerId,
+      product_id: productId,
+      player_id: request.playerId,
       client_name: request.clientReference,
     };
-    if (request.serverId) body.input2 = request.serverId;
-    return { path: '/buy/games', body };
+    if (request.serverId) body.server_id = request.serverId;
+    return { path: '/buy/catalog', body };
   }
 
   if (request.endpointKind === 'pins_recharge') {
-    // The docs shout: "NUNCA se mandan quantity y redemption_id juntos."
-    // Enforced by construction — `quantity` is never set on this path.
     return {
-      path: '/buy/pins',
+      path: '/buy/catalog',
       body: {
         product_id: productId,
-        redemption_id: request.playerId,
+        manual_id: request.playerId,
         client_name: request.clientReference,
       },
     };

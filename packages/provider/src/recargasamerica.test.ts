@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ProviderProtocolError, RecargasAmericaProvider } from './recargasamerica.js';
+import { buildPurchaseBody, ProviderProtocolError, RecargasAmericaProvider } from './recargasamerica.js';
 import { ValidationUnsupportedError } from './types.js';
 
 /** A fetch that answers from a fixed script, one response per call. */
@@ -28,6 +28,57 @@ const REQUEST = {
   playerId: '182938102',
   clientReference: 'LU-260911-AB12-0',
 };
+
+describe('buildPurchaseBody', () => {
+  // Locks in the 2026-09-20 migration to /buy/catalog, confirmed against the
+  // live API by reading "missing field" errors from incomplete requests —
+  // never a request complete enough to actually purchase something. See this
+  // module's own doc comment for the exact probe and its response.
+  it('targets /buy/catalog with manual_id for a pins_recharge product', () => {
+    expect(
+      buildPurchaseBody({
+        endpointKind: 'pins_recharge',
+        providerProductId: '5',
+        playerId: '182938102',
+        clientReference: 'LU-260920-AB12-0',
+      }),
+    ).toEqual({
+      path: '/buy/catalog',
+      body: { product_id: 5, manual_id: '182938102', client_name: 'LU-260920-AB12-0' },
+    });
+  });
+
+  it('targets /buy/catalog with player_id (and server_id) for a games product', () => {
+    expect(
+      buildPurchaseBody({
+        endpointKind: 'games',
+        providerProductId: '1',
+        playerId: '182938102',
+        serverId: 'na',
+        clientReference: 'LU-260920-AB12-0',
+      }),
+    ).toEqual({
+      path: '/buy/catalog',
+      body: {
+        product_id: 1,
+        player_id: '182938102',
+        server_id: 'na',
+        client_name: 'LU-260920-AB12-0',
+      },
+    });
+  });
+
+  it('refuses to purchase a pins_code product — it delivers a code, not a top-up', () => {
+    expect(() =>
+      buildPurchaseBody({
+        endpointKind: 'pins_code',
+        providerProductId: '11',
+        playerId: '182938102',
+        clientReference: 'LU-260920-AB12-0',
+      }),
+    ).toThrow(/delivers redeemable codes/);
+  });
+});
 
 describe('purchase failure mapping', () => {
   it('maps a definitive 422 to a non-retryable-by-default failure', async () => {
