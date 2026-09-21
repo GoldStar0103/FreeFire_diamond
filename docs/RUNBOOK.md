@@ -205,6 +205,24 @@ dc ps                        # all healthy
 dc logs worker --tail 20     # "[worker] Starting"
 ```
 
+### Google Search Console
+
+The storefront already allows crawlers (`robots.txt` + `/sitemap.xml`). Google
+still has to be *asked* to recrawl a new site; Search Console is that ask.
+
+1. Open https://search.google.com/search-console with any Google account that
+   can later invite the owner (`contactolevelupmexico@gmail.com`).
+2. Add property → **URL prefix** → `https://levelupstore.mx`.
+3. Choose **HTML tag**. Copy only the `content="…"` token into
+   `GOOGLE_SITE_VERIFICATION` in `.env` (not the whole `<meta>`).
+4. Deploy / restart `web` so the tag is live, then click **Verify**.
+5. Settings → Users and permissions → Add user
+   `contactolevelupmexico@gmail.com` as **Owner**. They have to accept the
+   mail.
+6. Sitemaps → add `sitemap.xml`. URL Inspection → request indexing on `/`.
+
+Do not verify `panel.levelupstore.mx` — it is `noindex` on purpose.
+
 Then, and this is the one no script can do:
 
 1. Place a real order for the $10 Mega Oferta through the storefront.

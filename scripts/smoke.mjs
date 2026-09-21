@@ -189,6 +189,17 @@ await check('order pages are marked noindex', async () => {
   return tag.includes('noindex') ? { ok: true } : { detail: `X-Robots-Tag: ${tag || '(absent)'}` };
 });
 
+await check('homepage is indexable', async () => {
+  const { status, headers, body } = await get(`${STORE}/`);
+  if (status !== 200) return { detail: `HTTP ${status}` };
+  const tag = (headers.get('x-robots-tag') ?? '').toLowerCase();
+  if (tag.includes('noindex')) return { detail: `X-Robots-Tag: ${headers.get('x-robots-tag')}` };
+  if (/<meta[^>]+name=["']robots["'][^>]+noindex/i.test(body)) {
+    return { detail: 'homepage meta robots is noindex' };
+  }
+  return { ok: true };
+});
+
 await check('robots.txt points at this deployment', async () => {
   const { status, body } = await get(`${STORE}/robots.txt`);
   if (status !== 200) return { detail: `HTTP ${status}` };
