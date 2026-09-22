@@ -1,5 +1,5 @@
 /**
- * Stripe adapter — hosted Checkout, card and optionally OXXO.
+ * Stripe adapter — hosted Checkout, card and optionally OXXO and SPEI.
  *
  * Hosted Checkout rather than Elements, for two reasons that both come from the
  * audience. Card numbers never touch LevelUp's servers or pages, so there is no
@@ -15,12 +15,13 @@
  * Money arrives in two shapes, and the difference matters downstream:
  *
  *   - Card: `checkout.session.completed` with `payment_status: paid`. Done.
- *   - OXXO: `checkout.session.completed` with `payment_status: unpaid` means a
- *     voucher was *issued*. The money arrives days later, if ever, as
- *     `checkout.session.async_payment_succeeded`.
+ *   - OXXO/SPEI: `checkout.session.completed` with `payment_status: unpaid`
+ *     means a voucher or bank-transfer reference was *issued*, not paid. The
+ *     money arrives later, if ever, as `checkout.session.async_payment_succeeded`.
  *
- * Treating the first OXXO event as a payment would ship diamonds against a
- * piece of paper. It maps to `pending` here, and only `paid` ever approves.
+ * Treating that first event as a payment would ship diamonds against a piece
+ * of paper or an unconfirmed transfer. It maps to `pending` here, and only
+ * `paid` ever approves.
  */
 
 import { verifySignature, type VerifyOptions } from './signature.js';
@@ -43,15 +44,34 @@ const MIN_SESSION_MINUTES = 30;
 /** And anything longer. */
 const MAX_SESSION_MINUTES = 24 * 60;
 
+/** Our method names, mapped to what Stripe's `payment_method_types` actually calls them. */
+const STRIPE_WIRE_TYPE = {
+  card: 'card',
+  oxxo: 'oxxo',
+  // SPEI is not its own Stripe payment method — Mexican bank transfers are
+  // Stripe's generic `customer_balance` funding source, configured below to
+  // the `mx_bank_transfer` variant.
+  spei: 'customer_balance',
+} as const;
+
+type StripeMethod = keyof typeof STRIPE_WIRE_TYPE;
+
 export interface StripeGatewayOptions {
   secretKey: string;
   webhookSecret: string;
-  /** Which methods Checkout offers. Card always; OXXO only when enabled on the account. */
-  methods?: readonly Extract<GatewayMethod, 'card' | 'oxxo'>[];
+  /** Which methods Checkout offers. Card always; OXXO/SPEI only when enabled on the account. */
+  methods?: readonly Extract<GatewayMethod, StripeMethod>[];
   /** How long the customer has to finish the Checkout page. Clamped to 30–1440. */
   sessionMinutes?: number;
   /** Days an OXXO voucher stays payable. Stripe allows 1–7. */
   oxxoExpiresAfterDays?: number;
+  /**
+   * Days our own payment deadline is extended by once a SPEI bank-transfer
+   * session completes. Unlike OXXO, Stripe puts no fixed expiry on the
+   * transfer itself — this is purely how long we wait before the sweep
+   * retires an order nobody has paid yet.
+   */
+  speiGraceDays?: number;
   apiBase?: string;
   fetch?: typeof fetch;
   now?: () => number;
@@ -76,6 +96,14 @@ interface StripePaymentIntent {
   id: string;
   next_action?: {
     oxxo_display_details?: { hosted_voucher_url?: string | null } | null;
+    display_bank_transfer_instructions?: {
+      hosted_instructions_url?: string | null;
+      reference?: string | null;
+      financial_addresses?: ReadonlyArray<{
+        type?: string;
+        clabe?: { clabe?: string | null; bank_name?: string | null } | null;
+      }> | null;
+    } | null;
   } | null;
 }
 
@@ -137,6 +165,23 @@ function voucherUrl(session: StripeSession): string | null {
   return pi.next_action?.oxxo_display_details?.hosted_voucher_url ?? null;
 }
 
+type BankTransferDetails = NonNullable<ChargeSnapshot['bankTransfer']>;
+
+function bankTransferDetails(session: StripeSession): BankTransferDetails | null {
+  const pi = session.payment_intent;
+  if (!pi || typeof pi === 'string') return null;
+  const details = pi.next_action?.display_bank_transfer_instructions;
+  if (!details) return null;
+
+  const clabeAddress = details.financial_addresses?.find((a) => a.type === 'clabe')?.clabe;
+  return {
+    hostedInstructionsUrl: details.hosted_instructions_url ?? null,
+    clabe: clabeAddress?.clabe ?? null,
+    bankName: clabeAddress?.bank_name ?? null,
+    reference: details.reference ?? null,
+  };
+}
+
 const EVENT_STATES: Record<string, (s: StripeSession) => ChargeState> = {
   // Card: paid. OXXO: voucher issued, still pending.
   'checkout.session.completed': sessionState,
@@ -178,6 +223,22 @@ export class StripeGateway implements PaymentGateway {
     return Math.min(7, Math.max(1, Math.round(this.options.oxxoExpiresAfterDays ?? 2)));
   }
 
+  get speiGraceDays(): number {
+    return Math.min(7, Math.max(1, Math.round(this.options.speiGraceDays ?? 3)));
+  }
+
+  /**
+   * How long our own payment deadline is extended once an async method's
+   * Checkout session completes — the larger of whichever async methods are
+   * actually enabled, since a report from Stripe does not say which one fired.
+   */
+  get pendingGraceDays(): number {
+    const days: number[] = [];
+    if (this.supportedMethods.includes('oxxo')) days.push(this.oxxoExpiresAfterDays);
+    if (this.supportedMethods.includes('spei')) days.push(this.speiGraceDays);
+    return days.length ? Math.max(...days) : this.oxxoExpiresAfterDays;
+  }
+
   async createCharge(input: CreateChargeInput): Promise<ChargeCreated> {
     if (!input.returnUrl || !input.cancelUrl) {
       throw new GatewayError('Stripe Checkout needs returnUrl and cancelUrl', this.name, false);
@@ -195,7 +256,22 @@ export class StripeGateway implements PaymentGateway {
     const expiresAt = Math.floor(this.now() / 1000) + minutes * 60 + 1;
 
     const metadata = { order_id: input.orderId, order_number: input.orderNumber };
-    const methods = this.supportedMethods.filter((m) => m === 'card' || m === 'oxxo');
+    const methods = this.supportedMethods.filter(
+      (m): m is StripeMethod => m === 'card' || m === 'oxxo' || m === 'spei',
+    );
+
+    const paymentMethodOptions: Record<string, unknown> = {};
+    if (methods.includes('oxxo')) {
+      paymentMethodOptions.oxxo = { expires_after_days: this.oxxoExpiresAfterDays };
+    }
+    if (methods.includes('spei')) {
+      // `customer_balance` is Stripe's generic bank-transfer funding source;
+      // `mx_bank_transfer` is the Mexican SPEI variant of it.
+      paymentMethodOptions.customer_balance = {
+        funding_type: 'bank_transfer',
+        bank_transfer: { type: 'mx_bank_transfer' },
+      };
+    }
 
     const params: Record<string, unknown> = {
       mode: 'payment',
@@ -204,7 +280,7 @@ export class StripeGateway implements PaymentGateway {
       success_url: input.returnUrl,
       cancel_url: input.cancelUrl,
       expires_at: expiresAt,
-      payment_method_types: methods,
+      payment_method_types: methods.map((m) => STRIPE_WIRE_TYPE[m]),
       line_items: [
         {
           quantity: 1,
@@ -223,9 +299,11 @@ export class StripeGateway implements PaymentGateway {
         description: `${input.orderNumber} · ${input.description}`,
         metadata,
       },
-      ...(methods.includes('oxxo')
-        ? { payment_method_options: { oxxo: { expires_after_days: this.oxxoExpiresAfterDays } } }
-        : {}),
+      ...(Object.keys(paymentMethodOptions).length ? { payment_method_options: paymentMethodOptions } : {}),
+      // customer_balance refuses to attach to a PaymentIntent with no
+      // Customer; Checkout satisfies that by creating one on completion
+      // rather than us tracking a Customer per guest order.
+      ...(methods.includes('spei') ? { customer_creation: 'always' } : {}),
       ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
     };
 
@@ -322,6 +400,7 @@ export class StripeGateway implements PaymentGateway {
       paidAt: null,
       reference: paymentIntentId(session),
       voucherUrl: voucherUrl(session),
+      bankTransfer: bankTransferDetails(session),
     };
   }
 

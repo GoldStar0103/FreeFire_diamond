@@ -252,6 +252,15 @@ and **Transferencia** as the second tab.
    secret change together; a live key with a test secret verifies nothing.
 5. OXXO through Stripe: turn it on under Settings → Payment methods first, then
    set `STRIPE_OXXO=true`. With it off in Stripe, every checkout fails.
+6. SPEI (automatic bank transfer) through Stripe: same pattern — turn
+   "Transferencias bancarias" on under Settings → Payment methods first
+   (**in the same mode you're deploying, live vs test — enabling it in test
+   mode does not carry over to live**), then set `STRIPE_SPEI=true`. This is a
+   different thing from the site's own manual "Transferencia" tab (CLABE +
+   uploaded comprobante, reviewed by a person) — that one keeps working
+   either way. Stripe's version needs a Customer attached to the
+   PaymentIntent; the adapter satisfies that with `customer_creation: always`
+   rather than tracking a Stripe Customer per guest order.
 
 How it holds together, for whoever debugs it:
 

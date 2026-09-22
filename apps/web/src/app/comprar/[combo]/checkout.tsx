@@ -31,6 +31,8 @@ interface Props {
   cardEnabled: boolean;
   /** Stripe Checkout also offers OXXO cash vouchers. */
   cardIncludesOxxo: boolean;
+  /** Stripe Checkout also offers automatic SPEI bank transfer (customer_balance). */
+  cardIncludesSpei: boolean;
   /** Owner switch, independent of whether payTo is configured — see Ajustes. */
   transferEnabled: boolean;
   /** Owner switch for the manual OXXO/SPIN reference — distinct from Stripe's own OXXO. */
@@ -62,6 +64,18 @@ const groupClabe = (clabe: string): string =>
 
 /** 16 digits read in the four groups printed on the card itself. */
 const groupCard = (card: string): string => card.replace(/(\d{4})(?=\d)/g, '$1 ');
+
+/**
+ * Stripe's own Checkout page is what actually lets the customer pick between
+ * whichever of these are enabled — this button just has to stop promising
+ * "Tarjeta" alone once there's more behind it.
+ */
+function cardMethodsLabel(cardIncludesOxxo: boolean, cardIncludesSpei: boolean): string {
+  if (cardIncludesOxxo && cardIncludesSpei) return 'Tarjeta, OXXO o SPEI';
+  if (cardIncludesOxxo) return 'Tarjeta u OXXO';
+  if (cardIncludesSpei) return 'Tarjeta o SPEI';
+  return 'Tarjeta';
+}
 
 /** The numbered progress header from the client's mockup. */
 function Stepper({ step }: { step: Step }) {
@@ -176,6 +190,7 @@ export function Checkout({
   payTo,
   cardEnabled,
   cardIncludesOxxo,
+  cardIncludesSpei,
   transferEnabled,
   oxxoEnabled,
   cancelledNotice,
@@ -224,9 +239,7 @@ export function Checkout({
 
   const methodLabel =
     payView === 'tarjeta'
-      ? cardIncludesOxxo
-        ? 'Tarjeta u OXXO'
-        : 'Tarjeta'
+      ? cardMethodsLabel(cardIncludesOxxo, cardIncludesSpei)
       : payView === 'oxxo'
         ? 'Depósito OXXO'
         : 'Transferencia bancaria';
@@ -377,7 +390,11 @@ export function Checkout({
                   <PayOptionCard
                     tone="purple"
                     icon={CardIcon}
-                    title={cardIncludesOxxo ? 'Tarjeta u OXXO' : 'Tarjeta de crédito/débito'}
+                    title={
+                      cardIncludesOxxo || cardIncludesSpei
+                        ? cardMethodsLabel(cardIncludesOxxo, cardIncludesSpei)
+                        : 'Tarjeta de crédito/débito'
+                    }
                     features={[
                       'Pago instantáneo',
                       'Visa · Mastercard · Amex',
@@ -441,7 +458,9 @@ export function Checkout({
                 <div className="pay-row">
                   <span>Aceptamos</span>
                   <strong>
-                    Visa · Mastercard · Amex{cardIncludesOxxo ? ' · Efectivo en OXXO' : ''}
+                    Visa · Mastercard · Amex
+                    {cardIncludesOxxo ? ' · Efectivo en OXXO' : ''}
+                    {cardIncludesSpei ? ' · Transferencia SPEI' : ''}
                   </strong>
                 </div>
                 <div className="pay-row total">

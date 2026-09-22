@@ -81,14 +81,15 @@ async function handleCancelledCheckout(orderNumber: string, playerId: string): P
     } else {
       const snapshot = await gateway.getCharge(order.gatewayChargeId);
       if (snapshot) {
+        const issued = Boolean(snapshot.voucherUrl) || Boolean(snapshot.bankTransfer);
         await applyStripeReport({
           gatewayChargeId: snapshot.gatewayChargeId,
           state: snapshot.state,
           amountReceivedCents: snapshot.amountReceivedCents,
           reference: snapshot.reference ?? null,
-          voucherIssued: Boolean(snapshot.voucherUrl),
+          voucherIssued: issued,
         });
-        paidAfterAll = snapshot.state === 'paid' || Boolean(snapshot.voucherUrl);
+        paidAfterAll = snapshot.state === 'paid' || issued;
       }
     }
   } catch (err) {
@@ -152,6 +153,7 @@ export default async function BuyPage({
         payTo={payTo}
         cardEnabled={stripe !== null && methodsEnabled.card}
         cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
+        cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
         transferEnabled={methodsEnabled.transfer}
         oxxoEnabled={methodsEnabled.oxxo}
         cancelledNotice={cancelledNotice}

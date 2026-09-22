@@ -69,6 +69,13 @@ export interface ChargeSnapshot {
   reference?: string | null;
   /** An OXXO voucher the customer still has to pay at the till, when there is one. */
   voucherUrl?: string | null;
+  /** SPEI bank-transfer instructions the customer still owes, when there are any. */
+  bankTransfer?: {
+    hostedInstructionsUrl: string | null;
+    clabe: string | null;
+    bankName: string | null;
+    reference: string | null;
+  } | null;
 }
 
 /** A verified webhook, reduced to what the engine acts on. */

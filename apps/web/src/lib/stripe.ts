@@ -47,14 +47,22 @@ function build(): StripeGateway | null {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
   if (!secretKey || !webhookSecret) return null;
 
+  // OXXO and SPEI each have to be switched on in the Stripe dashboard (in
+  // whichever mode — test/live — this key belongs to) before asking Checkout
+  // for them; otherwise Stripe silently drops the unsupported entry rather
+  // than rejecting the session, which reads as "the button does nothing" for
+  // that method. Opt-in for that reason, one flag per method.
+  const methods: Array<'card' | 'oxxo' | 'spei'> = ['card'];
+  if (flag(process.env.STRIPE_OXXO)) methods.push('oxxo');
+  if (flag(process.env.STRIPE_SPEI)) methods.push('spei');
+
   return new StripeGateway({
     secretKey,
     webhookSecret,
-    // OXXO has to be switched on in the Stripe dashboard first; asking for it
-    // before then makes every session creation fail. Opt-in for that reason.
-    methods: flag(process.env.STRIPE_OXXO) ? ['card', 'oxxo'] : ['card'],
+    methods,
     sessionMinutes: Number(process.env.STRIPE_SESSION_MINUTES ?? 60),
     oxxoExpiresAfterDays: Number(process.env.STRIPE_OXXO_DAYS ?? 2),
+    speiGraceDays: Number(process.env.STRIPE_SPEI_DAYS ?? 3),
   });
 }
 
@@ -74,7 +82,11 @@ export interface StripeReport {
   state: GatewayChargeState;
   amountReceivedCents: number | null;
   reference: string | null;
-  /** An OXXO voucher was issued: the money is days away, not seconds. */
+  /**
+   * An OXXO voucher or SPEI bank-transfer reference was issued: the money is
+   * days away, not seconds. Same flag for both — the report doesn't say which
+   * one fired, and both get the same deadline treatment.
+   */
   voucherIssued: boolean;
 }
 
@@ -110,10 +122,10 @@ export async function applyStripeReport(report: StripeReport): Promise<AppliedRe
   }
 
   if (report.state === 'pending' && report.voucherIssued) {
-    // The Checkout session expires in an hour; the voucher is payable for
-    // days. Move the deadline so the sweep does not retire the order while the
-    // customer is on their way to the OXXO.
-    const days = getStripe()?.oxxoExpiresAfterDays ?? 2;
+    // The Checkout session expires in an hour; an OXXO voucher or a SPEI
+    // transfer is payable for days. Move the deadline so the sweep does not
+    // retire the order while the customer is still on their way to pay.
+    const days = getStripe()?.pendingGraceDays ?? 2;
     await extendPaymentDeadline(db, payment.paymentId, new Date(Date.now() + (days + 1) * 86_400_000));
   }
 

@@ -115,6 +115,19 @@ const OXXO_WAITING = {
     'Presenta tu ficha en cualquier OXXO y paga en efectivo. En cuanto se acredite, tu recarga entra sola — puede tardar unas horas.',
   tone: 'warn',
 };
+const SPEI_WAITING = {
+  label: 'Paga por transferencia SPEI',
+  detail:
+    'Usa los datos de abajo para transferir desde tu banco. En cuanto se acredite, tu recarga entra sola — puede tardar unas horas.',
+  tone: 'warn',
+};
+
+type BankTransfer = {
+  hostedInstructionsUrl: string | null;
+  clabe: string | null;
+  bankName: string | null;
+  reference: string | null;
+};
 
 /**
  * Ask Stripe directly when a card order is still waiting.
@@ -124,29 +137,37 @@ const OXXO_WAITING = {
  * is looking at this page; asking costs one request and turns "why does it say
  * waiting" into their diamonds arriving. Idempotent with the webhook.
  */
-async function reconcileCard(order: CustomerOrder): Promise<{ voucherUrl: string | null }> {
+async function reconcileCard(
+  order: CustomerOrder,
+): Promise<{ voucherUrl: string | null; bankTransfer: BankTransfer | null }> {
+  const none = { voucherUrl: null, bankTransfer: null };
   const gateway = getStripe();
-  if (!gateway || order.gateway !== STRIPE || !order.gatewayChargeId) return { voucherUrl: null };
-  if (order.status !== 'esperando_pago') return { voucherUrl: null };
+  if (!gateway || order.gateway !== STRIPE || !order.gatewayChargeId) return none;
+  if (order.status !== 'esperando_pago') return none;
 
   try {
     const snapshot = await gateway.getCharge(order.gatewayChargeId);
-    if (!snapshot) return { voucherUrl: null };
+    if (!snapshot) return none;
 
-    if (snapshot.state !== 'pending' || snapshot.voucherUrl) {
+    const issued = Boolean(snapshot.voucherUrl) || Boolean(snapshot.bankTransfer);
+    if (snapshot.state !== 'pending' || issued) {
       await applyStripeReport({
         gatewayChargeId: snapshot.gatewayChargeId,
         state: snapshot.state,
         amountReceivedCents: snapshot.amountReceivedCents,
         reference: snapshot.reference ?? null,
-        voucherIssued: Boolean(snapshot.voucherUrl),
+        voucherIssued: issued,
       });
     }
-    return { voucherUrl: snapshot.state === 'pending' ? (snapshot.voucherUrl ?? null) : null };
+    if (snapshot.state !== 'pending') return none;
+    return {
+      voucherUrl: snapshot.voucherUrl ?? null,
+      bankTransfer: snapshot.bankTransfer ?? null,
+    };
   } catch (err) {
     // The webhook will get there. Showing the page matters more.
     console.error(`[pedido] could not re-check ${order.orderNumber} with Stripe`, err);
-    return { voucherUrl: null };
+    return none;
   }
 }
 
@@ -180,7 +201,7 @@ export default async function OrderPage({
     notFound();
   }
 
-  const { voucherUrl } = await reconcileCard(order);
+  const { voucherUrl, bankTransfer } = await reconcileCard(order);
   if (order.status === 'esperando_pago' && order.gateway === STRIPE) {
     // The re-check may just have confirmed it.
     order = (await findCustomerOrder(getDb(), orderNumber, id)) ?? order;
@@ -191,15 +212,20 @@ export default async function OrderPage({
     order.status === 'esperando_pago' && byCard
       ? voucherUrl
         ? OXXO_WAITING
-        : CARD_WAITING
+        : bankTransfer
+          ? SPEI_WAITING
+          : CARD_WAITING
       : STATUS[order.status];
 
   // Paid orders fire the browser Purchase; everything else is not a sale yet.
   const paid = order.status === 'procesando' || order.status === 'completado';
   // Keep refreshing while something is about to change on its own. Not for an
-  // OXXO voucher: that is hours away, and a page reloading under someone
-  // trying to show a barcode at the till is worse than useless.
-  const refreshing = order.status === 'procesando' || (byCard && order.status === 'esperando_pago' && !voucherUrl);
+  // OXXO voucher or a SPEI reference: both are hours away, and a page
+  // reloading under someone trying to show a barcode or copy a CLABE is worse
+  // than useless.
+  const refreshing =
+    order.status === 'procesando' ||
+    (byCard && order.status === 'esperando_pago' && !voucherUrl && !bankTransfer);
   const pct =
     order.advertisedDiamonds === 0
       ? 0
@@ -237,6 +263,40 @@ export default async function OrderPage({
           <a className="btn primary wide" href={voucherUrl} target="_blank" rel="noreferrer">
             Ver mi ficha OXXO
           </a>
+        )}
+
+        {bankTransfer && (
+          <div className="pay-box" style={{ marginTop: 12 }}>
+            {bankTransfer.clabe && (
+              <div className="pay-row">
+                <span>CLABE</span>
+                <strong className="mono">{bankTransfer.clabe}</strong>
+              </div>
+            )}
+            {bankTransfer.bankName && (
+              <div className="pay-row">
+                <span>Banco</span>
+                <strong>{bankTransfer.bankName}</strong>
+              </div>
+            )}
+            {bankTransfer.reference && (
+              <div className="pay-row">
+                <span>Referencia</span>
+                <strong className="mono">{bankTransfer.reference}</strong>
+              </div>
+            )}
+            {bankTransfer.hostedInstructionsUrl && (
+              <a
+                className="btn primary wide"
+                style={{ marginTop: 12 }}
+                href={bankTransfer.hostedInstructionsUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Ver instrucciones de transferencia
+              </a>
+            )}
+          </div>
         )}
       </div>
 

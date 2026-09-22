@@ -123,6 +123,33 @@ describe('createCharge', () => {
     expect(body.get('payment_method_options[oxxo][expires_after_days]')).toBe('7');
   });
 
+  it('maps spei to the customer_balance wire type and requires a customer', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
+    ]);
+    await gateway(impl, { methods: ['card', 'spei'] }).createCharge(chargeInput);
+
+    const body = new URLSearchParams(calls[0]?.body);
+    expect(body.get('payment_method_types[0]')).toBe('card');
+    expect(body.get('payment_method_types[1]')).toBe('customer_balance');
+    expect(body.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
+    expect(body.get('payment_method_options[customer_balance][bank_transfer][type]')).toBe(
+      'mx_bank_transfer',
+    );
+    expect(body.get('customer_creation')).toBe('always');
+  });
+
+  it('carries both payment_method_options blocks when OXXO and SPEI are both on', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
+    ]);
+    await gateway(impl, { methods: ['card', 'oxxo', 'spei'] }).createCharge(chargeInput);
+
+    const body = new URLSearchParams(calls[0]?.body);
+    expect(body.get('payment_method_options[oxxo][expires_after_days]')).toBe('2');
+    expect(body.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
+  });
+
   it('never asks for a session shorter than Stripe accepts', async () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
@@ -258,9 +285,66 @@ describe('getCharge', () => {
     expect(calls[0]?.url).toContain('expand[]=payment_intent');
   });
 
+  it('reports SPEI bank-transfer instructions still to be paid', async () => {
+    const { impl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          id: 'cs_1',
+          status: 'complete',
+          payment_status: 'unpaid',
+          amount_total: 26_000,
+          payment_intent: {
+            id: 'pi_1',
+            next_action: {
+              display_bank_transfer_instructions: {
+                hosted_instructions_url: 'https://payments.stripe.com/instructions',
+                reference: 'REF123',
+                financial_addresses: [
+                  { type: 'clabe', clabe: { clabe: '002313392375982033', bank_name: 'STP' } },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    const snapshot = await gateway(impl).getCharge('cs_1');
+    expect(snapshot).toMatchObject({
+      state: 'pending',
+      reference: 'pi_1',
+      bankTransfer: {
+        hostedInstructionsUrl: 'https://payments.stripe.com/instructions',
+        clabe: '002313392375982033',
+        bankName: 'STP',
+        reference: 'REF123',
+      },
+    });
+  });
+
   it('returns null for a session Stripe does not know', async () => {
     const { impl } = fakeFetch([{ status: 404, body: { error: { message: 'No such session' } } }]);
     expect(await gateway(impl).getCharge('cs_nope')).toBeNull();
+  });
+});
+
+describe('pendingGraceDays', () => {
+  it('picks the larger of whichever async methods are actually enabled', () => {
+    expect(gateway(fakeFetch([]).impl, { methods: ['card'] }).pendingGraceDays).toBe(2);
+    expect(
+      gateway(fakeFetch([]).impl, { methods: ['card', 'oxxo'], oxxoExpiresAfterDays: 5 }).pendingGraceDays,
+    ).toBe(5);
+    expect(
+      gateway(fakeFetch([]).impl, { methods: ['card', 'spei'], speiGraceDays: 4 }).pendingGraceDays,
+    ).toBe(4);
+    expect(
+      gateway(fakeFetch([]).impl, {
+        methods: ['card', 'oxxo', 'spei'],
+        oxxoExpiresAfterDays: 2,
+        speiGraceDays: 6,
+      }).pendingGraceDays,
+    ).toBe(6);
   });
 });
 
