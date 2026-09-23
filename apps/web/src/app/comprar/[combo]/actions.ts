@@ -301,24 +301,53 @@ export async function placeOrder(
   redirect(`/pedido/${created.order.orderNumber}?id=${encodeURIComponent(playerId)}`);
 }
 
-// ── step 2, by card ───────────────────────────────────────────────────────────
+// ── step 2, through Stripe (card, OXXO, or SPEI — one method per button) ───────
+
+/** Per-method copy for the one thing that actually differs between the three buttons. */
+const STRIPE_METHOD_COPY: Record<
+  'card' | 'oxxo' | 'spei',
+  { unavailable: string; openFailed: string; verb: string }
+> = {
+  card: {
+    unavailable: 'El pago con tarjeta no está disponible en este momento. Paga por transferencia.',
+    openFailed: 'No pudimos abrir el pago con tarjeta. Intenta de nuevo o paga por transferencia.',
+    verb: 'tarjeta',
+  },
+  oxxo: {
+    unavailable: 'El depósito en OXXO no está disponible en este momento. Paga por transferencia.',
+    openFailed: 'No pudimos abrir el depósito en OXXO. Intenta de nuevo o paga por transferencia.',
+    verb: 'oxxo',
+  },
+  spei: {
+    unavailable: 'La transferencia SPEI no está disponible en este momento. Paga con tarjeta.',
+    openFailed: 'No pudimos abrir la transferencia SPEI. Intenta de nuevo o paga con tarjeta.',
+    verb: 'spei',
+  },
+};
 
 /**
- * Create the order and send the customer to Stripe's hosted Checkout.
+ * Create the order and send the customer to Stripe's hosted Checkout,
+ * restricted to exactly the one method they picked.
  *
  * The order exists before the customer pays, exactly as with a transfer: that
  * is what reserves the Mega Oferta slot against a double purchase, and what
  * the session's metadata points back at. If Stripe cannot open a session, the
  * order is cancelled on the spot — otherwise a customer who never got to pay
  * would find their entry offer "already used" for the next hour.
+ *
+ * `paymentMethod` is recorded as the real method chosen here, not always
+ * `card` — that's also what lets Contabilidad's per-method Stripe fee
+ * estimate (accounting-queries.ts) apply the right rate instead of quietly
+ * costing every OXXO/SPEI sale as if it were a card one.
  */
-export async function payWithCard(
-  _prev: CheckoutState,
+async function payWithStripeMethod(
+  method: 'card' | 'oxxo' | 'spei',
   formData: FormData,
 ): Promise<CheckoutState> {
+  const copy = STRIPE_METHOD_COPY[method];
   const gateway = getStripe();
-  if (!gateway) {
-    return { error: 'El pago con tarjeta no está disponible en este momento. Paga por transferencia.' };
+  if (!gateway || !gateway.supportedMethods.includes(method)) {
+    return { error: copy.unavailable };
   }
 
   const comboKey = String(formData.get('comboKey') ?? '');
@@ -339,7 +368,7 @@ export async function payWithCard(
       playerId,
       playerNickname: confirmed.nickname,
       contactWhatsapp: whatsapp,
-      paymentMethod: 'card',
+      paymentMethod: method,
       source: 'storefront',
       tracking: await trackingContext(),
     },
@@ -355,10 +384,10 @@ export async function payWithCard(
       orderId: order.id,
       orderNumber: order.orderNumber,
       amountCents: order.priceMxnCents,
-      method: 'card',
+      method,
       description: `${combo.name} · ${diamonds(combo.advertisedDiamonds)} diamantes Free Fire`,
       customerPhone: whatsapp,
-      returnUrl: siteUrl(`${orderPage}&pago=tarjeta`),
+      returnUrl: siteUrl(`${orderPage}&pago=${copy.verb}`),
       cancelUrl: siteUrl(
         `/comprar/${encodeURIComponent(comboKey)}?cancelado=${encodeURIComponent(order.orderNumber)}` +
           `&id=${encodeURIComponent(playerId)}`,
@@ -379,21 +408,31 @@ export async function payWithCard(
 
     checkoutUrl = charge.instructions.url;
   } catch (err) {
-    console.error(`[checkout] ${order.orderNumber}: could not open a card checkout`, err);
+    console.error(`[checkout] ${order.orderNumber}: could not open a ${method} checkout`, err);
     await rejectPayment(
       { store: new DrizzlePaymentStore(getDb()) },
-      { orderId: order.id, adminUserId: null, reason: 'No se pudo abrir el pago con tarjeta' },
+      { orderId: order.id, adminUserId: null, reason: `No se pudo abrir el pago (${method})` },
     ).catch((cancelErr: unknown) =>
       console.error(`[checkout] ${order.orderNumber}: and could not cancel it`, cancelErr),
     );
-    return {
-      error: 'No pudimos abrir el pago con tarjeta. Intenta de nuevo o paga por transferencia.',
-    };
+    return { error: copy.openFailed };
   }
 
   // Outside the try: `redirect` works by throwing, and the catch above would
   // otherwise swallow it and cancel an order that is on its way to being paid.
   redirect(checkoutUrl);
+}
+
+export async function payWithCard(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
+  return payWithStripeMethod('card', formData);
+}
+
+export async function payWithStripeOxxo(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
+  return payWithStripeMethod('oxxo', formData);
+}
+
+export async function payWithStripeSpei(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
+  return payWithStripeMethod('spei', formData);
 }
 
 async function attachComprobante(orderId: string, key: string): Promise<void> {

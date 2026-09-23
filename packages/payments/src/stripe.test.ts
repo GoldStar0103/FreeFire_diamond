@@ -112,15 +112,23 @@ describe('createCharge', () => {
     expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
   });
 
-  it('offers OXXO with a bounded voucher lifetime only when enabled', async () => {
+  it('requests only the single method the customer picked, never the others enabled', async () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
-    await gateway(impl, { methods: ['card', 'oxxo'], oxxoExpiresAfterDays: 30 }).createCharge(chargeInput);
+    // All three are enabled on the account, but the customer specifically
+    // tapped "OXXO" — the session must offer OXXO alone, not a bundle, so
+    // Stripe's own page never invites them to switch to card or a transfer.
+    await gateway(impl, { methods: ['card', 'oxxo', 'spei'], oxxoExpiresAfterDays: 30 }).createCharge({
+      ...chargeInput,
+      method: 'oxxo',
+    });
 
     const body = new URLSearchParams(calls[0]?.body);
-    expect(body.get('payment_method_types[1]')).toBe('oxxo');
+    expect(body.get('payment_method_types[0]')).toBe('oxxo');
+    expect(body.get('payment_method_types[1]')).toBeNull();
     expect(body.get('payment_method_options[oxxo][expires_after_days]')).toBe('7');
+    expect(body.get('payment_method_options[customer_balance]')).toBeNull();
   });
 
   it('maps spei to the customer_balance wire type and creates a real Customer first', async () => {
@@ -128,14 +136,14 @@ describe('createCharge', () => {
       { status: 200, body: { id: 'cus_1' } },
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
-    await gateway(impl, { methods: ['card', 'spei'] }).createCharge(chargeInput);
+    await gateway(impl, { methods: ['card', 'spei'] }).createCharge({ ...chargeInput, method: 'spei' });
 
     expect(calls[0]?.url).toBe('https://api.stripe.com/v1/customers');
     expect(calls[0]?.headers['Idempotency-Key']).toBe('levelup-customer-ord-uuid-1');
 
     const body = new URLSearchParams(calls[1]?.body);
-    expect(body.get('payment_method_types[0]')).toBe('card');
-    expect(body.get('payment_method_types[1]')).toBe('customer_balance');
+    expect(body.get('payment_method_types[0]')).toBe('customer_balance');
+    expect(body.get('payment_method_types[1]')).toBeNull();
     expect(body.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
     expect(body.get('payment_method_options[customer_balance][bank_transfer][type]')).toBe(
       'mx_bank_transfer',
@@ -146,19 +154,7 @@ describe('createCharge', () => {
     expect(body.get('customer_creation')).toBeNull();
   });
 
-  it('carries both payment_method_options blocks when OXXO and SPEI are both on', async () => {
-    const { impl, calls } = fakeFetch([
-      { status: 200, body: { id: 'cus_1' } },
-      { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
-    ]);
-    await gateway(impl, { methods: ['card', 'oxxo', 'spei'] }).createCharge(chargeInput);
-
-    const body = new URLSearchParams(calls[1]?.body);
-    expect(body.get('payment_method_options[oxxo][expires_after_days]')).toBe('2');
-    expect(body.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
-  });
-
-  it('does not create a Customer when SPEI is off, and keeps customer_email', async () => {
+  it('does not create a Customer for a card charge, and keeps customer_email', async () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
@@ -171,6 +167,14 @@ describe('createCharge', () => {
     const body = new URLSearchParams(calls[0]?.body);
     expect(body.get('customer_email')).toBe('buyer@example.com');
     expect(body.get('customer')).toBeNull();
+  });
+
+  it('refuses a method the account does not have enabled, before calling Stripe', async () => {
+    const { impl, calls } = fakeFetch([]);
+    await expect(
+      gateway(impl, { methods: ['card'] }).createCharge({ ...chargeInput, method: 'oxxo' }),
+    ).rejects.toMatchObject({ retryable: false });
+    expect(calls).toHaveLength(0);
   });
 
   it('never asks for a session shorter than Stripe accepts', async () => {

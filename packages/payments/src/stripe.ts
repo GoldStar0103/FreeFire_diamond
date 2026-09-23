@@ -256,9 +256,19 @@ export class StripeGateway implements PaymentGateway {
     const expiresAt = Math.floor(this.now() / 1000) + minutes * 60 + 1;
 
     const metadata = { order_id: input.orderId, order_number: input.orderNumber };
-    const methods = this.supportedMethods.filter(
-      (m): m is StripeMethod => m === 'card' || m === 'oxxo' || m === 'spei',
-    );
+    // One Checkout Session offers exactly the method the customer picked, not
+    // every enabled method bundled together — a customer who tapped "Tarjeta"
+    // should not land on a Stripe page that also offers to redirect them into
+    // OXXO or a bank transfer. `input.method` is what they picked; whether
+    // it's actually turned on for this account is `this.supportedMethods`.
+    const requestedMethod: StripeMethod | undefined =
+      input.method === 'card' || input.method === 'oxxo' || input.method === 'spei'
+        ? input.method
+        : undefined;
+    if (!requestedMethod || !this.supportedMethods.includes(requestedMethod)) {
+      throw new GatewayError(`Stripe does not have ${input.method} enabled`, this.name, false);
+    }
+    const methods: StripeMethod[] = [requestedMethod];
 
     const paymentMethodOptions: Record<string, unknown> = {};
     if (methods.includes('oxxo')) {

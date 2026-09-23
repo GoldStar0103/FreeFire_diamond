@@ -3,6 +3,8 @@
 import { useActionState, useEffect, useState } from 'react';
 import {
   payWithCard,
+  payWithStripeOxxo,
+  payWithStripeSpei,
   placeOrder,
   validatePlayer,
   type CheckoutState,
@@ -27,15 +29,22 @@ interface Props {
   diamonds: string;
   /** Null when nobody has configured where the money goes. */
   payTo: PayTo | null;
-  /** Stripe is configured. */
+  /** Stripe is configured for card. */
   cardEnabled: boolean;
-  /** Stripe Checkout also offers OXXO cash vouchers. */
+  /**
+   * Stripe is configured for OXXO — the "Depósito OXXO" box redirects
+   * straight to Stripe's own OXXO reference instead of the manual one below.
+   */
   cardIncludesOxxo: boolean;
-  /** Stripe Checkout also offers automatic SPEI bank transfer (customer_balance). */
+  /**
+   * Stripe is configured for SPEI (customer_balance) — the "Transferencia
+   * bancaria" box redirects straight to Stripe's own transfer instructions
+   * instead of the manual CLABE below.
+   */
   cardIncludesSpei: boolean;
-  /** Owner switch, independent of whether payTo is configured — see Ajustes. */
+  /** Owner switch for the manual (human-reviewed) transfer — only matters when Stripe's SPEI is off. */
   transferEnabled: boolean;
-  /** Owner switch for the manual OXXO/SPIN reference — distinct from Stripe's own OXXO. */
+  /** Owner switch for the manual (human-reviewed) OXXO reference — only matters when Stripe's OXXO is off. */
   oxxoEnabled: boolean;
   /** The customer came back from Stripe without paying. */
   cancelledNotice: string | null;
@@ -64,18 +73,6 @@ const groupClabe = (clabe: string): string =>
 
 /** 16 digits read in the four groups printed on the card itself. */
 const groupCard = (card: string): string => card.replace(/(\d{4})(?=\d)/g, '$1 ');
-
-/**
- * Stripe's own Checkout page is what actually lets the customer pick between
- * whichever of these are enabled — this button just has to stop promising
- * "Tarjeta" alone once there's more behind it.
- */
-function cardMethodsLabel(cardIncludesOxxo: boolean, cardIncludesSpei: boolean): string {
-  if (cardIncludesOxxo && cardIncludesSpei) return 'Tarjeta, OXXO o SPEI';
-  if (cardIncludesOxxo) return 'Tarjeta u OXXO';
-  if (cardIncludesSpei) return 'Tarjeta o SPEI';
-  return 'Tarjeta';
-}
 
 /** The numbered progress header from the client's mockup. */
 function Stepper({ step }: { step: Step }) {
@@ -208,13 +205,29 @@ export function Checkout({
     payWithCard,
     {},
   );
+  const [stripeOxxo, stripeOxxoAction, oxxoRedirecting] = useActionState<CheckoutState, FormData>(
+    payWithStripeOxxo,
+    {},
+  );
+  const [stripeSpei, stripeSpeiAction, speiRedirecting] = useActionState<CheckoutState, FormData>(
+    payWithStripeSpei,
+    {},
+  );
   const [step, setStep] = useState<Step>('datos');
 
   const found = validation.status === 'found';
 
+  // Stripe's own automatic version of each method wins over the manual,
+  // human-reviewed one when it's actually enabled on the account — the client
+  // asked for exactly one clean box per method instead of both showing at
+  // once. The manual flow stays as the fallback for whichever method Stripe
+  // doesn't have turned on, same as before.
+  const manualTransfer = payTo !== null && transferEnabled;
+  const manualOxxo = payTo !== null && payTo.oxxo !== null && oxxoEnabled;
+
   const cardOption = cardEnabled;
-  const transferOption = payTo !== null && transferEnabled;
-  const oxxoOption = payTo !== null && payTo.oxxo !== null && oxxoEnabled;
+  const transferOption = cardIncludesSpei || manualTransfer;
+  const oxxoOption = cardIncludesOxxo || manualOxxo;
   const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
   const noPaymentConfigured = optionCount === 0;
 
@@ -238,11 +251,7 @@ export function Checkout({
   };
 
   const methodLabel =
-    payView === 'tarjeta'
-      ? cardMethodsLabel(cardIncludesOxxo, cardIncludesSpei)
-      : payView === 'oxxo'
-        ? 'Depósito OXXO'
-        : 'Transferencia bancaria';
+    payView === 'tarjeta' ? 'Tarjeta' : payView === 'oxxo' ? 'Depósito OXXO' : 'Transferencia bancaria';
 
   // The placeholder promises only what happens. Nothing messages the customer
   // automatically — the number reaches a person in the panel, who uses it if
@@ -390,11 +399,7 @@ export function Checkout({
                   <PayOptionCard
                     tone="purple"
                     icon={CardIcon}
-                    title={
-                      cardIncludesOxxo || cardIncludesSpei
-                        ? cardMethodsLabel(cardIncludesOxxo, cardIncludesSpei)
-                        : 'Tarjeta de crédito/débito'
-                    }
+                    title="Tarjeta de crédito/débito"
                     features={[
                       'Pago instantáneo',
                       'Visa · Mastercard · Amex',
@@ -404,49 +409,74 @@ export function Checkout({
                     onClick={() => setPayView('tarjeta')}
                   />
                 )}
-                {transferOption && (
-                  <PayOptionCard
-                    tone="blue"
-                    icon={BankIcon}
-                    badge="⭐ Recomendado"
-                    title="Transferencia bancaria"
-                    features={[
-                      'Paga desde tu app bancaria',
-                      'Sin comisiones extras',
-                      'Todos los bancos aceptados',
-                      'Sube tu comprobante de pago',
-                    ]}
-                    extra={
-                      <div className="pay-option-banks">
-                        <span>BBVA · Santander · Banamex · Banorte · HSBC · Scotiabank</span>
-                        <span className="hint">+20 bancos más — ¡todos los bancos aceptados!</span>
-                      </div>
-                    }
-                    ctaLabel="Pagar por transferencia →"
-                    onClick={() => setPayView('transferencia')}
-                  />
-                )}
-                {oxxoOption && (
-                  <PayOptionCard
-                    tone="red"
-                    icon={StoreIcon}
-                    badge="🕐 Disponible 24/7"
-                    title="Depósito OXXO"
-                    features={[
-                      'Paga en cualquier tienda OXXO',
-                      'Sin necesidad de cuenta bancaria',
-                      'Mismo número de cuenta siempre',
-                      'Sube tu comprobante de pago',
-                    ]}
-                    extra={
-                      <div className="pay-option-note">
-                        🏬 Verás los datos de pago al dar clic en esta opción.
-                      </div>
-                    }
-                    ctaLabel="Pagar en OXXO →"
-                    onClick={() => setPayView('oxxo')}
-                  />
-                )}
+                {transferOption &&
+                  (cardIncludesSpei ? (
+                    <PayOptionCard
+                      tone="blue"
+                      icon={BankIcon}
+                      badge="⚡ Automático"
+                      title="Transferencia bancaria"
+                      features={[
+                        'Paga desde tu app bancaria (SPEI)',
+                        'Recarga automática al confirmarse',
+                      ]}
+                      ctaLabel="Pagar por transferencia →"
+                      onClick={() => setPayView('transferencia')}
+                    />
+                  ) : (
+                    <PayOptionCard
+                      tone="blue"
+                      icon={BankIcon}
+                      badge="⭐ Recomendado"
+                      title="Transferencia bancaria"
+                      features={[
+                        'Paga desde tu app bancaria',
+                        'Sin comisiones extras',
+                        'Todos los bancos aceptados',
+                        'Sube tu comprobante de pago',
+                      ]}
+                      extra={
+                        <div className="pay-option-banks">
+                          <span>BBVA · Santander · Banamex · Banorte · HSBC · Scotiabank</span>
+                          <span className="hint">+20 bancos más — ¡todos los bancos aceptados!</span>
+                        </div>
+                      }
+                      ctaLabel="Pagar por transferencia →"
+                      onClick={() => setPayView('transferencia')}
+                    />
+                  ))}
+                {oxxoOption &&
+                  (cardIncludesOxxo ? (
+                    <PayOptionCard
+                      tone="red"
+                      icon={StoreIcon}
+                      badge="⚡ Automático"
+                      title="Depósito OXXO"
+                      features={['Paga en cualquier tienda OXXO', 'Recarga automática al confirmarse']}
+                      ctaLabel="Pagar en OXXO →"
+                      onClick={() => setPayView('oxxo')}
+                    />
+                  ) : (
+                    <PayOptionCard
+                      tone="red"
+                      icon={StoreIcon}
+                      badge="🕐 Disponible 24/7"
+                      title="Depósito OXXO"
+                      features={[
+                        'Paga en cualquier tienda OXXO',
+                        'Sin necesidad de cuenta bancaria',
+                        'Mismo número de cuenta siempre',
+                        'Sube tu comprobante de pago',
+                      ]}
+                      extra={
+                        <div className="pay-option-note">
+                          🏬 Verás los datos de pago al dar clic en esta opción.
+                        </div>
+                      }
+                      ctaLabel="Pagar en OXXO →"
+                      onClick={() => setPayView('oxxo')}
+                    />
+                  ))}
               </div>
               <p className="hint center">
                 🛡️ Pagos 100% seguros. Revisamos tu comprobante y la recarga entra automáticamente.
@@ -457,11 +487,7 @@ export function Checkout({
               <div className="pay-box">
                 <div className="pay-row">
                   <span>Aceptamos</span>
-                  <strong>
-                    Visa · Mastercard · Amex
-                    {cardIncludesOxxo ? ' · Efectivo en OXXO' : ''}
-                    {cardIncludesSpei ? ' · Transferencia SPEI' : ''}
-                  </strong>
+                  <strong>Visa · Mastercard · Amex</strong>
                 </div>
                 <div className="pay-row total">
                   <span>Total</span>
@@ -472,6 +498,36 @@ export function Checkout({
                 Continuar →
               </button>
               <p className="hint center">🔒 Pagos 100% seguros. Nunca vemos ni guardamos tu tarjeta.</p>
+            </>
+          ) : payView === 'oxxo' && cardIncludesOxxo ? (
+            <>
+              <div className="pay-box">
+                <div className="pay-row total">
+                  <span>Total a depositar</span>
+                  <strong>{price}</strong>
+                </div>
+              </div>
+              <p className="hint center">
+                🏪 Al continuar, Stripe te da la referencia para depositar en cualquier OXXO.
+              </p>
+              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+                Continuar →
+              </button>
+            </>
+          ) : payView === 'transferencia' && cardIncludesSpei ? (
+            <>
+              <div className="pay-box">
+                <div className="pay-row total">
+                  <span>Total a transferir</span>
+                  <strong>{price}</strong>
+                </div>
+              </div>
+              <p className="hint center">
+                🏦 Al continuar, Stripe te da la cuenta CLABE para tu transferencia SPEI.
+              </p>
+              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+                Continuar →
+              </button>
             </>
           ) : payView === 'oxxo' && payTo?.oxxo ? (
             <>
@@ -582,6 +638,34 @@ export function Checkout({
               <p className="hint center">
                 🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.
               </p>
+            </form>
+          ) : payView === 'oxxo' && cardIncludesOxxo ? (
+            <form action={stripeOxxoAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
+              <input type="hidden" name="comboKey" value={comboKey} />
+              <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+
+              {whatsappField(oxxoRedirecting)}
+
+              {stripeOxxo.error && <div className="alert bad">{stripeOxxo.error}</div>}
+
+              <button className="btn primary wide" type="submit" disabled={oxxoRedirecting}>
+                {oxxoRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
+              </button>
+              <p className="hint center">🔒 Stripe te da tu referencia de depósito OXXO al continuar.</p>
+            </form>
+          ) : payView === 'transferencia' && cardIncludesSpei ? (
+            <form action={stripeSpeiAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
+              <input type="hidden" name="comboKey" value={comboKey} />
+              <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+
+              {whatsappField(speiRedirecting)}
+
+              {stripeSpei.error && <div className="alert bad">{stripeSpei.error}</div>}
+
+              <button className="btn primary wide" type="submit" disabled={speiRedirecting}>
+                {speiRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
+              </button>
+              <p className="hint center">🔒 Stripe te da tu cuenta CLABE para SPEI al continuar.</p>
             </form>
           ) : (
             <form action={transferAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
