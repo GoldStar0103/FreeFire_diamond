@@ -219,13 +219,13 @@ export default async function OrderPage({
 
   // Paid orders fire the browser Purchase; everything else is not a sale yet.
   const paid = order.status === 'procesando' || order.status === 'completado';
-  // Keep refreshing while something is about to change on its own. Not for an
-  // OXXO voucher or a SPEI reference: both are hours away, and a page
-  // reloading under someone trying to show a barcode or copy a CLABE is worse
-  // than useless.
-  const refreshing =
-    order.status === 'procesando' ||
-    (byCard && order.status === 'esperando_pago' && !voucherUrl && !bankTransfer);
+  // Keep refreshing while something is about to change on its own, including
+  // an issued OXXO voucher or SPEI reference: those now open in a separate
+  // tab (Stripe's own hosted page), so refreshing this one no longer disturbs
+  // anyone trying to read a barcode or copy a CLABE off of it — the client
+  // asked for this specifically so people can watch their order advance here
+  // while they pay in the other tab.
+  const refreshing = order.status === 'procesando' || (byCard && order.status === 'esperando_pago');
   const pct =
     order.advertisedDiamonds === 0
       ? 0
@@ -242,7 +242,7 @@ export default async function OrderPage({
 
   return (
     <main className="page narrow">
-      {refreshing && <AutoRefresh everyMs={6_000} />}
+      {refreshing && <AutoRefresh everyMs={5_000} />}
       {paid && (
         <PurchasePixel
           orderNumber={order.orderNumber}

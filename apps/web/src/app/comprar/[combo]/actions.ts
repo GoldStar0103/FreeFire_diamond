@@ -97,6 +97,15 @@ export async function validatePlayer(
 
 export interface CheckoutState {
   error?: string;
+  /**
+   * Only set by the Stripe-backed actions. The client opens this in a new
+   * tab (so the customer keeps the order-tracking page in the original one —
+   * Stripe's own hosted confirmation for OXXO/SPEI does not redirect back on
+   * its own) instead of navigating the whole page away like `placeOrder` does.
+   */
+  checkoutUrl?: string;
+  /** Where the client should send the original tab once `checkoutUrl` opens. */
+  orderPageUrl?: string;
 }
 
 /**
@@ -418,9 +427,11 @@ async function payWithStripeMethod(
     return { error: copy.openFailed };
   }
 
-  // Outside the try: `redirect` works by throwing, and the catch above would
-  // otherwise swallow it and cancel an order that is on its way to being paid.
-  redirect(checkoutUrl);
+  // Returned as data, not a `redirect()` — Stripe's own hosted confirmation
+  // for OXXO/SPEI does not navigate back on its own, so the client opens this
+  // in a new tab and keeps the order-tracking page in the original one rather
+  // than sending the whole page away to Stripe.
+  return { checkoutUrl, orderPageUrl: orderPage };
 }
 
 export async function payWithCard(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {

@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   payWithCard,
   payWithStripeOxxo,
@@ -12,6 +13,51 @@ import {
 } from './actions';
 import { trackPixel } from '../../../lib/pixel';
 import { BankIcon, CardIcon, StoreIcon } from '../../icons';
+
+/**
+ * Send the customer to Stripe in a new tab, keeping this one on the order
+ * page — Stripe's own hosted confirmation for OXXO/SPEI does not redirect
+ * back on its own, so leaving the whole page there was a dead end.
+ *
+ * The tab has to be opened *synchronously* inside the submit handler, before
+ * the server action's network round trip — opening one after the fact, once
+ * `checkoutUrl` arrives, is exactly the pattern browsers' popup blockers
+ * exist to stop, since by then there is no user gesture left to point to.
+ * Opening a blank tab now and pointing it at the real URL once it arrives
+ * keeps it inside that gesture. If the popup was blocked anyway (some
+ * browsers block even this), falling back to sending the whole tab, exactly
+ * like before, beats leaving the customer stuck with no way to pay.
+ */
+function useStripeTabRedirect(state: CheckoutState) {
+  const popup = useRef<Window | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!state.checkoutUrl) return;
+    if (popup.current && !popup.current.closed) {
+      popup.current.location.href = state.checkoutUrl;
+      if (state.orderPageUrl) router.push(state.orderPageUrl);
+    } else {
+      window.location.href = state.checkoutUrl;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.checkoutUrl, state.orderPageUrl]);
+
+  return () => {
+    popup.current = window.open('about:blank', '_blank');
+  };
+}
+
+/** Shown right above the button on any form that is about to pop up Stripe. */
+function StripeTabNotice() {
+  return (
+    <div className="alert warn" style={{ marginBottom: 12 }}>
+      🪟 Al confirmar se abrirá una <strong>pestaña nueva</strong> para pagar en Stripe. Cuando
+      termines (o si solo ves los datos de pago), regresa a <strong>esta pestaña</strong> para ver
+      el estado de tu pedido.
+    </div>
+  );
+}
 
 interface PayTo {
   bank: string;
@@ -213,6 +259,9 @@ export function Checkout({
     payWithStripeSpei,
     {},
   );
+  const openCardTab = useStripeTabRedirect(card);
+  const openOxxoTab = useStripeTabRedirect(stripeOxxo);
+  const openSpeiTab = useStripeTabRedirect(stripeSpei);
   const [step, setStep] = useState<Step>('datos');
 
   const found = validation.status === 'found';
@@ -624,11 +673,19 @@ export function Checkout({
           </dl>
 
           {payView === 'tarjeta' ? (
-            <form action={cardAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
+            <form
+              action={cardAction}
+              onSubmit={() => {
+                openCardTab();
+                trackPixel('AddPaymentInfo', pixel);
+              }}
+            >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
 
               {whatsappField(redirecting)}
+
+              <StripeTabNotice />
 
               {card.error && <div className="alert bad">{card.error}</div>}
 
@@ -640,11 +697,19 @@ export function Checkout({
               </p>
             </form>
           ) : payView === 'oxxo' && cardIncludesOxxo ? (
-            <form action={stripeOxxoAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
+            <form
+              action={stripeOxxoAction}
+              onSubmit={() => {
+                openOxxoTab();
+                trackPixel('AddPaymentInfo', pixel);
+              }}
+            >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
 
               {whatsappField(oxxoRedirecting)}
+
+              <StripeTabNotice />
 
               {stripeOxxo.error && <div className="alert bad">{stripeOxxo.error}</div>}
 
@@ -654,11 +719,19 @@ export function Checkout({
               <p className="hint center">🔒 Stripe te da tu referencia de depósito OXXO al continuar.</p>
             </form>
           ) : payView === 'transferencia' && cardIncludesSpei ? (
-            <form action={stripeSpeiAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
+            <form
+              action={stripeSpeiAction}
+              onSubmit={() => {
+                openSpeiTab();
+                trackPixel('AddPaymentInfo', pixel);
+              }}
+            >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
 
               {whatsappField(speiRedirecting)}
+
+              <StripeTabNotice />
 
               {stripeSpei.error && <div className="alert bad">{stripeSpei.error}</div>}
 
