@@ -273,6 +273,24 @@ export class StripeGateway implements PaymentGateway {
       };
     }
 
+    // customer_balance refuses to attach to a PaymentIntent with no Customer,
+    // and `customer_creation: 'always'` is not enough — Stripe rejects the
+    // session up front with "requires customer to be set" unless a real
+    // Customer id is passed at creation time. One Customer per order, keyed
+    // the same way the session itself is, so a retried createCharge (the
+    // button pressed twice, or a retry after a network error) reuses it
+    // instead of leaving orphaned Customers behind.
+    let customerId: string | undefined;
+    if (methods.includes('spei')) {
+      const customer = await this.request<{ id: string }>(
+        'POST',
+        '/customers',
+        { email: input.customerEmail ?? undefined, metadata },
+        { idempotencyKey: `levelup-customer-${input.orderId}` },
+      );
+      customerId = customer.id;
+    }
+
     const params: Record<string, unknown> = {
       mode: 'payment',
       locale: 'es-419',
@@ -300,11 +318,13 @@ export class StripeGateway implements PaymentGateway {
         metadata,
       },
       ...(Object.keys(paymentMethodOptions).length ? { payment_method_options: paymentMethodOptions } : {}),
-      // customer_balance refuses to attach to a PaymentIntent with no
-      // Customer; Checkout satisfies that by creating one on completion
-      // rather than us tracking a Customer per guest order.
-      ...(methods.includes('spei') ? { customer_creation: 'always' } : {}),
-      ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
+      ...(customerId
+        ? { customer: customerId }
+        // Stripe rejects a session carrying both `customer` and
+        // `customer_email` together, so this only applies without one.
+        : input.customerEmail
+          ? { customer_email: input.customerEmail }
+          : {}),
     };
 
     // One session per order, however many times the button is pressed or the

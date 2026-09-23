@@ -123,31 +123,54 @@ describe('createCharge', () => {
     expect(body.get('payment_method_options[oxxo][expires_after_days]')).toBe('7');
   });
 
-  it('maps spei to the customer_balance wire type and requires a customer', async () => {
+  it('maps spei to the customer_balance wire type and creates a real Customer first', async () => {
     const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'cus_1' } },
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
     await gateway(impl, { methods: ['card', 'spei'] }).createCharge(chargeInput);
 
-    const body = new URLSearchParams(calls[0]?.body);
+    expect(calls[0]?.url).toBe('https://api.stripe.com/v1/customers');
+    expect(calls[0]?.headers['Idempotency-Key']).toBe('levelup-customer-ord-uuid-1');
+
+    const body = new URLSearchParams(calls[1]?.body);
     expect(body.get('payment_method_types[0]')).toBe('card');
     expect(body.get('payment_method_types[1]')).toBe('customer_balance');
     expect(body.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
     expect(body.get('payment_method_options[customer_balance][bank_transfer][type]')).toBe(
       'mx_bank_transfer',
     );
-    expect(body.get('customer_creation')).toBe('always');
+    // Stripe rejects a session sent with both `customer` and `customer_email`.
+    expect(body.get('customer')).toBe('cus_1');
+    expect(body.get('customer_email')).toBeNull();
+    expect(body.get('customer_creation')).toBeNull();
   });
 
   it('carries both payment_method_options blocks when OXXO and SPEI are both on', async () => {
     const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'cus_1' } },
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
     await gateway(impl, { methods: ['card', 'oxxo', 'spei'] }).createCharge(chargeInput);
 
-    const body = new URLSearchParams(calls[0]?.body);
+    const body = new URLSearchParams(calls[1]?.body);
     expect(body.get('payment_method_options[oxxo][expires_after_days]')).toBe('2');
     expect(body.get('payment_method_options[customer_balance][funding_type]')).toBe('bank_transfer');
+  });
+
+  it('does not create a Customer when SPEI is off, and keeps customer_email', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
+    ]);
+    await gateway(impl, { methods: ['card'] }).createCharge({
+      ...chargeInput,
+      customerEmail: 'buyer@example.com',
+    });
+
+    expect(calls).toHaveLength(1);
+    const body = new URLSearchParams(calls[0]?.body);
+    expect(body.get('customer_email')).toBe('buyer@example.com');
+    expect(body.get('customer')).toBeNull();
   });
 
   it('never asks for a session shorter than Stripe accepts', async () => {
