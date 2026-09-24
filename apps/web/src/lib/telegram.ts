@@ -54,20 +54,28 @@ export async function notifyNewOrder(
   await sendTelegramNotice(text, 'new-order', fetchImpl);
 }
 
+/** One line per method — was hardcoded to the card wording alone until OXXO/SPEI got real methods. */
+const GATEWAY_SALE_HEADLINE: Record<string, string> = {
+  card: '✅ Venta con tarjeta',
+  oxxo: '✅ Venta con OXXO',
+  spei: '✅ Venta por transferencia SPEI',
+};
+
 /**
- * A card payment that just settled. Distinct wording from `notifyNewOrder` on
- * purpose — nobody needs to approve this one, the recharge is already on its
- * way, so "esperando aprobación" would be actively misleading here.
+ * A Stripe-settled payment — card, OXXO, or SPEI — that just went through.
+ * Distinct wording from `notifyNewOrder` on purpose — nobody needs to approve
+ * this one, the recharge is already on its way, so "esperando aprobación"
+ * would be actively misleading here.
  */
-export async function notifyCardSale(
-  notice: NewOrderNotice,
+export async function notifyGatewaySale(
+  notice: NewOrderNotice & { method: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   const text = [
-    '✅ Venta con tarjeta',
+    GATEWAY_SALE_HEADLINE[notice.method] ?? '✅ Venta confirmada',
     `Pedido: ${notice.orderNumber}`,
     `Paquete: ${notice.comboName}`,
     `Monto: ${notice.price}`,
   ].join('\n');
-  await sendTelegramNotice(text, 'card-sale', fetchImpl);
+  await sendTelegramNotice(text, 'gateway-sale', fetchImpl);
 }

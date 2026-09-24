@@ -121,7 +121,12 @@ describe.skipIf(!PG_AVAILABLE)('attaching a session', () => {
     ).toBe(true);
 
     const found = await findGatewayPayment(db, 'stripe', 'cs_1');
-    expect(found).toMatchObject({ orderId: order.id, orderNumber: order.orderNumber, paymentStatus: 'pending' });
+    expect(found).toMatchObject({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      paymentStatus: 'pending',
+      method: 'card',
+    });
     expect(found?.expiresAt?.getTime()).toBe(expiresAt.getTime());
   });
 

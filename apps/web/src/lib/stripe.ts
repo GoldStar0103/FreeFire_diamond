@@ -30,7 +30,7 @@ import {
 } from '@levelup/engine';
 import { getDb } from './server';
 import { notifyOps } from './ops';
-import { notifyCardSale } from './telegram';
+import { notifyGatewaySale } from './telegram';
 import { mxn } from './format';
 
 export const STRIPE = 'stripe';
@@ -111,8 +111,10 @@ export async function applyStripeReport(report: StripeReport): Promise<AppliedRe
   if (!payment) {
     if (report.state === 'paid') {
       // Money with no order. Rare — it means the session was created and our
-      // write linking it failed — but it is someone's real money.
-      await notifyOps('critical', 'Pago con tarjeta recibido sin pedido asociado', {
+      // write linking it failed — but it is someone's real money. No payment
+      // row means no known method either (card/OXXO/SPEI), so this stays
+      // method-neutral rather than guessing "con tarjeta".
+      await notifyOps('critical', 'Pago recibido sin pedido asociado', {
         session: report.gatewayChargeId,
         amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
         reference: report.reference,
@@ -140,7 +142,7 @@ export async function applyStripeReport(report: StripeReport): Promise<AppliedRe
   );
 
   if (settlement.action === 'refused') {
-    await notifyOps('critical', 'Pago con tarjeta recibido pero NO aprobado — revisar a mano', {
+    await notifyOps('critical', `Pago (${payment.method}) recibido pero NO aprobado — revisar a mano`, {
       order: payment.orderNumber,
       code: settlement.failure.code,
       detail: settlement.failure.message,
@@ -153,10 +155,11 @@ export async function applyStripeReport(report: StripeReport): Promise<AppliedRe
   // both reach here for the same event, and `settleGatewayCharge`'s own
   // compare-and-set is what guarantees only one of them sees 'approved'.
   if (settlement.action === 'approved') {
-    await notifyCardSale({
+    await notifyGatewaySale({
       orderNumber: payment.orderNumber,
       comboName: payment.comboName,
       price: mxn(payment.priceMxnCents),
+      method: payment.method,
     });
   }
 

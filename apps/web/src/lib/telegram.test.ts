@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { notifyCardSale, notifyNewOrder } from './telegram.js';
+import { notifyGatewaySale, notifyNewOrder } from './telegram.js';
 
 const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALERT_CHAT_ID'] as const;
 const saved: Record<string, string | undefined> = {};
@@ -63,27 +63,48 @@ describe('notifyNewOrder', () => {
   });
 });
 
-describe('notifyCardSale', () => {
-  it('posts a distinct, already-settled message — never "esperando aprobación"', async () => {
+describe('notifyGatewaySale', () => {
+  it.each([
+    ['card', 'tarjeta'],
+    ['oxxo', 'OXXO'],
+    ['spei', 'SPEI'],
+  ] as const)(
+    'posts a distinct, already-settled message naming the real method (%s)',
+    async (method, expectedWord) => {
+      setEnv('test-token', '12345');
+      const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{}', { status: 200 }));
+
+      await notifyGatewaySale({ ...NOTICE, method }, fetchImpl as unknown as typeof fetch);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const [, init] = fetchImpl.mock.calls[0]!;
+      const body = JSON.parse(init!.body as string);
+      expect(body.text).toContain('LU-260912-AB12');
+      expect(body.text).toContain('Pack Huesito');
+      expect(body.text).toContain('$185 MXN');
+      expect(body.text).not.toContain('esperando aprobación');
+      expect(body.text).toContain(expectedWord);
+    },
+  );
+
+  it('falls back to a generic headline for an unrecognized method rather than mislabeling it', async () => {
     setEnv('test-token', '12345');
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{}', { status: 200 }));
 
-    await notifyCardSale(NOTICE, fetchImpl as unknown as typeof fetch);
+    await notifyGatewaySale({ ...NOTICE, method: 'paypal' }, fetchImpl as unknown as typeof fetch);
 
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [, init] = fetchImpl.mock.calls[0]!;
     const body = JSON.parse(init!.body as string);
-    expect(body.text).toContain('LU-260912-AB12');
-    expect(body.text).toContain('Pack Huesito');
-    expect(body.text).toContain('$185 MXN');
-    expect(body.text).not.toContain('esperando aprobación');
+    expect(body.text).toContain('✅ Venta confirmada');
   });
 
   it('does nothing when Telegram is not configured, rather than throwing', async () => {
     setEnv(undefined, undefined);
     const fetchImpl = vi.fn();
 
-    await expect(notifyCardSale(NOTICE, fetchImpl as unknown as typeof fetch)).resolves.toBeUndefined();
+    await expect(
+      notifyGatewaySale({ ...NOTICE, method: 'card' }, fetchImpl as unknown as typeof fetch),
+    ).resolves.toBeUndefined();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

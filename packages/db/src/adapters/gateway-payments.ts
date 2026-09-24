@@ -42,12 +42,14 @@ export interface GatewayPayment {
   orderNumber: string;
   playerId: string;
   comboKey: string;
-  /** From the combo snapshot taken at order creation — for the card-sale Telegram alert. */
+  /** From the combo snapshot taken at order creation — for the sale Telegram alert. */
   comboName: string;
   priceMxnCents: number;
   paymentStatus: string;
   orderStatus: string;
   expiresAt: Date | null;
+  /** 'card' | 'oxxo' | 'spei' for a Stripe-routed payment — which sale alert to send. */
+  method: string;
 }
 
 /** The payment a gateway session belongs to. The session id is the only key trusted. */
@@ -68,6 +70,7 @@ export async function findGatewayPayment(
       paymentStatus: payments.status,
       orderStatus: orders.status,
       expiresAt: payments.expiresAt,
+      method: payments.method,
     })
     .from(payments)
     .innerJoin(orders, eq(orders.id, payments.orderId))

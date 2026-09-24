@@ -228,9 +228,17 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 </>
               )}
 
-              {/* A card payment has no receipt photo — Stripe is the receipt.
-                  "Sin comprobante" on it would read as something missing. */}
-              {order.payment.method !== 'card' && (
+              {/* No Stripe-settled payment — card, OXXO, or SPEI — has a
+                  receipt photo; Stripe is the receipt for all three. This
+                  used to only exclude 'card', back when every Stripe order
+                  was recorded that way regardless of which method actually
+                  settled it; once OXXO/SPEI started recording their real
+                  method, this line started showing "Sin comprobante" on a
+                  legitimately-paid OXXO/SPEI order, reading as something
+                  missing when there was never anything to upload. */}
+              {order.payment.method !== 'card' &&
+                order.payment.method !== 'oxxo' &&
+                order.payment.method !== 'spei' && (
                 <>
                   <dt>Comprobante</dt>
                   <dd>
