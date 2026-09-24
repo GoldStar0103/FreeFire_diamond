@@ -25,6 +25,7 @@ import {
   listCombosForAdmin,
   listOrders,
   listPendingApprovals,
+  listStuckGatewayPayments,
 } from './admin-queries.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -243,6 +244,80 @@ describe.skipIf(!PG_AVAILABLE)('listPendingApprovals', () => {
     const queue = await listPendingApprovals(db);
 
     expect(queue.map((q) => q.orderNumber)).toEqual([manual.orderNumber]);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
+  /** A Stripe order, backdated so its payment reads as N hours old. */
+  async function seedGatewayOrder(options: {
+    comboKey: string;
+    method: 'card' | 'oxxo' | 'spei';
+    gateway?: string | null;
+    ageHours: number;
+  }) {
+    const order = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      { comboKey: options.comboKey, playerId: '7288567050', paymentMethod: options.method, source: 'storefront' },
+    );
+    if (!order.ok) throw new Error(`seed order failed: ${order.failure.code}`);
+
+    await db
+      .update(payments)
+      .set({
+        gateway: options.gateway === undefined ? 'stripe' : options.gateway,
+        createdAt: raw`now() - make_interval(hours => ${options.ageHours})`,
+      })
+      .where(eq(payments.orderId, order.order.id));
+
+    return order.order;
+  }
+
+  it('lists an OXXO payment stuck past the threshold', async () => {
+    const order = await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', ageHours: 7 });
+
+    const stuck = await listStuckGatewayPayments(db, 6);
+    expect(stuck).toEqual([
+      { orderNumber: order.orderNumber, method: 'oxxo', pendingHours: expect.any(Number) },
+    ]);
+    expect(stuck[0]!.pendingHours).toBeGreaterThanOrEqual(6);
+  });
+
+  it('lists a SPEI payment the same way', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'spei', ageHours: 7 });
+    expect(await listStuckGatewayPayments(db, 6)).toHaveLength(1);
+  });
+
+  it('does not list one still under the threshold', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', ageHours: 1 });
+    expect(await listStuckGatewayPayments(db, 6)).toHaveLength(0);
+  });
+
+  it('never lists a card payment — it settles in seconds or the customer abandoned it', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'card', ageHours: 7 });
+    expect(await listStuckGatewayPayments(db, 6)).toHaveLength(0);
+  });
+
+  it('never lists the manual comprobante flow — it has no gateway', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', gateway: null, ageHours: 7 });
+    expect(await listStuckGatewayPayments(db, 6)).toHaveLength(0);
+  });
+
+  it('still lists one that was already alerted on — this is current status, not the once-only sweep alert', async () => {
+    const order = await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', ageHours: 7 });
+    await db
+      .update(payments)
+      .set({ stuckAlertSentAt: new Date() })
+      .where(eq(payments.orderId, order.id));
+
+    expect(await listStuckGatewayPayments(db, 6)).toHaveLength(1);
+  });
+
+  it('orders oldest first', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', ageHours: 7 });
+    const older = await seedGatewayOrder({ comboKey: 'mega_10', method: 'spei', ageHours: 20 });
+
+    const stuck = await listStuckGatewayPayments(db, 6);
+    expect(stuck[0]?.orderNumber).toBe(older.orderNumber);
   });
 });
 

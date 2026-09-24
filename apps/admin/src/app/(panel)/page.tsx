@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getDashboardStats, getPaymentDetails } from '@levelup/db';
+import { getDashboardStats, getPaymentDetails, listStuckGatewayPayments } from '@levelup/db';
 import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { getProvider } from '../../lib/provider';
@@ -24,12 +24,14 @@ async function providerBalanceUsd(): Promise<number | null> {
 
 export default async function DashboardPage() {
   await requireSession();
-  const [stats, payTo, balanceUsd] = await Promise.all([
+  const [stats, payTo, balanceUsd, stuckGatewayPayments] = await Promise.all([
     getDashboardStats(getDb()),
     getPaymentDetails(getDb()),
     providerBalanceUsd(),
+    listStuckGatewayPayments(getDb()),
   ]);
   const lowBalanceThreshold = Number(process.env.RA_LOW_BALANCE_USD ?? 100);
+  const METHOD_NAME: Record<string, string> = { oxxo: 'OXXO', spei: 'SPEI' };
 
   return (
     <>
@@ -58,6 +60,28 @@ export default async function DashboardPage() {
           <strong>Faltan productos del proveedor:</strong>{' '}
           {stats.missingProducts.join(', ')} 💎. Los combos que los usan no se pueden
           entregar. Corre la sincronización del catálogo.
+        </div>
+      )}
+
+      {stuckGatewayPayments.length > 0 && (
+        // Not "esperando aprobación" — there is nothing here to approve, and
+        // showing these in Aprobaciones was the exact mistake fixed after a
+        // real incident. This is purely informational: OXXO/SPEI settle
+        // themselves once Stripe hears from the bank/store, which can
+        // genuinely take a few hours. Past ~12h with no movement is when it
+        // stops being normal and is worth a message to Stripe support.
+        <div className={`alert ${stuckGatewayPayments.some((p) => p.pendingHours >= 12) ? 'bad' : 'warn'}`}>
+          <strong>{stuckGatewayPayments.length} pago(s) de OXXO/SPEI sin confirmar todavía.</strong>{' '}
+          Es normal que tarden unas horas — Stripe los confirma solo en cuanto el banco o la
+          tienda OXXO le avisa. Si alguno lleva más de 12 horas, vale la pena escribirle a
+          soporte de Stripe con ese número de pedido.
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+            {stuckGatewayPayments.map((p) => (
+              <li key={p.orderNumber}>
+                {p.orderNumber} — {METHOD_NAME[p.method] ?? p.method} — {p.pendingHours}h
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

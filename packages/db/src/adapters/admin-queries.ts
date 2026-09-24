@@ -125,6 +125,59 @@ export async function listPendingApprovals(
   });
 }
 
+// ── stuck Stripe OXXO/SPEI payments ─────────────────────────────────────────────
+
+export interface StuckGatewayPaymentSummary {
+  orderNumber: string;
+  method: string;
+  pendingHours: number;
+}
+
+/**
+ * Stripe OXXO/SPEI payments still unconfirmed after `olderThanHours` —
+ * read-only, for the Inicio dashboard so the client can see this themselves
+ * instead of asking whether a given order is a real system problem.
+ *
+ * Real incident, 2026-09-23/24: several real OXXO/SPEI deposits sat
+ * unconfirmed for hours (Stripe's own settlement via PPRO, not this
+ * codebase), and the only way anyone found out was the client noticing one
+ * customer's order and asking. `alertStuckGatewayPayments` (the worker sweep)
+ * tells a human via Telegram once per payment; this is the client's own way
+ * to check the current list at any time, not just when an alert fires.
+ *
+ * Deliberately excludes `stuck_alert_sent_at` from the filter — unlike the
+ * sweep, which must not repeat itself, this always reflects what is
+ * currently stuck, whether or not it has already been alerted on.
+ */
+export async function listStuckGatewayPayments(
+  db: Database,
+  olderThanHours = 6,
+  limit = 25,
+): Promise<StuckGatewayPaymentSummary[]> {
+  const cutoff = new Date(Date.now() - olderThanHours * 3_600_000);
+
+  const rows = await db
+    .select({
+      orderNumber: orders.orderNumber,
+      method: payments.method,
+      pendingHours: sql<number>`floor(extract(epoch from (now() - ${payments.createdAt})) / 3600)`,
+    })
+    .from(payments)
+    .innerJoin(orders, eq(orders.id, payments.orderId))
+    .where(
+      and(
+        eq(payments.status, 'pending'),
+        eq(payments.gateway, 'stripe'),
+        inArray(payments.method, ['oxxo', 'spei']),
+        lt(payments.createdAt, cutoff),
+      ),
+    )
+    .orderBy(payments.createdAt)
+    .limit(limit);
+
+  return rows.map((r) => ({ ...r, pendingHours: Number(r.pendingHours) }));
+}
+
 // ── the orders list ───────────────────────────────────────────────────────────
 
 export type OrderFilter =
