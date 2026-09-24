@@ -340,6 +340,16 @@ export const payments = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
+    /**
+     * Set once the "this gateway payment has been pending unusually long"
+     * alert has fired for it, so the sweep sends it exactly once instead of
+     * every cycle. Real incident, 2026-09-23/24: three separate real OXXO
+     * deposits sat unconfirmed for hours (Stripe's own OXXO settlement via
+     * PPRO, not anything this codebase controls) and only surfaced because
+     * the customer happened to say something — nothing here watched for it.
+     */
+    stuckAlertSentAt: timestamp('stuck_alert_sent_at', { withTimezone: true }),
   },
   (t) => [
     index('payments_order_idx').on(t.orderId),

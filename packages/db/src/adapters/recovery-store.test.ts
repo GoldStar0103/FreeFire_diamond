@@ -158,6 +158,142 @@ async function seedPayment(options: {
   return { orderId: order!.id, paymentId: payment!.id };
 }
 
+/** A Stripe gateway payment, positioned at a chosen age. */
+async function seedGatewayPayment(options: {
+  orderNumber: string;
+  method: 'card' | 'oxxo' | 'spei';
+  gateway?: string | null;
+  paymentStatus?: 'pending' | 'paid';
+  ageSeconds: number;
+  stuckAlertSentSecondsAgo?: number | null;
+  comboKey?: string;
+}) {
+  const [order] = await db
+    .insert(orders)
+    .values({
+      orderNumber: options.orderNumber,
+      playerId: '7288567050',
+      comboKey: options.comboKey ?? 'mega_10',
+      comboSnapshot: { name: 'Mega Oferta 110' },
+      priceMxnCents: 1_800,
+      status: 'pending_payment',
+    })
+    .returning();
+
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      orderId: order!.id,
+      method: options.method,
+      status: options.paymentStatus ?? 'pending',
+      gateway: options.gateway === undefined ? 'stripe' : options.gateway,
+      amountExpectedCents: 1_800,
+      createdAt: raw`now() - make_interval(secs => ${options.ageSeconds})`,
+      stuckAlertSentAt:
+        options.stuckAlertSentSecondsAgo == null
+          ? null
+          : raw`now() - make_interval(secs => ${options.stuckAlertSentSecondsAgo})`,
+    })
+    .returning();
+
+  return { orderId: order!.id, paymentId: payment!.id };
+}
+
+describe.skipIf(!PG_AVAILABLE)('findStuckGatewayPayments', () => {
+  const store = () => new DrizzleRecoveryStore(db);
+  const cutoff = () => new Date(Date.now() - 6 * 3_600_000);
+
+  it('finds a pending OXXO payment created before the cutoff', async () => {
+    const { orderId } = await seedGatewayPayment({
+      orderNumber: 'LU-1',
+      method: 'oxxo',
+      ageSeconds: 7 * 3600,
+    });
+
+    const found = await store().findStuckGatewayPayments(cutoff(), 25);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ orderId, orderNumber: 'LU-1', method: 'oxxo' });
+    expect(found[0]?.pendingHours).toBeGreaterThanOrEqual(6);
+  });
+
+  it('finds a pending SPEI payment the same way', async () => {
+    await seedGatewayPayment({ orderNumber: 'LU-1', method: 'spei', ageSeconds: 7 * 3600 });
+    expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(1);
+  });
+
+  it('leaves a payment alone before the cutoff', async () => {
+    await seedGatewayPayment({ orderNumber: 'LU-1', method: 'oxxo', ageSeconds: 3600 });
+    expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(0);
+  });
+
+  it('never flags a card payment — it settles in seconds or the customer abandoned it', async () => {
+    await seedGatewayPayment({ orderNumber: 'LU-1', method: 'card', ageSeconds: 7 * 3600 });
+    expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(0);
+  });
+
+  it('never flags the manual comprobante flow — it has no gateway', async () => {
+    // Not just old-and-unpaid: transfer_manual rows have gateway = null by
+    // schema.ts's own comment on that column, so this proves the exclusion is
+    // the gateway check, not merely "the method happens not to match".
+    await seedGatewayPayment({
+      orderNumber: 'LU-1',
+      method: 'oxxo',
+      gateway: null,
+      ageSeconds: 7 * 3600,
+    });
+    expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(0);
+  });
+
+  it('never flags one already paid', async () => {
+    await seedGatewayPayment({
+      orderNumber: 'LU-1',
+      method: 'oxxo',
+      paymentStatus: 'paid',
+      ageSeconds: 7 * 3600,
+    });
+    expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(0);
+  });
+
+  it('never flags one already alerted on — once only, not every sweep', async () => {
+    await seedGatewayPayment({
+      orderNumber: 'LU-1',
+      method: 'oxxo',
+      ageSeconds: 7 * 3600,
+      stuckAlertSentSecondsAgo: 60,
+    });
+    expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(0);
+  });
+
+  it('respects the batch size and takes the oldest first', async () => {
+    await seedGatewayPayment({ orderNumber: 'LU-1', method: 'oxxo', ageSeconds: 7 * 3600 });
+    await seedGatewayPayment({
+      orderNumber: 'LU-2',
+      method: 'oxxo',
+      ageSeconds: 20 * 3600,
+      comboKey: 'pack_insano',
+    });
+
+    const found = await store().findStuckGatewayPayments(cutoff(), 1);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.orderNumber).toBe('LU-2');
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('markStuckAlertSent', () => {
+  it('sets the timestamp so the next sweep skips it', async () => {
+    const { paymentId } = await seedGatewayPayment({
+      orderNumber: 'LU-1',
+      method: 'oxxo',
+      ageSeconds: 7 * 3600,
+    });
+
+    await new DrizzleRecoveryStore(db).markStuckAlertSent(paymentId);
+
+    const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+    expect(payment?.stuckAlertSentAt).not.toBeNull();
+  });
+});
+
 describe.skipIf(!PG_AVAILABLE)('findOverduePayments', () => {
   const store = () => new DrizzleRecoveryStore(db);
 

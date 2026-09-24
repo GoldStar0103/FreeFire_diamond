@@ -28,6 +28,8 @@ export interface WorkerConfig {
     escalateAfterMs: number;
     intervalMs: number;
     batchSize: number;
+    /** How long a pending Stripe OXXO/SPEI payment gets before ops is warned to check with Stripe support. */
+    stuckGatewayPaymentHours: number;
   };
   catalogSync: {
     /**
@@ -145,6 +147,7 @@ export function loadConfig(): WorkerConfig {
       escalateAfterMs: number('SWEEP_ESCALATE_AFTER_MS', 15 * 60_000),
       intervalMs: number('SWEEP_INTERVAL_MS', 30_000),
       batchSize: number('SWEEP_BATCH_SIZE', 25),
+      stuckGatewayPaymentHours: number('STUCK_GATEWAY_PAYMENT_HOURS', 6),
     },
     catalogSync: { intervalMs: catalogSyncIntervalMs },
     telegram,

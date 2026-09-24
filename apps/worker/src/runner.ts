@@ -7,6 +7,7 @@
  */
 
 import {
+  alertStuckGatewayPayments,
   expireOverduePayments,
   fulfillOrder,
   PROVIDER_LOCK_KEY,
@@ -25,6 +26,7 @@ import type {
   ConversionResult,
   ExpiryStore,
   RecoveryStore,
+  StuckPaymentStore,
 } from '@levelup/engine';
 import type { TopupProvider, UsdTenK } from '@levelup/provider';
 import type { DrizzleOrderQueue } from '@levelup/db';
@@ -33,7 +35,7 @@ import type { WorkerConfig } from './config.js';
 
 export interface RunnerDeps {
   queue: Pick<DrizzleOrderQueue, 'claimNext' | 'depth'>;
-  store: RecoveryStore & ExpiryStore;
+  store: RecoveryStore & ExpiryStore & StuckPaymentStore;
   /** The `base_products` mirror, for the periodic provider catalog sync. */
   catalog: CatalogSyncStore;
   provider: TopupProvider;
@@ -201,6 +203,25 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
     }
   } catch (err) {
     console.error(`[sweep] Expiry failed: ${String(err)}`);
+  }
+
+  try {
+    // A pending OXXO/SPEI payment is not overdue in the expiry sense — its
+    // deadline was deliberately extended by days, since Stripe puts no fixed
+    // window on it either. This is a separate, much shorter watch: has
+    // Stripe's own settlement (via PPRO for OXXO) gone quiet long enough that
+    // a human should check in with Stripe support before the customer has to
+    // ask why nothing has arrived.
+    const stuck = await alertStuckGatewayPayments({
+      store,
+      alerter,
+      config: { olderThanHours: config.sweeps.stuckGatewayPaymentHours, batchSize: config.sweeps.batchSize },
+    });
+    if (stuck.alerted > 0 || stuck.failed > 0) {
+      console.log(`[sweep] flagged ${stuck.alerted} stuck gateway payment(s), ${stuck.failed} failed to alert`);
+    }
+  } catch (err) {
+    console.error(`[sweep] Stuck-payment check failed: ${String(err)}`);
   }
 
   await checkWallet(deps);

@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "stuck_alert_sent_at" timestamp with time zone;

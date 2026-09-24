@@ -5,6 +5,7 @@ export * from './poller.js';
 export * from './ordering.js';
 export * from './payments.js';
 export * from './expiry.js';
+export * from './stuck-payments.js';
 export * from './catalog-sync.js';
 export * from './catalog-admin.js';
 export * from './conversions.js';

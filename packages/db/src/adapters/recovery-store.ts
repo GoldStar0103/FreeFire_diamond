@@ -11,9 +11,16 @@
  * currently handling this" a safe inference.
  */
 
-import { and, asc, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import { parseUsd } from '@levelup/provider';
-import type { ExpiryStore, OverduePayment, RecoveryStore, StalledItem } from '@levelup/engine';
+import type {
+  ExpiryStore,
+  OverduePayment,
+  RecoveryStore,
+  StalledItem,
+  StuckGatewayPayment,
+  StuckPaymentStore,
+} from '@levelup/engine';
 import type { Database } from '../index.js';
 import { orderItems, orders, payments } from '../schema.js';
 import { DrizzleFulfillmentStore } from './fulfillment-store.js';
@@ -48,7 +55,7 @@ function toStalledItem(row: SweepRow): StalledItem {
 
 export class DrizzleRecoveryStore
   extends DrizzleFulfillmentStore
-  implements RecoveryStore, ExpiryStore
+  implements RecoveryStore, ExpiryStore, StuckPaymentStore
 {
   constructor(private readonly database: Database) {
     super(database);
@@ -186,5 +193,50 @@ export class DrizzleRecoveryStore
         .set({ status: 'payment_expired', updatedAt: new Date() })
         .where(eq(orders.id, input.orderId));
     });
+  }
+
+  /**
+   * Stripe OXXO/SPEI payments sitting `pending` for an unusually long time,
+   * never yet alerted on.
+   *
+   * `gateway = 'stripe'` is what actually restricts this to a real Stripe
+   * charge — `method IN ('oxxo','spei')` alone is not enough, since those are
+   * also valid `PaymentMethod` values in principle and nothing enforces they
+   * only ever appear on a Stripe row. `stuck_alert_sent_at IS NULL` is the
+   * once-only gate: a payment that already got its warning does not get
+   * another one every sweep until it finally resolves or expires.
+   */
+  async findStuckGatewayPayments(olderThan: Date, limit: number): Promise<StuckGatewayPayment[]> {
+    const rows = await this.database
+      .select({
+        orderId: orders.id,
+        paymentId: payments.id,
+        orderNumber: orders.orderNumber,
+        method: payments.method,
+        amountExpectedCents: payments.amountExpectedCents,
+        pendingHours: sql<number>`floor(extract(epoch from (now() - ${payments.createdAt})) / 3600)`,
+      })
+      .from(payments)
+      .innerJoin(orders, eq(orders.id, payments.orderId))
+      .where(
+        and(
+          eq(payments.status, 'pending'),
+          eq(payments.gateway, 'stripe'),
+          inArray(payments.method, ['oxxo', 'spei']),
+          isNull(payments.stuckAlertSentAt),
+          lt(payments.createdAt, olderThan),
+        ),
+      )
+      .orderBy(asc(payments.createdAt))
+      .limit(limit);
+
+    return rows.map((r) => ({ ...r, pendingHours: Number(r.pendingHours) }));
+  }
+
+  async markStuckAlertSent(paymentId: string): Promise<void> {
+    await this.database
+      .update(payments)
+      .set({ stuckAlertSentAt: new Date() })
+      .where(eq(payments.id, paymentId));
   }
 }

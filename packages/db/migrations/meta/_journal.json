@@ -29,6 +29,13 @@
       "when": 1789391929052,
       "tag": "0003_order_cancel_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790221520565,
+      "tag": "0004_stuck_payment_alert",
+      "breakpoints": true
     }
   ]
 }

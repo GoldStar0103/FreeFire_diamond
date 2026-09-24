@@ -14,6 +14,8 @@ import type {
   RecoveryStore,
   StalledItem,
   StoredProduct,
+  StuckGatewayPayment,
+  StuckPaymentStore,
 } from '@levelup/engine';
 import { loadConfig } from './config.js';
 import {
@@ -27,7 +29,7 @@ import {
   type RunnerDeps,
 } from './runner.js';
 
-class QueueStore extends MemoryStore implements RecoveryStore, ExpiryStore {
+class QueueStore extends MemoryStore implements RecoveryStore, ExpiryStore, StuckPaymentStore {
   async findPendingProviderItems(): Promise<StalledItem[]> {
     return [];
   }
@@ -38,6 +40,12 @@ class QueueStore extends MemoryStore implements RecoveryStore, ExpiryStore {
     return [];
   }
   async expirePayment(): Promise<void> {
+    return undefined;
+  }
+  async findStuckGatewayPayments(): Promise<StuckGatewayPayment[]> {
+    return [];
+  }
+  async markStuckAlertSent(): Promise<void> {
     return undefined;
   }
 }
