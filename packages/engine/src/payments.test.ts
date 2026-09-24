@@ -237,19 +237,29 @@ describe('rejection', () => {
     expect(store.rejectPayment).not.toHaveBeenCalled();
   });
 
-  it('refuses to reject a card payment — Stripe settles it, there is no comprobante', async () => {
-    // Real incident, 2026-09-18: a card order was rejected as "sin
-    // comprobante" 22 seconds after checkout started; the customer's $750
-    // MXN charge succeeded in Stripe six minutes later, but the order was
-    // already cancelled and the real approval got refused (order
-    // LU-260918-0RTQ). This is the guard that stops that specific mistake.
-    const { deps, store } = harness(payable({ method: 'card', paymentStatus: 'pending' }));
+  it.each(['card', 'oxxo', 'spei'] as const)(
+    'refuses to reject a %s payment — Stripe settles it, there is no comprobante',
+    async (method) => {
+      // Real incident, 2026-09-18: a card order was rejected as "sin
+      // comprobante" 22 seconds after checkout started; the customer's $750
+      // MXN charge succeeded in Stripe six minutes later, but the order was
+      // already cancelled and the real approval got refused (order
+      // LU-260918-0RTQ). This is the guard that stops that specific mistake.
+      //
+      // Real incident, 2026-09-23: this guard used to only check for 'card',
+      // back when every Stripe order was recorded that way regardless of
+      // which method settled it. Once OXXO/SPEI checkouts started recording
+      // their real method, this stopped catching them — two customers' paid
+      // OXXO vouchers became rejectable exactly like a stalled manual order,
+      // while Stripe was still waiting on the deposit to report back.
+      const { deps, store } = harness(payable({ method, paymentStatus: 'pending' }));
 
-    expect(
-      await rejectPayment(deps, { orderId: 'order-1', reason: 'Sin comprobante de pago' }),
-    ).toMatchObject({ failure: { code: 'CARD_PAYMENT_NOT_REJECTABLE' } });
-    expect(store.rejectPayment).not.toHaveBeenCalled();
-  });
+      expect(
+        await rejectPayment(deps, { orderId: 'order-1', reason: 'Sin comprobante de pago' }),
+      ).toMatchObject({ failure: { code: 'CARD_PAYMENT_NOT_REJECTABLE' } });
+      expect(store.rejectPayment).not.toHaveBeenCalled();
+    },
+  );
 
   it('turns a race lost at the store into a typed failure, not a thrown error', async () => {
     // The read above only catches a payment that was ALREADY paid when this

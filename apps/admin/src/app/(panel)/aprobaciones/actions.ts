@@ -21,7 +21,9 @@ function explain(code: string, message: string): string {
     case 'NOT_AWAITING_PAYMENT':
       return message;
     case 'CARD_PAYMENT_NOT_REJECTABLE':
-      return 'Este es un pago con tarjeta — se confirma solo cuando Stripe lo reporta. No hay nada que rechazar; espera a que se confirme o caduque.';
+      // Card, OXXO, or SPEI — all three settle themselves once Stripe reports
+      // them, so the message stays generic rather than naming one method.
+      return 'Este pago se procesa automáticamente por Stripe — se confirma solo cuando Stripe lo reporta. No hay nada que rechazar; espera a que se confirme o caduque.';
     case 'ORDER_NOT_FOUND':
       return 'Ese pedido ya no existe.';
     default:

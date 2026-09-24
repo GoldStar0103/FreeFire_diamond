@@ -215,17 +215,26 @@ describe.skipIf(!PG_AVAILABLE)('listPendingApprovals', () => {
     expect(queue[0]?.contactWhatsapp).toBeNull();
   });
 
-  it('excludes a card order sitting in pending — there is no comprobante to review, Stripe settles it', async () => {
+  it('excludes card, OXXO, and SPEI orders sitting in pending — no comprobante to review, Stripe settles them', async () => {
     // Real incident, 2026-09-18: an admin working this queue by habit
     // rejected a card order as "sin comprobante" 22 seconds after checkout
     // started, before Stripe's own webhook could confirm the real payment
     // that succeeded six minutes later (order LU-260918-0RTQ). A card order
     // must never be a candidate for that button in the first place.
-    const cardResult = await createOrder(
-      { store: new DrizzleOrderingStore(db) },
-      { comboKey: 'pack_insano', playerId: '7288567050', paymentMethod: 'card', source: 'storefront' },
-    );
-    if (!cardResult.ok) throw new Error(`seed order failed: ${cardResult.failure.code}`);
+    //
+    // Real incident, 2026-09-23: this filter used to just be `method !=
+    // 'card'`, back when every Stripe order really was recorded as 'card'
+    // regardless of which method settled it. Once OXXO/SPEI checkouts started
+    // recording their real method, two customers' already-paid OXXO vouchers
+    // sat here for hours looking exactly like stalled manual orders, because
+    // Stripe simply hadn't reported the deposit back yet.
+    for (const method of ['card', 'oxxo', 'spei'] as const) {
+      const result = await createOrder(
+        { store: new DrizzleOrderingStore(db) },
+        { comboKey: 'pack_insano', playerId: '7288567050', paymentMethod: method, source: 'storefront' },
+      );
+      if (!result.ok) throw new Error(`seed ${method} order failed: ${result.failure.code}`);
+    }
 
     // A manual order in the same query, so this proves exclusion, not an
     // empty-table false positive.
