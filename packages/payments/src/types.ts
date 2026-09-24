@@ -118,8 +118,17 @@ export interface PaymentGateway {
    * Takes the RAW body, never a parsed object: signatures are computed over
    * exact bytes, and `JSON.parse` followed by `JSON.stringify` will not
    * reproduce them.
+   *
+   * Async because not every gateway's webhook carries the full state in the
+   * delivered body — Mercado Pago's is a lightweight "check payment X" ping;
+   * resolving what actually happened means a signature check plus a follow-up
+   * API call. Stripe's own implementation still returns synchronously in
+   * spirit, just wrapped in a resolved promise.
    */
-  verifyWebhook(rawBody: string, headers: Record<string, string | undefined>): WebhookVerification;
+  verifyWebhook(
+    rawBody: string,
+    headers: Record<string, string | undefined>,
+  ): Promise<WebhookVerification>;
 
   /**
    * Ask the gateway directly. Used by the reconciliation cron to catch payments

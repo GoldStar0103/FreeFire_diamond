@@ -32,7 +32,7 @@ export async function POST(request: Request): Promise<Response> {
   const raw = await request.text();
   const headers = Object.fromEntries(request.headers.entries());
 
-  const verification = gateway.verifyWebhook(raw, headers);
+  const verification = await gateway.verifyWebhook(raw, headers);
   if (!verification.ok) {
     if (verification.reason === 'unsupported_event') {
       return NextResponse.json({ received: true, ignored: true });

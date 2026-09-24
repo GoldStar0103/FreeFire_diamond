@@ -233,8 +233,8 @@ function deliver(body: string, secret = SECRET) {
 }
 
 describe('verifyWebhook', () => {
-  it('reads a paid card checkout as paid, with the amount and intent reference', () => {
-    const result = deliver(
+  it('reads a paid card checkout as paid, with the amount and intent reference', async () => {
+    const result = await deliver(
       event('checkout.session.completed', { status: 'complete', payment_status: 'paid' }),
     );
     expect(result).toMatchObject({
@@ -249,43 +249,43 @@ describe('verifyWebhook', () => {
     });
   });
 
-  it('reads an issued OXXO voucher as pending — a voucher is not money', () => {
-    const result = deliver(
+  it('reads an issued OXXO voucher as pending — a voucher is not money', async () => {
+    const result = await deliver(
       event('checkout.session.completed', { status: 'complete', payment_status: 'unpaid' }),
     );
     expect(result).toMatchObject({ ok: true, event: { state: 'pending', amountReceivedCents: null } });
   });
 
-  it('reads the OXXO settlement, lapse and abandoned sessions', () => {
-    expect(deliver(event('checkout.session.async_payment_succeeded', { payment_status: 'paid' })))
+  it('reads the OXXO settlement, lapse and abandoned sessions', async () => {
+    expect(await deliver(event('checkout.session.async_payment_succeeded', { payment_status: 'paid' })))
       .toMatchObject({ ok: true, event: { state: 'paid', amountReceivedCents: 26_000 } });
-    expect(deliver(event('checkout.session.async_payment_failed', {})))
+    expect(await deliver(event('checkout.session.async_payment_failed', {})))
       .toMatchObject({ ok: true, event: { state: 'failed' } });
-    expect(deliver(event('checkout.session.expired', { status: 'expired' })))
+    expect(await deliver(event('checkout.session.expired', { status: 'expired' })))
       .toMatchObject({ ok: true, event: { state: 'expired' } });
   });
 
-  it('rejects a forged signature before looking at the body', () => {
+  it('rejects a forged signature before looking at the body', async () => {
     const body = event('checkout.session.completed', { payment_status: 'paid' });
-    expect(deliver(body, 'whsec_attacker')).toEqual({ ok: false, reason: 'bad_signature' });
+    expect(await deliver(body, 'whsec_attacker')).toEqual({ ok: false, reason: 'bad_signature' });
   });
 
-  it('rejects a delivery with no signature header', () => {
+  it('rejects a delivery with no signature header', async () => {
     const body = event('checkout.session.completed', { payment_status: 'paid' });
-    expect(gateway(fakeFetch([]).impl).verifyWebhook(body, {})).toEqual({
+    expect(await gateway(fakeFetch([]).impl).verifyWebhook(body, {})).toEqual({
       ok: false,
       reason: 'missing_signature',
     });
   });
 
-  it('refuses a session in another currency rather than compare it to pesos', () => {
+  it('refuses a session in another currency rather than compare it to pesos', async () => {
     const body = event('checkout.session.completed', { payment_status: 'paid', currency: 'usd' });
-    expect(deliver(body)).toEqual({ ok: false, reason: 'malformed_payload' });
+    expect(await deliver(body)).toEqual({ ok: false, reason: 'malformed_payload' });
   });
 
-  it('acknowledges authentic events it does not act on as unsupported', () => {
+  it('acknowledges authentic events it does not act on as unsupported', async () => {
     const body = JSON.stringify({ id: 'evt_2', type: 'customer.created', data: { object: {} } });
-    expect(deliver(body)).toEqual({ ok: false, reason: 'unsupported_event' });
+    expect(await deliver(body)).toEqual({ ok: false, reason: 'unsupported_event' });
   });
 });
 

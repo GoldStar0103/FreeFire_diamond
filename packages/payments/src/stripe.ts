@@ -356,10 +356,14 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
-  verifyWebhook(
+  // Genuinely synchronous internally — Stripe's webhook body already carries
+  // everything needed. `async` only to satisfy the shared interface, which
+  // Mercado Pago's implementation needs for real.
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async verifyWebhook(
     rawBody: string,
     headers: Record<string, string | undefined>,
-  ): WebhookVerification {
+  ): Promise<WebhookVerification> {
     const header = headers['stripe-signature'] ?? headers['Stripe-Signature'];
     const check = verifySignature(rawBody, header, this.options.webhookSecret, {
       now: this.now,
