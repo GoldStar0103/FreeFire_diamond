@@ -86,11 +86,13 @@ describe('createCharge', () => {
     const excludedIds = body.payment_methods.excluded_payment_types.map((t: { id: string }) => t.id);
     expect(excludedIds).toEqual(expect.arrayContaining(['credit_card', 'debit_card', 'bank_transfer']));
     expect(excludedIds).not.toContain('ticket');
-    // account_money (the payer's own MP wallet balance) is excluded through
-    // excluded_payment_methods instead — Mercado Pago's API rejects it in
-    // excluded_payment_types with a real 400 ("account_money cannot be
-    // excluded"), confirmed live before this test existed.
-    expect(body.payment_methods.excluded_payment_methods).toEqual([{ id: 'account_money' }]);
+    // account_money (the payer's own MP wallet balance) is deliberately never
+    // excluded, through either field — Mercado Pago's API rejects it outright
+    // with a real 400 ("account_money cannot be excluded") whether it's put
+    // in excluded_payment_types or excluded_payment_methods, confirmed live
+    // in production both ways. Not something this adapter can route around.
+    expect(excludedIds).not.toContain('account_money');
+    expect(body.payment_methods.excluded_payment_methods).toBeUndefined();
   });
 
   it('keys the idempotency on the order, not the amount or description', async () => {

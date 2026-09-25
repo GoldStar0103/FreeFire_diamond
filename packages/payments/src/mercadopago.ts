@@ -38,11 +38,13 @@ export const MERCADOPAGO_API_BASE = 'https://api.mercadopago.com';
  * excluded so Checkout Pro offers OXXO alone.
  *
  * `account_money` (the payer's own Mercado Pago wallet balance) is
- * deliberately NOT here — confirmed live in production (real 400 from the
- * API): `excluded_payment_types` rejects it outright with "account_money
- * cannot be excluded". It has to be excluded through
- * `excluded_payment_methods` instead, which is a separate list keyed by
- * payment *method* id, not *type* id — see its own use below.
+ * deliberately NOT here, and not excluded through `excluded_payment_methods`
+ * either — confirmed live in production (real 400 from the API both times):
+ * Mercado Pago's own API flatly refuses to let a merchant exclude it, through
+ * either field, full stop ("account_money cannot be excluded"). A payer who
+ * is logged into their own Mercado Pago account may see it offered alongside
+ * OXXO on Checkout Pro's page — a platform limitation, not something this
+ * adapter can route around.
  */
 const NON_TICKET_PAYMENT_TYPES = [
   'credit_card',
@@ -174,7 +176,6 @@ export class MercadoPagoGateway implements PaymentGateway {
       // pay by card or transfer instead of the one method this button promised.
       payment_methods: {
         excluded_payment_types: NON_TICKET_PAYMENT_TYPES.map((id) => ({ id })),
-        excluded_payment_methods: [{ id: 'account_money' }],
       },
       // Not set here: the app-level webhook (configured once in Your
       // Integrations → Webhooks) already covers every preference this
