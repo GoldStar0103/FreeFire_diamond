@@ -59,7 +59,10 @@ describe('createCharge', () => {
 
     expect(created).toEqual({
       gateway: 'mercadopago',
-      gatewayChargeId: 'pref_1',
+      // The order number, not the preference id — see the doc comment on
+      // this field in mercadopago.ts for why: it's the only thing Mercado
+      // Pago echoes back on the eventual Payment.
+      gatewayChargeId: 'LU-260924-AB12',
       amountCents: 1_800,
       instructions: { kind: 'redirect', url: 'https://www.mercadopago.com.mx/checkout/v1/redirect?pref_id=pref_1' },
       expiresAt: null,
@@ -134,8 +137,8 @@ function signMp(paymentId: string, requestId: string, ts: number, secret = SECRE
   return `ts=${ts},v1=${v1}`;
 }
 
-function webhookBody(paymentId: string, action = 'payment.updated') {
-  return JSON.stringify({ type: 'payment', action, data: { id: paymentId } });
+function webhookBody(paymentId: string, action = 'payment.updated', notificationId: number | string = 9001) {
+  return JSON.stringify({ id: notificationId, type: 'payment', action, data: { id: paymentId } });
 }
 
 describe('verifyWebhook', () => {
@@ -213,13 +216,40 @@ describe('verifyWebhook', () => {
 
   it('acknowledges an authentic non-payment event as unsupported, without fetching anything', async () => {
     const { impl, calls } = fakeFetch([]);
-    const body = JSON.stringify({ type: 'merchant_order', data: { id: 'mo_1' } });
+    const body = JSON.stringify({ id: 1, type: 'merchant_order', data: { id: 'mo_1' } });
     const result = await gateway(impl).verifyWebhook(body, {
       'x-signature': signMp('mo_1', 'req_1', 1000),
       'x-request-id': 'req_1',
     });
     expect(result).toEqual({ ok: false, reason: 'unsupported_event' });
     expect(calls).toHaveLength(0);
+  });
+
+  it('uses the notification\'s own id for eventId, not payment+action — a single payment fires "payment.updated" more than once as it moves from pending to approved, and deduping on payment+action would silently drop the real settlement as a duplicate of the earlier pending report', async () => {
+    const { impl: impl1 } = fakeFetch([{ status: 200, body: { id: 'pay_1', status: 'pending', external_reference: 'LU-1' } }]);
+    const pendingResult = await gateway(impl1).verifyWebhook(webhookBody('pay_1', 'payment.updated', 111), {
+      'x-signature': signMp('pay_1', 'req_1', 1000),
+      'x-request-id': 'req_1',
+    });
+
+    const { impl: impl2 } = fakeFetch([{ status: 200, body: { id: 'pay_1', status: 'approved', external_reference: 'LU-1' } }]);
+    const approvedResult = await gateway(impl2).verifyWebhook(webhookBody('pay_1', 'payment.updated', 222), {
+      'x-signature': signMp('pay_1', 'req_2', 2000),
+      'x-request-id': 'req_2',
+    });
+
+    expect(pendingResult).toMatchObject({ ok: true, event: { eventId: '111', state: 'pending' } });
+    expect(approvedResult).toMatchObject({ ok: true, event: { eventId: '222', state: 'paid' } });
+  });
+
+  it('rejects a notification missing its own id', async () => {
+    const { impl } = fakeFetch([]);
+    const body = JSON.stringify({ type: 'payment', action: 'payment.updated', data: { id: 'pay_1' } });
+    const result = await gateway(impl).verifyWebhook(body, {
+      'x-signature': signMp('pay_1', 'req_1', 1000),
+      'x-request-id': 'req_1',
+    });
+    expect(result).toEqual({ ok: false, reason: 'malformed_payload' });
   });
 
   it('treats a payment Mercado Pago no longer has as a malformed payload, not a crash', async () => {
@@ -261,6 +291,34 @@ describe('getCharge', () => {
   it('returns null when nothing has been paid against this order yet', async () => {
     const { impl } = fakeFetch([{ status: 200, body: { results: [] } }]);
     expect(await gateway(impl).getCharge('LU-nope')).toBeNull();
+  });
+});
+
+describe('gatewayChargeId round-trip', () => {
+  it('is the same value createCharge returns, verifyWebhook reports, and getCharge accepts', async () => {
+    // Real bug caught before this ever shipped: createCharge originally
+    // returned the Preference id, but a Preference is never mentioned again
+    // by anything Mercado Pago sends — verifyWebhook and getCharge both key
+    // on the order number instead (all a Payment ever carries back is
+    // external_reference). Returning the Preference id would have made
+    // attachGatewayCharge store a value nothing downstream could ever find
+    // again — every real webhook would have silently failed to match an order.
+    const { impl: createImpl } = fakeFetch([
+      { status: 200, body: { id: 'pref_1', init_point: 'https://x' } },
+    ]);
+    const created = await gateway(createImpl).createCharge(chargeInput);
+
+    const { impl: webhookImpl } = fakeFetch([
+      { status: 200, body: { id: 'pay_1', status: 'approved', transaction_amount: 18, external_reference: chargeInput.orderNumber } },
+    ]);
+    const webhookResult = await gateway(webhookImpl).verifyWebhook(webhookBody('pay_1'), {
+      'x-signature': signMp('pay_1', 'req_1', 1000),
+      'x-request-id': 'req_1',
+    });
+    expect(webhookResult).toMatchObject({ ok: true, event: { gatewayChargeId: created.gatewayChargeId } });
+
+    const { impl: getImpl } = fakeFetch([{ status: 200, body: { results: [{ id: 'pay_1', status: 'approved' }] } }]);
+    expect(await gateway(getImpl).getCharge(created.gatewayChargeId)).not.toBeNull();
   });
 });
 

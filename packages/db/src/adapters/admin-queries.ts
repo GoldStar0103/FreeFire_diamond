@@ -125,18 +125,20 @@ export async function listPendingApprovals(
   });
 }
 
-// ── stuck Stripe OXXO/SPEI payments ─────────────────────────────────────────────
+// ── stuck gateway OXXO/SPEI payments ────────────────────────────────────────────
 
 export interface StuckGatewayPaymentSummary {
   orderNumber: string;
+  gateway: string;
   method: string;
   pendingHours: number;
 }
 
 /**
- * Stripe OXXO/SPEI payments still unconfirmed after `olderThanHours` —
- * read-only, for the Inicio dashboard so the client can see this themselves
- * instead of asking whether a given order is a real system problem.
+ * Stripe/Mercado Pago OXXO/SPEI payments still unconfirmed after
+ * `olderThanHours` — read-only, for the Inicio dashboard so the client can see
+ * this themselves instead of asking whether a given order is a real system
+ * problem.
  *
  * Real incident, 2026-09-23/24: several real OXXO/SPEI deposits sat
  * unconfirmed for hours (Stripe's own settlement via PPRO, not this
@@ -144,6 +146,10 @@ export interface StuckGatewayPaymentSummary {
  * customer's order and asking. `alertStuckGatewayPayments` (the worker sweep)
  * tells a human via Telegram once per payment; this is the client's own way
  * to check the current list at any time, not just when an alert fires.
+ *
+ * `gateway IN ('stripe', 'mercadopago')` — the same PPRO-settlement delay that
+ * motivated this covers Mercado Pago's own OXXO channel too, not just
+ * Stripe's.
  *
  * Deliberately excludes `stuck_alert_sent_at` from the filter — unlike the
  * sweep, which must not repeat itself, this always reflects what is
@@ -159,6 +165,7 @@ export async function listStuckGatewayPayments(
   const rows = await db
     .select({
       orderNumber: orders.orderNumber,
+      gateway: payments.gateway,
       method: payments.method,
       pendingHours: sql<number>`floor(extract(epoch from (now() - ${payments.createdAt})) / 3600)`,
     })
@@ -167,7 +174,7 @@ export async function listStuckGatewayPayments(
     .where(
       and(
         eq(payments.status, 'pending'),
-        eq(payments.gateway, 'stripe'),
+        inArray(payments.gateway, ['stripe', 'mercadopago']),
         inArray(payments.method, ['oxxo', 'spei']),
         lt(payments.createdAt, cutoff),
       ),
@@ -175,7 +182,8 @@ export async function listStuckGatewayPayments(
     .orderBy(payments.createdAt)
     .limit(limit);
 
-  return rows.map((r) => ({ ...r, pendingHours: Number(r.pendingHours) }));
+  // gateway is never null here — the where clause's inArray already excludes it.
+  return rows.map((r) => ({ ...r, gateway: r.gateway!, pendingHours: Number(r.pendingHours) }));
 }
 
 // ── the orders list ───────────────────────────────────────────────────────────

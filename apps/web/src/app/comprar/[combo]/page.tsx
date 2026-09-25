@@ -9,6 +9,7 @@ import {
 } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
+import { getMercadoPago } from '../../../lib/mercadopago';
 import { diamonds, mxn } from '../../../lib/format';
 import { supportNumber } from '../../../lib/support';
 import { Checkout } from './checkout';
@@ -125,6 +126,7 @@ export default async function BuyPage({
   if (!combo) notFound();
 
   const stripe = getStripe();
+  const mercadoPago = getMercadoPago();
 
   // Null means nobody has configured where the money goes. Previously these
   // were environment variables defaulting to empty strings, so an
@@ -154,6 +156,7 @@ export default async function BuyPage({
         cardEnabled={stripe !== null && methodsEnabled.card}
         cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
         cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
+        mercadoPagoOxxoEnabled={mercadoPago?.supportedMethods.includes('oxxo') ?? false}
         transferEnabled={methodsEnabled.transfer}
         oxxoEnabled={methodsEnabled.oxxo}
         cancelledNotice={cancelledNotice}

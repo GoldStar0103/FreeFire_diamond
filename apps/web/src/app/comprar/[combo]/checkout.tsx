@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   payWithCard,
+  payWithMercadoPagoOxxo,
   payWithStripeOxxo,
   payWithStripeSpei,
   placeOrder,
@@ -48,11 +49,11 @@ function useStripeTabRedirect(state: CheckoutState) {
   };
 }
 
-/** Shown right above the button on any form that is about to pop up Stripe. */
-function StripeTabNotice() {
+/** Shown right above the button on any form that is about to pop up the gateway's own page. */
+function GatewayTabNotice({ provider }: { provider: string }) {
   return (
     <div className="alert warn" style={{ marginBottom: 12 }}>
-      🪟 Al confirmar se abrirá una <strong>pestaña nueva</strong> para pagar en Stripe. Cuando
+      🪟 Al confirmar se abrirá una <strong>pestaña nueva</strong> para pagar en {provider}. Cuando
       termines (o si solo ves los datos de pago), regresa a <strong>esta pestaña</strong> para ver
       el estado de tu pedido.
     </div>
@@ -88,6 +89,12 @@ interface Props {
    * instead of the manual CLABE below.
    */
   cardIncludesSpei: boolean;
+  /**
+   * Mercado Pago is configured for OXXO — takes priority over Stripe's own
+   * OXXO (see lib/mercadopago.ts) since Stripe's OXXO settlement via PPRO has
+   * proven unreliable; this is the fix for that, not just another option.
+   */
+  mercadoPagoOxxoEnabled: boolean;
   /** Owner switch for the manual (human-reviewed) transfer — only matters when Stripe's SPEI is off. */
   transferEnabled: boolean;
   /** Owner switch for the manual (human-reviewed) OXXO reference — only matters when Stripe's OXXO is off. */
@@ -234,6 +241,7 @@ export function Checkout({
   cardEnabled,
   cardIncludesOxxo,
   cardIncludesSpei,
+  mercadoPagoOxxoEnabled,
   transferEnabled,
   oxxoEnabled,
   cancelledNotice,
@@ -259,24 +267,37 @@ export function Checkout({
     payWithStripeSpei,
     {},
   );
+  const [mpOxxo, mpOxxoAction, mpOxxoRedirecting] = useActionState<CheckoutState, FormData>(
+    payWithMercadoPagoOxxo,
+    {},
+  );
   const openCardTab = useStripeTabRedirect(card);
   const openOxxoTab = useStripeTabRedirect(stripeOxxo);
   const openSpeiTab = useStripeTabRedirect(stripeSpei);
+  const openMpOxxoTab = useStripeTabRedirect(mpOxxo);
   const [step, setStep] = useState<Step>('datos');
 
   const found = validation.status === 'found';
 
-  // Stripe's own automatic version of each method wins over the manual,
+  // A gateway's own automatic version of each method wins over the manual,
   // human-reviewed one when it's actually enabled on the account — the client
   // asked for exactly one clean box per method instead of both showing at
-  // once. The manual flow stays as the fallback for whichever method Stripe
-  // doesn't have turned on, same as before.
+  // once. The manual flow stays as the fallback for whichever method no
+  // gateway has turned on, same as before. OXXO specifically has two possible
+  // automatic gateways: Mercado Pago wins over Stripe's own OXXO when both are
+  // configured, since Stripe's OXXO settlement via PPRO is the unreliable one
+  // Mercado Pago was brought in to replace.
   const manualTransfer = payTo !== null && transferEnabled;
   const manualOxxo = payTo !== null && payTo.oxxo !== null && oxxoEnabled;
+  const oxxoAutomatic: 'mercadopago' | 'stripe' | null = mercadoPagoOxxoEnabled
+    ? 'mercadopago'
+    : cardIncludesOxxo
+      ? 'stripe'
+      : null;
 
   const cardOption = cardEnabled;
   const transferOption = cardIncludesSpei || manualTransfer;
-  const oxxoOption = cardIncludesOxxo || manualOxxo;
+  const oxxoOption = oxxoAutomatic !== null || manualOxxo;
   const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
   const noPaymentConfigured = optionCount === 0;
 
@@ -495,7 +516,7 @@ export function Checkout({
                     />
                   ))}
                 {oxxoOption &&
-                  (cardIncludesOxxo ? (
+                  (oxxoAutomatic ? (
                     <PayOptionCard
                       tone="red"
                       icon={StoreIcon}
@@ -548,7 +569,7 @@ export function Checkout({
               </button>
               <p className="hint center">🔒 Pagos 100% seguros. Nunca vemos ni guardamos tu tarjeta.</p>
             </>
-          ) : payView === 'oxxo' && cardIncludesOxxo ? (
+          ) : payView === 'oxxo' && oxxoAutomatic ? (
             <>
               <div className="pay-box">
                 <div className="pay-row total">
@@ -557,7 +578,7 @@ export function Checkout({
                 </div>
               </div>
               <p className="hint center">
-                🏪 Al continuar, Stripe te da la referencia para depositar en cualquier OXXO.
+                🏪 Al continuar, te damos la referencia para depositar en cualquier OXXO.
               </p>
               <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
                 Continuar →
@@ -685,7 +706,7 @@ export function Checkout({
 
               {whatsappField(redirecting)}
 
-              <StripeTabNotice />
+              <GatewayTabNotice provider="Stripe" />
 
               {card.error && <div className="alert bad">{card.error}</div>}
 
@@ -696,7 +717,29 @@ export function Checkout({
                 🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.
               </p>
             </form>
-          ) : payView === 'oxxo' && cardIncludesOxxo ? (
+          ) : payView === 'oxxo' && oxxoAutomatic === 'mercadopago' ? (
+            <form
+              action={mpOxxoAction}
+              onSubmit={() => {
+                openMpOxxoTab();
+                trackPixel('AddPaymentInfo', pixel);
+              }}
+            >
+              <input type="hidden" name="comboKey" value={comboKey} />
+              <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+
+              {whatsappField(mpOxxoRedirecting)}
+
+              <GatewayTabNotice provider="Mercado Pago" />
+
+              {mpOxxo.error && <div className="alert bad">{mpOxxo.error}</div>}
+
+              <button className="btn primary wide" type="submit" disabled={mpOxxoRedirecting}>
+                {mpOxxoRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
+              </button>
+              <p className="hint center">🔒 Te damos tu referencia de depósito OXXO al continuar.</p>
+            </form>
+          ) : payView === 'oxxo' && oxxoAutomatic === 'stripe' ? (
             <form
               action={stripeOxxoAction}
               onSubmit={() => {
@@ -709,7 +752,7 @@ export function Checkout({
 
               {whatsappField(oxxoRedirecting)}
 
-              <StripeTabNotice />
+              <GatewayTabNotice provider="Stripe" />
 
               {stripeOxxo.error && <div className="alert bad">{stripeOxxo.error}</div>}
 
@@ -731,7 +774,7 @@ export function Checkout({
 
               {whatsappField(speiRedirecting)}
 
-              <StripeTabNotice />
+              <GatewayTabNotice provider="Stripe" />
 
               {stripeSpei.error && <div className="alert bad">{stripeSpei.error}</div>}
 

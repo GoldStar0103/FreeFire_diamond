@@ -1,5 +1,6 @@
 /**
- * Flagging a Stripe OXXO/SPEI payment nobody has heard about in a while.
+ * Flagging a Stripe/Mercado Pago OXXO/SPEI payment nobody has heard about in
+ * a while.
  *
  * Real incident, 2026-09-23/24: three separate real OXXO deposits — vouchers
  * issued, cash paid at the store, receipts in hand — sat unconfirmed on
@@ -9,27 +10,39 @@
  * — the only reason it surfaced was the customer noticing and asking. This
  * sweep is what should have said so first: it does not resolve anything (it
  * cannot — the money genuinely has not arrived yet), it just tells a human to
- * go check with Stripe support before a customer has to ask why their
+ * go check with the gateway's support before a customer has to ask why their
  * diamonds have not shown up.
  *
+ * Mercado Pago's OXXO channel (added to replace Stripe's for the same
+ * reliability reason) settles through the same PPRO pipeline underneath, so
+ * it gets the same watch — this is not Stripe-specific by design, only by
+ * where the first incident happened to occur.
+ *
  * Deliberately narrow: only 'oxxo' and 'spei', because those are exactly the
- * two methods where Stripe itself has already reported the payment as
- * pending-with-instructions (`voucherIssued` in stripe.ts's own terms) and
- * then gone quiet for an unusual stretch. A card payment either settles in
- * seconds or the customer abandoned Stripe's page — expiry, not this, is the
- * right net for that one.
+ * two methods where the gateway itself has already reported the payment as
+ * pending-with-instructions (`voucherIssued` in stripe.ts/mercadopago.ts's own
+ * terms) and then gone quiet for an unusual stretch. A card payment either
+ * settles in seconds or the customer abandoned the checkout page — expiry,
+ * not this, is the right net for that one.
  */
 
 export interface StuckGatewayPayment {
   orderId: string;
   paymentId: string;
   orderNumber: string;
+  /** 'stripe' | 'mercadopago' — which gateway's support to go check with. */
+  gateway: string;
   /** 'oxxo' | 'spei' — the only two methods this ever watches. */
   method: string;
   amountExpectedCents: number;
   /** How long it has been sitting unconfirmed, for the alert text. */
   pendingHours: number;
 }
+
+const GATEWAY_LABEL: Record<string, string> = {
+  stripe: 'Stripe',
+  mercadopago: 'Mercado Pago',
+};
 
 export interface StuckPaymentStore {
   /**
@@ -70,11 +83,13 @@ export async function alertStuckGatewayPayments(deps: StuckPaymentDeps): Promise
 
   for (const payment of stuck) {
     try {
+      const gatewayLabel = GATEWAY_LABEL[payment.gateway] ?? payment.gateway;
       await deps.alerter.send(
         'warn',
-        `Pago ${payment.method.toUpperCase()} pendiente hace más de ${deps.config.olderThanHours}h — revisar con soporte de Stripe`,
+        `Pago ${payment.method.toUpperCase()} pendiente hace más de ${deps.config.olderThanHours}h — revisar con soporte de ${gatewayLabel}`,
         {
           order: payment.orderNumber,
+          gateway: payment.gateway,
           method: payment.method,
           amountMxn: (payment.amountExpectedCents / 100).toFixed(2),
           pendingHours: payment.pendingHours,

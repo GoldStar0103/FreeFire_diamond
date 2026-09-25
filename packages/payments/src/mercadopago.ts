@@ -184,7 +184,14 @@ export class MercadoPagoGateway implements PaymentGateway {
 
     return {
       gateway: this.name,
-      gatewayChargeId: preference.id,
+      // The order number, not `preference.id` — a Preference is never
+      // mentioned again by anything Mercado Pago sends back. The Payment made
+      // against it only carries `external_reference` (which is the order
+      // number, set above), and that is what `verifyWebhook` and `getCharge`
+      // both key on. Returning the Preference id here instead would silently
+      // break every webhook lookup: `attachGatewayCharge` would store an id
+      // nothing downstream ever looks for again.
+      gatewayChargeId: input.orderNumber,
       amountCents: input.amountCents,
       instructions: { kind: 'redirect', url: preference.init_point },
       // Mercado Pago does not hand back an expiry on the preference itself —
@@ -205,7 +212,7 @@ export class MercadoPagoGateway implements PaymentGateway {
     const parsed = parseMpSignature(signatureHeader);
     if (!parsed) return { ok: false, reason: 'malformed_signature' };
 
-    let body: { type?: string; action?: string; data?: { id?: string | number } };
+    let body: { id?: number | string; type?: string; action?: string; data?: { id?: string | number } };
     try {
       body = JSON.parse(rawBody) as typeof body;
     } catch {
@@ -214,6 +221,15 @@ export class MercadoPagoGateway implements PaymentGateway {
 
     const paymentId = body.data?.id != null ? String(body.data.id) : null;
     if (!paymentId) return { ok: false, reason: 'malformed_payload' };
+
+    // The notification's OWN id, not `paymentId` — a single payment fires
+    // "payment.updated" repeatedly as it moves pending -> approved (or fails),
+    // all sharing the same payment id and the same generic action name.
+    // Deduping on payment+action would have silently treated the real
+    // "now approved" delivery as a duplicate of the earlier "still pending"
+    // one, and the payment would never have been recorded as settled.
+    if (body.id == null) return { ok: false, reason: 'malformed_payload' };
+    const notificationId = String(body.id);
 
     // The manifest is id/request-id/ts — never the body — which is exactly
     // why this cannot reuse signature.ts's Stripe-shaped scheme.
@@ -238,7 +254,7 @@ export class MercadoPagoGateway implements PaymentGateway {
     }
 
     const event: PaymentEvent = {
-      eventId: `${paymentId}:${body.action ?? 'payment.updated'}`,
+      eventId: notificationId,
       type: body.action ?? 'payment.updated',
       gatewayChargeId: payment.external_reference ?? null,
       state: paymentState(payment),

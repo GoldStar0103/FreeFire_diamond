@@ -32,6 +32,7 @@ export default async function DashboardPage() {
   ]);
   const lowBalanceThreshold = Number(process.env.RA_LOW_BALANCE_USD ?? 100);
   const METHOD_NAME: Record<string, string> = { oxxo: 'OXXO', spei: 'SPEI' };
+  const GATEWAY_NAME: Record<string, string> = { stripe: 'Stripe', mercadopago: 'Mercado Pago' };
 
   return (
     <>
@@ -67,18 +68,19 @@ export default async function DashboardPage() {
         // Not "esperando aprobación" — there is nothing here to approve, and
         // showing these in Aprobaciones was the exact mistake fixed after a
         // real incident. This is purely informational: OXXO/SPEI settle
-        // themselves once Stripe hears from the bank/store, which can
+        // themselves once the gateway hears from the bank/store, which can
         // genuinely take a few hours. Past ~12h with no movement is when it
-        // stops being normal and is worth a message to Stripe support.
+        // stops being normal and is worth a message to the gateway's support.
         <div className={`alert ${stuckGatewayPayments.some((p) => p.pendingHours >= 12) ? 'bad' : 'warn'}`}>
           <strong>{stuckGatewayPayments.length} pago(s) de OXXO/SPEI sin confirmar todavía.</strong>{' '}
-          Es normal que tarden unas horas — Stripe los confirma solo en cuanto el banco o la
-          tienda OXXO le avisa. Si alguno lleva más de 12 horas, vale la pena escribirle a
-          soporte de Stripe con ese número de pedido.
+          Es normal que tarden unas horas — el sistema de pago los confirma solo en cuanto el
+          banco o la tienda OXXO le avisa. Si alguno lleva más de 12 horas, vale la pena
+          escribirle a soporte con ese número de pedido.
           <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
             {stuckGatewayPayments.map((p) => (
               <li key={p.orderNumber}>
-                {p.orderNumber} — {METHOD_NAME[p.method] ?? p.method} — {p.pendingHours}h
+                {p.orderNumber} — {GATEWAY_NAME[p.gateway] ?? p.gateway} —{' '}
+                {METHOD_NAME[p.method] ?? p.method} — {p.pendingHours}h
               </li>
             ))}
           </ul>

@@ -221,6 +221,18 @@ describe.skipIf(!PG_AVAILABLE)('findStuckGatewayPayments', () => {
     expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(1);
   });
 
+  it('finds a Mercado Pago OXXO payment too — same PPRO settlement delay as Stripe', async () => {
+    await seedGatewayPayment({
+      orderNumber: 'LU-1',
+      method: 'oxxo',
+      gateway: 'mercadopago',
+      ageSeconds: 7 * 3600,
+    });
+    const found = await store().findStuckGatewayPayments(cutoff(), 25);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ orderNumber: 'LU-1', gateway: 'mercadopago', method: 'oxxo' });
+  });
+
   it('leaves a payment alone before the cutoff', async () => {
     await seedGatewayPayment({ orderNumber: 'LU-1', method: 'oxxo', ageSeconds: 3600 });
     expect(await store().findStuckGatewayPayments(cutoff(), 25)).toHaveLength(0);

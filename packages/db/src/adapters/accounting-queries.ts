@@ -3,12 +3,12 @@
  * statements: gross and net sales, recharge cost, an *estimated* payment-
  * platform fee, and a detailed movement history.
  *
- * "Estimated" is not a hedge — there is no Stripe fee tracking in this system
- * (no balance-transaction lookups), so the fee figure is computed from
- * Stripe's own published Mexico rates, not read back from a real charge.
- * Label it that way everywhere it's shown. Exact, per-charge fees are a
- * separate, pricier feature (reading each charge's real balance transaction
- * from Stripe) that this deliberately does not attempt.
+ * "Estimated" is not a hedge — there is no per-gateway fee tracking in this
+ * system (no balance-transaction lookups), so the fee figure is computed from
+ * each gateway's own published Mexico rates, not read back from a real
+ * charge. Label it that way everywhere it's shown. Exact, per-charge fees are
+ * a separate, pricier feature (reading each charge's real balance transaction
+ * back from the gateway) that this deliberately does not attempt.
  */
 
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
@@ -17,27 +17,37 @@ import { orderItems, orders, payments } from '../schema.js';
 import { getFxRate } from './payment-settings.js';
 import type { DateRange } from './mexico-city-time.js';
 
-// ── estimated Stripe fee ─────────────────────────────────────────────────────
+// ── estimated gateway fees ───────────────────────────────────────────────────
 
 /**
- * Stripe's published Mexico rates, checked 2026-09-15 against
- * stripe.com/mx/pricing and stripe.com/mx/pricing/local-payment-methods, plus
- * 16% IVA (Mexican law applies VAT to Stripe's own fees). Revisit if Stripe
- * changes these — that's why this lives in one small table, not scattered
- * arithmetic.
+ * Published Mexico rates per gateway, plus 16% IVA (Mexican law applies VAT
+ * to a gateway's own fees). Revisit if a gateway changes these — that's why
+ * this lives in one small table, not scattered arithmetic.
+ *
+ * Stripe: checked 2026-09-15 against stripe.com/mx/pricing and
+ * stripe.com/mx/pricing/local-payment-methods.
+ *
+ * Mercado Pago: checked 2026-09-24 against mercadopago.com.mx's own
+ * published Checkout Pro rate for cash/OXXO payments (3.49% + $4.00 MXN).
+ * Only 'oxxo' is listed — card/SPEI stay on Stripe, see lib/mercadopago.ts.
  */
 const IVA = 1.16;
-const STRIPE_FEE_RATES: Record<string, { pct: number; fixedCents: number }> = {
-  card: { pct: 0.036, fixedCents: 300 }, // 3.6% + $3.00 MXN
-  oxxo: { pct: 0.04, fixedCents: 300 }, // 4% + $3.00 MXN
-  spei: { pct: 0, fixedCents: 700 }, // $7.00 MXN flat
+const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number }>> = {
+  stripe: {
+    card: { pct: 0.036, fixedCents: 300 }, // 3.6% + $3.00 MXN
+    oxxo: { pct: 0.04, fixedCents: 300 }, // 4% + $3.00 MXN
+    spei: { pct: 0, fixedCents: 700 }, // $7.00 MXN flat
+  },
+  mercadopago: {
+    oxxo: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN
+  },
 };
 
 /** `gateway` is null for the manual comprobante flow — schema.ts's own comment on that column. */
 function estimateFeeCents(gateway: string | null, method: string, amountCents: number): number {
-  if (gateway !== 'stripe') return 0;
-  const rate = STRIPE_FEE_RATES[method];
-  if (!rate) return 0; // no published rate for this method yet (e.g. paypal, unimplemented)
+  if (!gateway) return 0;
+  const rate = FEE_RATES[gateway]?.[method];
+  if (!rate) return 0; // no published rate for this gateway/method yet (e.g. paypal, unimplemented)
   return Math.round((amountCents * rate.pct + rate.fixedCents) * IVA);
 }
 

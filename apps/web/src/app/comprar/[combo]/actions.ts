@@ -13,11 +13,13 @@ import {
 import { createOrder, rejectPayment, type CreateOrderFailure } from '@levelup/engine';
 import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
+import type { PaymentGateway } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
+import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
 import { notifyNewOrder } from '../../../lib/telegram';
 import { trackingContext } from '../../../lib/tracking';
 
@@ -335,27 +337,34 @@ const STRIPE_METHOD_COPY: Record<
 };
 
 /**
- * Create the order and send the customer to Stripe's hosted Checkout,
+ * Create the order and send the customer to a gateway's hosted checkout,
  * restricted to exactly the one method they picked.
+ *
+ * Shared between Stripe (card/oxxo/spei) and Mercado Pago (oxxo only) —
+ * both are a `PaymentGateway` from `@levelup/payments`, and every step here
+ * (reserve the order, open the charge, link it, or cancel on failure) is
+ * identical regardless of which gateway is actually doing the work. Only
+ * `gatewayName` and the per-method copy differ.
  *
  * The order exists before the customer pays, exactly as with a transfer: that
  * is what reserves the Mega Oferta slot against a double purchase, and what
- * the session's metadata points back at. If Stripe cannot open a session, the
- * order is cancelled on the spot — otherwise a customer who never got to pay
- * would find their entry offer "already used" for the next hour.
+ * the charge points back at. If the gateway cannot open a charge, the order
+ * is cancelled on the spot — otherwise a customer who never got to pay would
+ * find their entry offer "already used" for the next hour.
  *
  * `paymentMethod` is recorded as the real method chosen here, not always
- * `card` — that's also what lets Contabilidad's per-method Stripe fee
- * estimate (accounting-queries.ts) apply the right rate instead of quietly
- * costing every OXXO/SPEI sale as if it were a card one.
+ * `card` — that's also what lets Contabilidad's per-method fee estimate
+ * (accounting-queries.ts) apply the right rate instead of quietly costing
+ * every OXXO/SPEI sale as if it were a card one.
  */
-async function payWithStripeMethod(
+async function payWithGatewayMethod(
+  gateway: PaymentGateway,
+  gatewayName: string,
   method: 'card' | 'oxxo' | 'spei',
+  copy: { unavailable: string; openFailed: string; verb: string },
   formData: FormData,
 ): Promise<CheckoutState> {
-  const copy = STRIPE_METHOD_COPY[method];
-  const gateway = getStripe();
-  if (!gateway || !gateway.supportedMethods.includes(method)) {
+  if (!gateway.supportedMethods.includes(method)) {
     return { error: copy.unavailable };
   }
 
@@ -409,15 +418,18 @@ async function payWithStripeMethod(
 
     const attached = await attachGatewayCharge(getDb(), {
       orderId: order.id,
-      gateway: STRIPE,
+      gateway: gatewayName,
       gatewayChargeId: charge.gatewayChargeId,
+      // Only Stripe hands back a real expiry on the charge itself; Mercado
+      // Pago's Preference does not (createCharge returns null for it), so
+      // this leaves whatever deadline order creation already set.
       expiresAt: charge.expiresAt ? new Date(charge.expiresAt.getTime() + SESSION_GRACE_MS) : null,
     });
     if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
 
     checkoutUrl = charge.instructions.url;
   } catch (err) {
-    console.error(`[checkout] ${order.orderNumber}: could not open a ${method} checkout`, err);
+    console.error(`[checkout] ${order.orderNumber}: could not open a ${gatewayName}/${method} checkout`, err);
     await rejectPayment(
       { store: new DrizzlePaymentStore(getDb()) },
       { orderId: order.id, adminUserId: null, reason: `No se pudo abrir el pago (${method})` },
@@ -427,11 +439,21 @@ async function payWithStripeMethod(
     return { error: copy.openFailed };
   }
 
-  // Returned as data, not a `redirect()` — Stripe's own hosted confirmation
-  // for OXXO/SPEI does not navigate back on its own, so the client opens this
-  // in a new tab and keeps the order-tracking page in the original one rather
-  // than sending the whole page away to Stripe.
+  // Returned as data, not a `redirect()` — neither Stripe's nor Mercado
+  // Pago's hosted confirmation for OXXO/SPEI navigates back on its own, so
+  // the client opens this in a new tab and keeps the order-tracking page in
+  // the original one rather than sending the whole page away.
   return { checkoutUrl, orderPageUrl: orderPage };
+}
+
+async function payWithStripeMethod(
+  method: 'card' | 'oxxo' | 'spei',
+  formData: FormData,
+): Promise<CheckoutState> {
+  const copy = STRIPE_METHOD_COPY[method];
+  const gateway = getStripe();
+  if (!gateway) return { error: copy.unavailable };
+  return payWithGatewayMethod(gateway, STRIPE, method, copy, formData);
 }
 
 export async function payWithCard(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
@@ -444,6 +466,21 @@ export async function payWithStripeOxxo(_prev: CheckoutState, formData: FormData
 
 export async function payWithStripeSpei(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
   return payWithStripeMethod('spei', formData);
+}
+
+const MERCADOPAGO_OXXO_COPY = {
+  unavailable: 'El depósito en OXXO no está disponible en este momento. Paga por transferencia.',
+  openFailed: 'No pudimos abrir el depósito en OXXO. Intenta de nuevo o paga por transferencia.',
+  verb: 'oxxo',
+};
+
+export async function payWithMercadoPagoOxxo(
+  _prev: CheckoutState,
+  formData: FormData,
+): Promise<CheckoutState> {
+  const gateway = getMercadoPago();
+  if (!gateway) return { error: MERCADOPAGO_OXXO_COPY.unavailable };
+  return payWithGatewayMethod(gateway, MERCADOPAGO, 'oxxo', MERCADOPAGO_OXXO_COPY, formData);
 }
 
 async function attachComprobante(orderId: string, key: string): Promise<void> {

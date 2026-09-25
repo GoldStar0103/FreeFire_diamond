@@ -5,11 +5,16 @@ import {
   type StuckPaymentStore,
 } from './stuck-payments.js';
 
-const stuck = (n: number, method: 'oxxo' | 'spei' = 'oxxo'): StuckGatewayPayment[] =>
+const stuck = (
+  n: number,
+  method: 'oxxo' | 'spei' = 'oxxo',
+  gateway: 'stripe' | 'mercadopago' = 'stripe',
+): StuckGatewayPayment[] =>
   Array.from({ length: n }, (_, i) => ({
     orderId: `order-${i}`,
     paymentId: `payment-${i}`,
     orderNumber: `LU-00000${i}`,
+    gateway,
     method,
     amountExpectedCents: 1_800,
     pendingHours: 7,
@@ -49,7 +54,16 @@ describe('alertStuckGatewayPayments', () => {
     expect(level).toBe('warn');
     expect(title).toContain('SPEI');
     expect(title).toContain('6h');
-    expect(detail).toMatchObject({ order: 'LU-000000', method: 'spei', amountMxn: '18.00' });
+    expect(detail).toMatchObject({ order: 'LU-000000', gateway: 'stripe', method: 'spei', amountMxn: '18.00' });
+  });
+
+  it('names Mercado Pago in the alert when that is the stuck gateway', async () => {
+    const { alerter, deps } = harness(stuck(1, 'oxxo', 'mercadopago'));
+    await alertStuckGatewayPayments(deps);
+
+    const [, title, detail] = alerter.send.mock.calls[0]!;
+    expect(title).toContain('Mercado Pago');
+    expect(detail).toMatchObject({ gateway: 'mercadopago' });
   });
 
   it('does nothing when nothing is stuck', async () => {

@@ -196,15 +196,18 @@ export class DrizzleRecoveryStore
   }
 
   /**
-   * Stripe OXXO/SPEI payments sitting `pending` for an unusually long time,
-   * never yet alerted on.
+   * Stripe/Mercado Pago OXXO/SPEI payments sitting `pending` for an unusually
+   * long time, never yet alerted on.
    *
-   * `gateway = 'stripe'` is what actually restricts this to a real Stripe
-   * charge — `method IN ('oxxo','spei')` alone is not enough, since those are
-   * also valid `PaymentMethod` values in principle and nothing enforces they
-   * only ever appear on a Stripe row. `stuck_alert_sent_at IS NULL` is the
-   * once-only gate: a payment that already got its warning does not get
-   * another one every sweep until it finally resolves or expires.
+   * `gateway IN ('stripe', 'mercadopago')` is what actually restricts this to
+   * a real gateway charge — `method IN ('oxxo','spei')` alone is not enough,
+   * since those are also valid `PaymentMethod` values in principle and
+   * nothing enforces they only ever appear on a gateway row. Mercado Pago's
+   * OXXO channel is the same PPRO settlement path that motivated this sweep
+   * in the first place, so it gets the same watch as Stripe's.
+   * `stuck_alert_sent_at IS NULL` is the once-only gate: a payment that
+   * already got its warning does not get another one every sweep until it
+   * finally resolves or expires.
    */
   async findStuckGatewayPayments(olderThan: Date, limit: number): Promise<StuckGatewayPayment[]> {
     const rows = await this.database
@@ -212,6 +215,7 @@ export class DrizzleRecoveryStore
         orderId: orders.id,
         paymentId: payments.id,
         orderNumber: orders.orderNumber,
+        gateway: payments.gateway,
         method: payments.method,
         amountExpectedCents: payments.amountExpectedCents,
         pendingHours: sql<number>`floor(extract(epoch from (now() - ${payments.createdAt})) / 3600)`,
@@ -221,7 +225,7 @@ export class DrizzleRecoveryStore
       .where(
         and(
           eq(payments.status, 'pending'),
-          eq(payments.gateway, 'stripe'),
+          inArray(payments.gateway, ['stripe', 'mercadopago']),
           inArray(payments.method, ['oxxo', 'spei']),
           isNull(payments.stuckAlertSentAt),
           lt(payments.createdAt, olderThan),
@@ -230,7 +234,8 @@ export class DrizzleRecoveryStore
       .orderBy(asc(payments.createdAt))
       .limit(limit);
 
-    return rows.map((r) => ({ ...r, pendingHours: Number(r.pendingHours) }));
+    // gateway is never null here — the where clause's inArray already excludes it.
+    return rows.map((r) => ({ ...r, gateway: r.gateway!, pendingHours: Number(r.pendingHours) }));
   }
 
   async markStuckAlertSent(paymentId: string): Promise<void> {

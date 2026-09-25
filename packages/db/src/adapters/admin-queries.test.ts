@@ -277,7 +277,7 @@ describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
 
     const stuck = await listStuckGatewayPayments(db, 6);
     expect(stuck).toEqual([
-      { orderNumber: order.orderNumber, method: 'oxxo', pendingHours: expect.any(Number) },
+      { orderNumber: order.orderNumber, gateway: 'stripe', method: 'oxxo', pendingHours: expect.any(Number) },
     ]);
     expect(stuck[0]!.pendingHours).toBeGreaterThanOrEqual(6);
   });
@@ -285,6 +285,14 @@ describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
   it('lists a SPEI payment the same way', async () => {
     await seedGatewayOrder({ comboKey: 'pack_insano', method: 'spei', ageHours: 7 });
     expect(await listStuckGatewayPayments(db, 6)).toHaveLength(1);
+  });
+
+  it('lists a Mercado Pago OXXO payment too — same PPRO settlement delay as Stripe', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', gateway: 'mercadopago', ageHours: 7 });
+    const stuck = await listStuckGatewayPayments(db, 6);
+    expect(stuck).toEqual([
+      { orderNumber: expect.any(String), gateway: 'mercadopago', method: 'oxxo', pendingHours: expect.any(Number) },
+    ]);
   });
 
   it('does not list one still under the threshold', async () => {
