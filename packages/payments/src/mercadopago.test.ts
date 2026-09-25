@@ -84,10 +84,13 @@ describe('createCharge', () => {
     // Everything but the ticket family excluded, so OXXO is the only option
     // Checkout Pro's own page can offer — never card, never a bank transfer.
     const excludedIds = body.payment_methods.excluded_payment_types.map((t: { id: string }) => t.id);
-    expect(excludedIds).toEqual(
-      expect.arrayContaining(['credit_card', 'debit_card', 'bank_transfer', 'account_money']),
-    );
+    expect(excludedIds).toEqual(expect.arrayContaining(['credit_card', 'debit_card', 'bank_transfer']));
     expect(excludedIds).not.toContain('ticket');
+    // account_money (the payer's own MP wallet balance) is excluded through
+    // excluded_payment_methods instead — Mercado Pago's API rejects it in
+    // excluded_payment_types with a real 400 ("account_money cannot be
+    // excluded"), confirmed live before this test existed.
+    expect(body.payment_methods.excluded_payment_methods).toEqual([{ id: 'account_money' }]);
   });
 
   it('keys the idempotency on the order, not the amount or description', async () => {
