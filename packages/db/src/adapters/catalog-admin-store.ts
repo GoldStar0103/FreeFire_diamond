@@ -26,7 +26,19 @@ export interface CampaignOption {
 export class DrizzleCatalogAdminStore {
   constructor(private readonly db: Database) {}
 
-  /** Denominations the provider currently offers, for the recipe builder. */
+  /**
+   * Denominations the provider currently offers, for the recipe builder —
+   * one entry per face value, not one per underlying row.
+   *
+   * `base_products` is unique on `provider_product_id`, not on
+   * `diamonds_base` (schema.ts's own comment on that index): a SKU rotation
+   * deactivates the old row instead of deleting it, so a denomination can
+   * genuinely have several rows over time, old ones inactive. Left
+   * ungrouped, the recipe builder showed the same amount as several buttons,
+   * and `reviewComboDraft`'s own `Map` keying by `diamondsBase` could land on
+   * whichever duplicate happened to come last and wrongly refuse an amount
+   * that a still-active row covers — the exact bug the client hit with 5600.
+   */
   async listAvailableProducts(): Promise<AvailableProduct[]> {
     const rows = await this.db
       .select({
@@ -37,11 +49,22 @@ export class DrizzleCatalogAdminStore {
       .from(baseProducts)
       .orderBy(asc(baseProducts.diamondsBase));
 
-    return rows.map((r) => ({
-      diamondsBase: r.diamondsBase,
-      costUsd: r.costUsd === null ? null : parseUsd(r.costUsd),
-      active: r.active,
-    }));
+    const byDenomination = new Map<number, AvailableProduct>();
+    for (const r of rows) {
+      const existing = byDenomination.get(r.diamondsBase);
+      // Once any row for this amount is active, that's what the combo
+      // builder should see — an inactive duplicate seen later must not
+      // downgrade it back.
+      if (!existing || (r.active && !existing.active)) {
+        byDenomination.set(r.diamondsBase, {
+          diamondsBase: r.diamondsBase,
+          costUsd: r.costUsd === null ? null : parseUsd(r.costUsd),
+          active: r.active,
+        });
+      }
+    }
+
+    return [...byDenomination.values()].sort((a, b) => a.diamondsBase - b.diamondsBase);
   }
 
   async listCampaignOptions(): Promise<CampaignOption[]> {

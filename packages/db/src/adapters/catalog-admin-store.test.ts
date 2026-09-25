@@ -280,6 +280,73 @@ describe.skipIf(!PG_AVAILABLE)('saveCampaign', () => {
   });
 });
 
+describe.skipIf(!PG_AVAILABLE)('listAvailableProducts', () => {
+  // Real incident, 2026-09-25: the client saw the recipe picker offer the
+  // same amount (5600) as several buttons, and got "ya no están disponibles"
+  // for it despite an active product existing — both traced to a SKU
+  // rotation leaving an old, inactive row at the same diamonds_base as the
+  // new active one, ungrouped by this method.
+
+  it('collapses duplicate rows for one denomination into a single active entry', async () => {
+    await db.insert(baseProducts).values({
+      providerProductId: 'p5600-old',
+      endpointKind: 'pins_recharge',
+      name: 'Free Fire 5600 (retirado)',
+      diamondsBase: 5600,
+      costUsd: '34.0000',
+      active: false,
+    });
+
+    const products = await store().listAvailableProducts();
+    const fiveSixHundred = products.filter((p) => p.diamondsBase === 5600);
+
+    expect(fiveSixHundred).toHaveLength(1);
+    expect(fiveSixHundred[0]?.active).toBe(true);
+  });
+
+  it('still reports a denomination inactive when every one of its rows is', async () => {
+    await db.update(baseProducts).set({ active: false }).where(eq(baseProducts.diamondsBase, 5600));
+    await db.insert(baseProducts).values({
+      providerProductId: 'p5600-old',
+      endpointKind: 'pins_recharge',
+      name: 'Free Fire 5600 (retirado)',
+      diamondsBase: 5600,
+      costUsd: '34.0000',
+      active: false,
+    });
+
+    const products = await store().listAvailableProducts();
+    const fiveSixHundred = products.filter((p) => p.diamondsBase === 5600);
+
+    expect(fiveSixHundred).toHaveLength(1);
+    expect(fiveSixHundred[0]?.active).toBe(false);
+  });
+
+  it('never lists the same amount twice, even with several inactive duplicates', async () => {
+    await db.insert(baseProducts).values([
+      {
+        providerProductId: 'p5600-old1',
+        endpointKind: 'pins_recharge',
+        name: 'Free Fire 5600 (retirado 1)',
+        diamondsBase: 5600,
+        costUsd: '34.0000',
+        active: false,
+      },
+      {
+        providerProductId: 'p5600-old2',
+        endpointKind: 'pins_recharge',
+        name: 'Free Fire 5600 (retirado 2)',
+        diamondsBase: 5600,
+        costUsd: '35.0000',
+        active: false,
+      },
+    ]);
+
+    const products = await store().listAvailableProducts();
+    expect(products.filter((p) => p.diamondsBase === 5600)).toHaveLength(1);
+  });
+});
+
 describe.skipIf(!PG_AVAILABLE)('validator against the live catalog', () => {
   it('blocks an under-delivering combo using real provider costs', async () => {
     const products = await store().listAvailableProducts();
