@@ -375,6 +375,12 @@ async function payWithGatewayMethod(
   const combo = await getStorefrontCombo(getDb(), comboKey);
   if (!combo) return { error: 'Esta promoción ya no está disponible.' };
 
+  // The form marks this required too — re-checked here for the same reason as
+  // the transfer path: a crafted POST can skip a client-side `required`.
+  if (!whatsapp) {
+    return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
+  }
+
   // Same reason as the transfer path: the form is a UX gate, not a security one.
   const confirmed = await confirmPlayer(playerId);
   if (!confirmed.ok) return { error: confirmed.message };

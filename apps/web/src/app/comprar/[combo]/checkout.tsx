@@ -328,16 +328,22 @@ export function Checkout({
   // something about the order needs sorting out. "We'll let you know when it's
   // ready" was a promise to a market that has been lied to before, and a
   // customer waiting for a message that never comes assumes the worst.
-  const whatsappField = (disabled: boolean, required = false) => (
+  //
+  // Required on every payment method, not just the manual transfer: it was
+  // "(opcional)" on Tarjeta/OXXO/SPEI, and most buyers skipped it — leaving
+  // Meta's Conversions API with no phone to hash for match quality on most
+  // purchases (no email is ever collected either, so phone is the only extra
+  // identifier this checkout can offer beyond IP/UA/fbp/fbc).
+  const whatsappField = (disabled: boolean) => (
     <label className="field">
-      <span>Tu WhatsApp{required ? '' : ' (opcional)'}</span>
+      <span>Tu WhatsApp</span>
       <input
         type="tel"
         name="whatsapp"
         inputMode="tel"
         placeholder="Solo por si necesitamos contactarte"
         disabled={disabled}
-        required={required}
+        required
       />
     </label>
   );
@@ -801,7 +807,7 @@ export function Checkout({
                 />
               </label>
 
-              {whatsappField(placing, true)}
+              {whatsappField(placing)}
 
               {transfer.error && <div className="alert bad">{transfer.error}</div>}
 
