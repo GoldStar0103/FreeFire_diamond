@@ -1,9 +1,14 @@
 import Link from 'next/link';
-import { getDashboardStats, getPaymentDetails, listStuckGatewayPayments } from '@levelup/db';
+import {
+  getDashboardStats,
+  getPaymentDetails,
+  listStuckGatewayPayments,
+  listWalletResolvedDeliveries,
+} from '@levelup/db';
 import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { getProvider } from '../../lib/provider';
-import { mxn, usd } from '../../lib/format';
+import { dateTime, diamonds, mxn, usd } from '../../lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,11 +29,12 @@ async function providerBalanceUsd(): Promise<number | null> {
 
 export default async function DashboardPage() {
   await requireSession();
-  const [stats, payTo, balanceUsd, stuckGatewayPayments] = await Promise.all([
+  const [stats, payTo, balanceUsd, stuckGatewayPayments, walletResolvedDeliveries] = await Promise.all([
     getDashboardStats(getDb()),
     getPaymentDetails(getDb()),
     providerBalanceUsd(),
     listStuckGatewayPayments(getDb()),
+    listWalletResolvedDeliveries(getDb()),
   ]);
   const lowBalanceThreshold = Number(process.env.RA_LOW_BALANCE_USD ?? 100);
   const METHOD_NAME: Record<string, string> = { oxxo: 'OXXO', spei: 'SPEI' };
@@ -81,6 +87,36 @@ export default async function DashboardPage() {
               <li key={p.orderNumber}>
                 {p.orderNumber} — {GATEWAY_NAME[p.gateway] ?? p.gateway} —{' '}
                 {METHOD_NAME[p.method] ?? p.method} — {p.pendingHours}h
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {walletResolvedDeliveries.length > 0 && (
+        // Not a payment problem — the customer paid and the provider's
+        // wallet was charged. This is specifically the case where a
+        // recharge call errored out (a real 502, no clean response) and got
+        // marked delivered only because the wallet balance dropped by the
+        // expected amount. That inference is usually right — retrying
+        // instead risks double-delivering diamonds that can never be taken
+        // back — but a real incident (2026-09-25) proved it can be wrong: a
+        // customer never received theirs despite this exact resolution.
+        // Worth a quick manual confirmation with each customer rather than
+        // waiting for one to complain.
+        <div className="alert warn">
+          <strong>
+            {walletResolvedDeliveries.length} entrega(s) confirmada(s) solo por saldo, no por
+            respuesta del proveedor.
+          </strong>{' '}
+          El proveedor tuvo un error justo en la llamada, pero el saldo bajó lo esperado, así que
+          se marcaron como entregadas. Casi siempre es correcto, pero vale la pena confirmar con
+          estos clientes que sí recibieron sus diamantes.
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+            {walletResolvedDeliveries.map((d) => (
+              <li key={`${d.orderNumber}-${d.settledAt?.toISOString() ?? ''}`}>
+                {d.orderNumber} — ID {d.playerId} — {diamonds(d.diamondsBase)} 💎
+                {d.costUsd ? ` — ${usd(d.costUsd)}` : ''} — {dateTime(d.settledAt)}
               </li>
             ))}
           </ul>

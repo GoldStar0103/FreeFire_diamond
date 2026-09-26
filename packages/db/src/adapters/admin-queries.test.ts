@@ -26,6 +26,7 @@ import {
   listOrders,
   listPendingApprovals,
   listStuckGatewayPayments,
+  listWalletResolvedDeliveries,
 } from './admin-queries.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -326,6 +327,85 @@ describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
 
     const stuck = await listStuckGatewayPayments(db, 6);
     expect(stuck[0]?.orderNumber).toBe(older.orderNumber);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('listWalletResolvedDeliveries', () => {
+  /** One order item, marked delivered off a wallet-balance comparison rather than a clean response. */
+  async function seedWalletResolvedItem(options: { comboKey: string; ageDays: number }) {
+    const order = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      { comboKey: options.comboKey, playerId: '7288567050', paymentMethod: 'card', source: 'storefront' },
+    );
+    if (!order.ok) throw new Error(`seed order failed: ${order.failure.code}`);
+
+    const [item] = await db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, order.order.id))
+      .limit(1);
+
+    await db
+      .update(orderItems)
+      .set({
+        status: 'succeeded',
+        resolvedBy: 'wallet_delta',
+        errorCode: 'provider_error',
+        settledAt: raw`now() - make_interval(days => ${options.ageDays})`,
+      })
+      .where(eq(orderItems.id, item!.id));
+
+    return order.order;
+  }
+
+  it('lists a recharge resolved by wallet balance rather than a clean response', async () => {
+    const order = await seedWalletResolvedItem({ comboKey: 'pack_insano', ageDays: 1 });
+
+    const list = await listWalletResolvedDeliveries(db);
+    expect(list).toEqual([
+      {
+        orderNumber: order.orderNumber,
+        playerId: order.playerId,
+        diamondsBase: expect.any(Number),
+        costUsd: expect.any(String),
+        settledAt: expect.any(Date),
+      },
+    ]);
+  });
+
+  it('never lists a normal, cleanly-confirmed delivery', async () => {
+    const order = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      { comboKey: 'pack_insano', playerId: '7288567050', paymentMethod: 'card', source: 'storefront' },
+    );
+    if (!order.ok) throw new Error('seed failed');
+    const [item] = await db.select().from(orderItems).where(eq(orderItems.orderId, order.order.id)).limit(1);
+    await db
+      .update(orderItems)
+      .set({ status: 'succeeded', resolvedBy: 'response' })
+      .where(eq(orderItems.id, item!.id));
+
+    expect(await listWalletResolvedDeliveries(db)).toHaveLength(0);
+  });
+
+  it('never lists one that failed, even if resolved by wallet delta', async () => {
+    const order = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      { comboKey: 'pack_insano', playerId: '7288567050', paymentMethod: 'card', source: 'storefront' },
+    );
+    if (!order.ok) throw new Error('seed failed');
+    const [item] = await db.select().from(orderItems).where(eq(orderItems.orderId, order.order.id)).limit(1);
+    await db
+      .update(orderItems)
+      .set({ status: 'failed', resolvedBy: 'wallet_delta' })
+      .where(eq(orderItems.id, item!.id));
+
+    expect(await listWalletResolvedDeliveries(db)).toHaveLength(0);
+  });
+
+  it('drops off the list once older than the review window', async () => {
+    await seedWalletResolvedItem({ comboKey: 'pack_insano', ageDays: 30 });
+    expect(await listWalletResolvedDeliveries(db, 7)).toHaveLength(0);
   });
 });
 

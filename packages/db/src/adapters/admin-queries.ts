@@ -186,6 +186,69 @@ export async function listStuckGatewayPayments(
   return rows.map((r) => ({ ...r, gateway: r.gateway!, pendingHours: Number(r.pendingHours) }));
 }
 
+// ── deliveries resolved by wallet balance, not a clean response ─────────────────
+
+export interface WalletResolvedDelivery {
+  orderNumber: string;
+  playerId: string;
+  diamondsBase: number;
+  costUsd: string | null;
+  settledAt: Date | null;
+}
+
+/**
+ * Recharges marked delivered off a wallet-balance comparison rather than a
+ * clean provider response — for the Inicio dashboard, so the client can spot
+ * these and confirm with the customer instead of only finding out when one
+ * complains.
+ *
+ * Real incident, 2026-09-25: the provider returned a 502 mid-recharge, the
+ * wallet balance dropped by exactly the expected cost, and `fulfillment.ts`'s
+ * own reconciliation (deliberately conservative — retrying an ambiguous call
+ * risks double-delivering diamonds that can never be clawed back) recorded it
+ * as delivered. That assumption — "the provider charged us, so it must have
+ * completed the recharge too" — is usually right, but a 502 specifically
+ * means their infrastructure broke mid-request, which is exactly the case
+ * where their ledger and their actual delivery step can end up out of sync.
+ * This one wasn't: the customer never received the diamonds. The existing
+ * Telegram alert (`alerter.send('warn', 'Ambiguous call resolved as
+ * delivered', ...)`) already fires when this happens, but a 'warn' can
+ * scroll past unnoticed — this list is the same durable-visibility pattern
+ * already used for stuck gateway payments, so nobody has to rely on either
+ * catching that message or a customer reporting it.
+ *
+ * Deliberately no "reviewed" flag: unlike a stuck payment, a wallet-resolved
+ * delivery does not change state on its own, so this is windowed by age
+ * (`sinceDays`) rather than gated on whether someone has already looked.
+ */
+export async function listWalletResolvedDeliveries(
+  db: Database,
+  sinceDays = 7,
+  limit = 25,
+): Promise<WalletResolvedDelivery[]> {
+  const cutoff = new Date(Date.now() - sinceDays * 24 * 3_600_000);
+
+  return db
+    .select({
+      orderNumber: orders.orderNumber,
+      playerId: orders.playerId,
+      diamondsBase: orderItems.diamondsBase,
+      costUsd: orderItems.costUsd,
+      settledAt: orderItems.settledAt,
+    })
+    .from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(
+      and(
+        eq(orderItems.status, 'succeeded'),
+        eq(orderItems.resolvedBy, 'wallet_delta'),
+        gte(orderItems.settledAt, cutoff),
+      ),
+    )
+    .orderBy(desc(orderItems.settledAt))
+    .limit(limit);
+}
+
 // ── the orders list ───────────────────────────────────────────────────────────
 
 export type OrderFilter =
