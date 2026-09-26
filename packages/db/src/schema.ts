@@ -306,6 +306,9 @@ export const orderItems = pgTable(
     sentAt: timestamp('sent_at', { withTimezone: true }),
     settledAt: timestamp('settled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
+    /** Set when the client dismisses this row from the Inicio dashboard's wallet-resolved-delivery list. */
+    dashboardDismissedAt: timestamp('dashboard_dismissed_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('order_items_seq_idx').on(t.orderId, t.sequence),
@@ -350,6 +353,15 @@ export const payments = pgTable(
      * the customer happened to say something — nothing here watched for it.
      */
     stuckAlertSentAt: timestamp('stuck_alert_sent_at', { withTimezone: true }),
+
+    /**
+     * Set when the client dismisses this row from the Inicio dashboard's
+     * stuck-payment list. Distinct from `stuckAlertSentAt`: that one gates
+     * the once-only Telegram alert, this one only affects what the dashboard
+     * shows — dismissing does not silence a future alert, and an alert does
+     * not dismiss the dashboard row.
+     */
+    dashboardDismissedAt: timestamp('dashboard_dismissed_at', { withTimezone: true }),
   },
   (t) => [
     index('payments_order_idx').on(t.orderId),

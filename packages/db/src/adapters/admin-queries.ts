@@ -9,7 +9,7 @@
  * decimal string; formatting is the UI's job, never arithmetic.
  */
 
-import { and, count, desc, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { baseProducts, campaigns, combos, orderItems, orders, payments } from '../schema.js';
 import { mexicoCityDayRange } from './mexico-city-time.js';
@@ -128,6 +128,7 @@ export async function listPendingApprovals(
 // ── stuck gateway OXXO/SPEI payments ────────────────────────────────────────────
 
 export interface StuckGatewayPaymentSummary {
+  paymentId: string;
   orderNumber: string;
   gateway: string;
   method: string;
@@ -154,6 +155,13 @@ export interface StuckGatewayPaymentSummary {
  * Deliberately excludes `stuck_alert_sent_at` from the filter — unlike the
  * sweep, which must not repeat itself, this always reflects what is
  * currently stuck, whether or not it has already been alerted on.
+ *
+ * Does exclude `dashboard_dismissed_at` — that one is this list's own
+ * "I already checked this, stop showing it" gate, set by
+ * `dismissStuckGatewayPayment` once the client has looked at a row. Separate
+ * from `stuck_alert_sent_at` on purpose: dismissing a dashboard row must not
+ * silence a future Telegram alert if the same payment is somehow still stuck
+ * later, and an alert firing must not dismiss the dashboard row.
  */
 export async function listStuckGatewayPayments(
   db: Database,
@@ -164,6 +172,7 @@ export async function listStuckGatewayPayments(
 
   const rows = await db
     .select({
+      paymentId: payments.id,
       orderNumber: orders.orderNumber,
       gateway: payments.gateway,
       method: payments.method,
@@ -177,6 +186,7 @@ export async function listStuckGatewayPayments(
         inArray(payments.gateway, ['stripe', 'mercadopago']),
         inArray(payments.method, ['oxxo', 'spei']),
         lt(payments.createdAt, cutoff),
+        isNull(payments.dashboardDismissedAt),
       ),
     )
     .orderBy(payments.createdAt)
@@ -186,9 +196,15 @@ export async function listStuckGatewayPayments(
   return rows.map((r) => ({ ...r, gateway: r.gateway!, pendingHours: Number(r.pendingHours) }));
 }
 
+/** The client has looked at this stuck payment and doesn't need to see it on Inicio again. */
+export async function dismissStuckGatewayPayment(db: Database, paymentId: string): Promise<void> {
+  await db.update(payments).set({ dashboardDismissedAt: new Date() }).where(eq(payments.id, paymentId));
+}
+
 // ── deliveries resolved by wallet balance, not a clean response ─────────────────
 
 export interface WalletResolvedDelivery {
+  orderItemId: string;
   orderNumber: string;
   playerId: string;
   diamondsBase: number;
@@ -217,9 +233,11 @@ export interface WalletResolvedDelivery {
  * already used for stuck gateway payments, so nobody has to rely on either
  * catching that message or a customer reporting it.
  *
- * Deliberately no "reviewed" flag: unlike a stuck payment, a wallet-resolved
- * delivery does not change state on its own, so this is windowed by age
- * (`sinceDays`) rather than gated on whether someone has already looked.
+ * Windowed by age (`sinceDays`) AND excludes anything the client has already
+ * dismissed via `dismissWalletResolvedDelivery` — unlike a stuck payment,
+ * this state never changes on its own, so once a human has confirmed a row
+ * one way or the other there is nothing left for the age window to keep
+ * showing.
  */
 export async function listWalletResolvedDeliveries(
   db: Database,
@@ -230,6 +248,7 @@ export async function listWalletResolvedDeliveries(
 
   return db
     .select({
+      orderItemId: orderItems.id,
       orderNumber: orders.orderNumber,
       playerId: orders.playerId,
       diamondsBase: orderItems.diamondsBase,
@@ -243,10 +262,19 @@ export async function listWalletResolvedDeliveries(
         eq(orderItems.status, 'succeeded'),
         eq(orderItems.resolvedBy, 'wallet_delta'),
         gte(orderItems.settledAt, cutoff),
+        isNull(orderItems.dashboardDismissedAt),
       ),
     )
     .orderBy(desc(orderItems.settledAt))
     .limit(limit);
+}
+
+/** The client has confirmed this delivery one way or the other and doesn't need to see it on Inicio again. */
+export async function dismissWalletResolvedDelivery(db: Database, orderItemId: string): Promise<void> {
+  await db
+    .update(orderItems)
+    .set({ dashboardDismissedAt: new Date() })
+    .where(eq(orderItems.id, orderItemId));
 }
 
 // ── the orders list ───────────────────────────────────────────────────────────

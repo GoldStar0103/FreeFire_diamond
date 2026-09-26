@@ -36,6 +36,13 @@
       "when": 1790221520565,
       "tag": "0004_stuck_payment_alert",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790452420823,
+      "tag": "0005_dashboard_dismissed_at",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { getProvider } from '../../lib/provider';
 import { dateTime, diamonds, mxn, usd } from '../../lib/format';
+import { dismissStuckGatewayPaymentAction, dismissWalletResolvedDeliveryAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,9 +85,17 @@ export default async function DashboardPage() {
           escribirle a soporte con ese número de pedido.
           <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
             {stuckGatewayPayments.map((p) => (
-              <li key={p.orderNumber}>
-                {p.orderNumber} — {GATEWAY_NAME[p.gateway] ?? p.gateway} —{' '}
-                {METHOD_NAME[p.method] ?? p.method} — {p.pendingHours}h
+              <li key={p.paymentId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>
+                  {p.orderNumber} — {GATEWAY_NAME[p.gateway] ?? p.gateway} —{' '}
+                  {METHOD_NAME[p.method] ?? p.method} — {p.pendingHours}h
+                </span>
+                <form action={dismissStuckGatewayPaymentAction}>
+                  <input type="hidden" name="paymentId" value={p.paymentId} />
+                  <button type="submit" className="btn sm ghost">
+                    ✓ Revisado
+                  </button>
+                </form>
               </li>
             ))}
           </ul>
@@ -114,9 +123,17 @@ export default async function DashboardPage() {
           estos clientes que sí recibieron sus diamantes.
           <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
             {walletResolvedDeliveries.map((d) => (
-              <li key={`${d.orderNumber}-${d.settledAt?.toISOString() ?? ''}`}>
-                {d.orderNumber} — ID {d.playerId} — {diamonds(d.diamondsBase)} 💎
-                {d.costUsd ? ` — ${usd(d.costUsd)}` : ''} — {dateTime(d.settledAt)}
+              <li key={d.orderItemId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>
+                  {d.orderNumber} — ID {d.playerId} — {diamonds(d.diamondsBase)} 💎
+                  {d.costUsd ? ` — ${usd(d.costUsd)}` : ''} — {dateTime(d.settledAt)}
+                </span>
+                <form action={dismissWalletResolvedDeliveryAction}>
+                  <input type="hidden" name="orderItemId" value={d.orderItemId} />
+                  <button type="submit" className="btn sm ghost">
+                    ✓ Revisado
+                  </button>
+                </form>
               </li>
             ))}
           </ul>

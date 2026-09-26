@@ -20,6 +20,8 @@ import { DrizzleCatalogSyncStore } from './catalog-sync-store.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
 import { DrizzlePaymentStore } from './payment-store.js';
 import {
+  dismissStuckGatewayPayment,
+  dismissWalletResolvedDelivery,
   getDashboardStats,
   getOrderDetail,
   listCombosForAdmin,
@@ -278,7 +280,13 @@ describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
 
     const stuck = await listStuckGatewayPayments(db, 6);
     expect(stuck).toEqual([
-      { orderNumber: order.orderNumber, gateway: 'stripe', method: 'oxxo', pendingHours: expect.any(Number) },
+      {
+        paymentId: expect.any(String),
+        orderNumber: order.orderNumber,
+        gateway: 'stripe',
+        method: 'oxxo',
+        pendingHours: expect.any(Number),
+      },
     ]);
     expect(stuck[0]!.pendingHours).toBeGreaterThanOrEqual(6);
   });
@@ -292,7 +300,13 @@ describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
     await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', gateway: 'mercadopago', ageHours: 7 });
     const stuck = await listStuckGatewayPayments(db, 6);
     expect(stuck).toEqual([
-      { orderNumber: expect.any(String), gateway: 'mercadopago', method: 'oxxo', pendingHours: expect.any(Number) },
+      {
+        paymentId: expect.any(String),
+        orderNumber: expect.any(String),
+        gateway: 'mercadopago',
+        method: 'oxxo',
+        pendingHours: expect.any(Number),
+      },
     ]);
   });
 
@@ -327,6 +341,15 @@ describe.skipIf(!PG_AVAILABLE)('listStuckGatewayPayments', () => {
 
     const stuck = await listStuckGatewayPayments(db, 6);
     expect(stuck[0]?.orderNumber).toBe(older.orderNumber);
+  });
+
+  it('drops off the list once the client dismisses it', async () => {
+    await seedGatewayOrder({ comboKey: 'pack_insano', method: 'oxxo', ageHours: 7 });
+    const [stuck] = await listStuckGatewayPayments(db, 6);
+
+    await dismissStuckGatewayPayment(db, stuck!.paymentId);
+
+    expect(await listStuckGatewayPayments(db, 6)).toHaveLength(0);
   });
 });
 
@@ -364,6 +387,7 @@ describe.skipIf(!PG_AVAILABLE)('listWalletResolvedDeliveries', () => {
     const list = await listWalletResolvedDeliveries(db);
     expect(list).toEqual([
       {
+        orderItemId: expect.any(String),
         orderNumber: order.orderNumber,
         playerId: order.playerId,
         diamondsBase: expect.any(Number),
@@ -406,6 +430,15 @@ describe.skipIf(!PG_AVAILABLE)('listWalletResolvedDeliveries', () => {
   it('drops off the list once older than the review window', async () => {
     await seedWalletResolvedItem({ comboKey: 'pack_insano', ageDays: 30 });
     expect(await listWalletResolvedDeliveries(db, 7)).toHaveLength(0);
+  });
+
+  it('drops off the list once the client dismisses it', async () => {
+    await seedWalletResolvedItem({ comboKey: 'pack_insano', ageDays: 1 });
+    const [delivery] = await listWalletResolvedDeliveries(db);
+
+    await dismissWalletResolvedDelivery(db, delivery!.orderItemId);
+
+    expect(await listWalletResolvedDeliveries(db)).toHaveLength(0);
   });
 });
 
