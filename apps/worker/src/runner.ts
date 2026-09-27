@@ -7,7 +7,6 @@
  */
 
 import {
-  alertStuckGatewayPayments,
   expireOverduePayments,
   fulfillOrder,
   PROVIDER_LOCK_KEY,
@@ -205,24 +204,14 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
     console.error(`[sweep] Expiry failed: ${String(err)}`);
   }
 
-  try {
-    // A pending OXXO/SPEI payment is not overdue in the expiry sense — its
-    // deadline was deliberately extended by days, since Stripe puts no fixed
-    // window on it either. This is a separate, much shorter watch: has
-    // Stripe's own settlement (via PPRO for OXXO) gone quiet long enough that
-    // a human should check in with Stripe support before the customer has to
-    // ask why nothing has arrived.
-    const stuck = await alertStuckGatewayPayments({
-      store,
-      alerter,
-      config: { olderThanHours: config.sweeps.stuckGatewayPaymentHours, batchSize: config.sweeps.batchSize },
-    });
-    if (stuck.alerted > 0 || stuck.failed > 0) {
-      console.log(`[sweep] flagged ${stuck.alerted} stuck gateway payment(s), ${stuck.failed} failed to alert`);
-    }
-  } catch (err) {
-    console.error(`[sweep] Stuck-payment check failed: ${String(err)}`);
-  }
+  // No Telegram alert for a pending OXXO/SPEI payment sitting quiet past a
+  // few hours any more (removed 2026-09-27, client request): the large
+  // majority turned out to be customers who generated a payment reference
+  // and never intended to pay it, not a real settlement problem — the alert
+  // was mostly noise. `listStuckGatewayPayments` (admin-queries.ts) still
+  // shows the current list on Inicio for the client to check and dismiss by
+  // hand; `alertStuckGatewayPayments` (engine/stuck-payments.ts) is kept,
+  // unused, in case this needs to come back.
 
   await checkWallet(deps);
 }

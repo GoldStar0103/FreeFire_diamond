@@ -5,6 +5,7 @@ import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
+import { ReleasePaymentButton } from './release-payment-button';
 import {
   dateTime,
   diamonds,
@@ -268,6 +269,15 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           )}
         </dl>
       </div>
+
+      {/* Only for a gateway payment (SPEI/OXXO) still awaiting its own
+          confirmation — manual transfers already have their release
+          mechanism (approving the comprobante in Aprobaciones), and card
+          settles itself in seconds. */}
+      {order.status === 'pending_payment' &&
+        (order.payment?.method === 'spei' || order.payment?.method === 'oxxo') && (
+          <ReleasePaymentButton orderId={order.orderId} orderNumber={order.orderNumber} />
+        )}
 
       <h2>Recargas al proveedor ({order.items.length})</h2>
       <p className="subtitle">

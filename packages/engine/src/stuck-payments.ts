@@ -24,6 +24,15 @@
  * terms) and then gone quiet for an unusual stretch. A card payment either
  * settles in seconds or the customer abandoned the checkout page — expiry,
  * not this, is the right net for that one.
+ *
+ * Not called from the worker sweep any more (client request, 2026-09-27):
+ * the large majority of what it flagged turned out to be customers who
+ * generated an OXXO/SPEI reference with no real intention of paying it, not
+ * a genuine settlement problem, so the Telegram alert was mostly noise.
+ * `listStuckGatewayPayments` (admin-queries.ts) still shows the same list on
+ * the Inicio dashboard, with its own dismiss button, for the client to check
+ * by hand instead. This function is kept, unused, in case the alert needs to
+ * come back.
  */
 
 export interface StuckGatewayPayment {
