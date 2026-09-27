@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   payWithCard,
   payWithMercadoPagoOxxo,
+  payWithMercadoPagoSpei,
   payWithStripeOxxo,
   payWithStripeSpei,
   placeOrder,
@@ -95,7 +96,13 @@ interface Props {
    * proven unreliable; this is the fix for that, not just another option.
    */
   mercadoPagoOxxoEnabled: boolean;
-  /** Owner switch for the manual (human-reviewed) transfer — only matters when Stripe's SPEI is off. */
+  /**
+   * Mercado Pago is configured for SPEI — takes priority over Stripe's own
+   * SPEI (see lib/mercadopago.ts), same reason as OXXO above: Stripe's own
+   * SPEI settlement via PPRO proved unreliable too.
+   */
+  mercadoPagoSpeiEnabled: boolean;
+  /** Owner switch for the manual (human-reviewed) transfer — only matters when neither gateway's SPEI is on. */
   transferEnabled: boolean;
   /** Owner switch for the manual (human-reviewed) OXXO reference — only matters when Stripe's OXXO is off. */
   oxxoEnabled: boolean;
@@ -242,6 +249,7 @@ export function Checkout({
   cardIncludesOxxo,
   cardIncludesSpei,
   mercadoPagoOxxoEnabled,
+  mercadoPagoSpeiEnabled,
   transferEnabled,
   oxxoEnabled,
   cancelledNotice,
@@ -271,10 +279,15 @@ export function Checkout({
     payWithMercadoPagoOxxo,
     {},
   );
+  const [mpSpei, mpSpeiAction, mpSpeiRedirecting] = useActionState<CheckoutState, FormData>(
+    payWithMercadoPagoSpei,
+    {},
+  );
   const openCardTab = useStripeTabRedirect(card);
   const openOxxoTab = useStripeTabRedirect(stripeOxxo);
   const openSpeiTab = useStripeTabRedirect(stripeSpei);
   const openMpOxxoTab = useStripeTabRedirect(mpOxxo);
+  const openMpSpeiTab = useStripeTabRedirect(mpSpei);
   const [step, setStep] = useState<Step>('datos');
 
   const found = validation.status === 'found';
@@ -294,9 +307,14 @@ export function Checkout({
     : cardIncludesOxxo
       ? 'stripe'
       : null;
+  const transferAutomatic: 'mercadopago' | 'stripe' | null = mercadoPagoSpeiEnabled
+    ? 'mercadopago'
+    : cardIncludesSpei
+      ? 'stripe'
+      : null;
 
   const cardOption = cardEnabled;
-  const transferOption = cardIncludesSpei || manualTransfer;
+  const transferOption = transferAutomatic !== null || manualTransfer;
   const oxxoOption = oxxoAutomatic !== null || manualOxxo;
   const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
   const noPaymentConfigured = optionCount === 0;
@@ -486,7 +504,7 @@ export function Checkout({
                   />
                 )}
                 {transferOption &&
-                  (cardIncludesSpei ? (
+                  (transferAutomatic ? (
                     <PayOptionCard
                       tone="blue"
                       icon={BankIcon}
@@ -590,7 +608,7 @@ export function Checkout({
                 Continuar →
               </button>
             </>
-          ) : payView === 'transferencia' && cardIncludesSpei ? (
+          ) : payView === 'transferencia' && transferAutomatic ? (
             <>
               <div className="pay-box">
                 <div className="pay-row total">
@@ -599,7 +617,7 @@ export function Checkout({
                 </div>
               </div>
               <p className="hint center">
-                🏦 Al continuar, Stripe te da la cuenta CLABE para tu transferencia SPEI.
+                🏦 Al continuar, te damos la cuenta CLABE para tu transferencia SPEI.
               </p>
               <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
                 Continuar →
@@ -629,8 +647,8 @@ export function Checkout({
                 Ya deposité, continuar →
               </button>
               <p className="hint center">
-                🔒 Tu comprobante será revisado automáticamente. La recarga se reflejará en unos
-                minutos.
+                🔒 Tu comprobante será revisado por nuestro equipo. Puede tomar de 5 minutos hasta 3
+                horas en aprobarse y procesar la recarga.
               </p>
             </>
           ) : payTo ? (
@@ -767,7 +785,29 @@ export function Checkout({
               </button>
               <p className="hint center">🔒 Stripe te da tu referencia de depósito OXXO al continuar.</p>
             </form>
-          ) : payView === 'transferencia' && cardIncludesSpei ? (
+          ) : payView === 'transferencia' && transferAutomatic === 'mercadopago' ? (
+            <form
+              action={mpSpeiAction}
+              onSubmit={() => {
+                openMpSpeiTab();
+                trackPixel('AddPaymentInfo', pixel);
+              }}
+            >
+              <input type="hidden" name="comboKey" value={comboKey} />
+              <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+
+              {whatsappField(mpSpeiRedirecting)}
+
+              <GatewayTabNotice provider="Mercado Pago" />
+
+              {mpSpei.error && <div className="alert bad">{mpSpei.error}</div>}
+
+              <button className="btn primary wide" type="submit" disabled={mpSpeiRedirecting}>
+                {mpSpeiRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
+              </button>
+              <p className="hint center">🔒 Te damos tu cuenta CLABE para SPEI al continuar.</p>
+            </form>
+          ) : payView === 'transferencia' && transferAutomatic === 'stripe' ? (
             <form
               action={stripeSpeiAction}
               onSubmit={() => {

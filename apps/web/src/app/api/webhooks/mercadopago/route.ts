@@ -1,5 +1,6 @@
 /**
- * Mercado Pago webhook — OXXO only, see lib/mercadopago.ts's own doc comment.
+ * Mercado Pago webhook — OXXO and/or SPEI, see lib/mercadopago.ts's own doc
+ * comment for which methods are actually on.
  *
  * Point Your Integrations → Webhooks at
  * https://<PUBLIC_DOMAIN>/api/webhooks/mercadopago with the "Pagos (legacy)"
@@ -23,7 +24,7 @@ export const runtime = 'nodejs';
 
 export async function POST(request: Request): Promise<Response> {
   const gateway = getMercadoPago();
-  if (!gateway) return NextResponse.json({ error: 'OXXO via Mercado Pago is not configured' }, { status: 404 });
+  if (!gateway) return NextResponse.json({ error: 'Mercado Pago is not configured' }, { status: 404 });
 
   // The exact bytes, same reason as Stripe's route — even though Mercado
   // Pago's own signature is not computed over the body, re-serialising here
@@ -62,9 +63,9 @@ export async function POST(request: Request): Promise<Response> {
       state: event.state,
       amountReceivedCents: event.amountReceivedCents,
       reference: event.reference ?? null,
-      // Every payment this gateway ever creates is an OXXO ticket by
-      // construction (createCharge refuses any method but 'oxxo') — so
-      // "pending" alone already means a ticket exists, unlike Stripe where
+      // Every payment this gateway ever creates is OXXO or SPEI by
+      // construction (createCharge refuses card) — so "pending" alone already
+      // means a ticket or a CLABE reference exists, unlike Stripe where
       // pending can also mean a card checkout still in progress.
       voucherIssued: event.state === 'pending',
     });

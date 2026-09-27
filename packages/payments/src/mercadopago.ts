@@ -1,12 +1,15 @@
 /**
- * Mercado Pago adapter — Checkout Pro, OXXO only.
+ * Mercado Pago adapter — Checkout Pro, OXXO and/or SPEI.
  *
- * Card and SPEI stay on Stripe; this exists specifically because Stripe's own
- * OXXO settlement (via PPRO) proved unreliable in practice — real vouchers,
- * really paid at the till, sometimes taking most of a day or more to report
- * back (see stuck-payments.ts's own doc comment for the incident). Mercado
- * Pago is well established for OXXO in Mexico, so this adapter only ever
- * requests that one method.
+ * Card always stays on Stripe. OXXO and SPEI each moved here independently,
+ * at different times, for the same underlying reason: Stripe's own Mexico
+ * local-payment-method settlement (via PPRO) proved unreliable in practice —
+ * real vouchers and real transfers, really paid, sometimes taking most of a
+ * day (or, for SPEI, multiple days) to report back (see stuck-payments.ts's
+ * own doc comment for both incidents). Each method is independently
+ * switched on via `methods` — see lib/mercadopago.ts's own env flags — so
+ * either one can be reverted to Stripe on its own without touching the other
+ * or redeploying this adapter.
  *
  * Structurally different from stripe.ts in one real way: Stripe's webhook body
  * carries the full Checkout Session, so verifying it is a pure, synchronous
@@ -35,7 +38,7 @@ export const MERCADOPAGO_API_BASE = 'https://api.mercadopago.com';
 
 /**
  * Every payment type except `ticket` (the family `oxxo` belongs to) —
- * excluded so Checkout Pro offers OXXO alone.
+ * excluded so a Checkout Pro preference for OXXO offers it alone.
  *
  * `account_money` (the payer's own Mercado Pago wallet balance) is
  * deliberately NOT here, and not excluded through `excluded_payment_methods`
@@ -43,8 +46,8 @@ export const MERCADOPAGO_API_BASE = 'https://api.mercadopago.com';
  * Mercado Pago's own API flatly refuses to let a merchant exclude it, through
  * either field, full stop ("account_money cannot be excluded"). A payer who
  * is logged into their own Mercado Pago account may see it offered alongside
- * OXXO on Checkout Pro's page — a platform limitation, not something this
- * adapter can route around.
+ * OXXO or SPEI on Checkout Pro's page — a platform limitation, not something
+ * this adapter can route around.
  */
 const NON_TICKET_PAYMENT_TYPES = [
   'credit_card',
@@ -55,12 +58,31 @@ const NON_TICKET_PAYMENT_TYPES = [
   'bank_transfer',
 ] as const;
 
+/**
+ * Every payment type except `bank_transfer` (the family SPEI belongs to in
+ * Mexico) — excluded so a Checkout Pro preference for SPEI offers it alone.
+ * Same `account_money` caveat as above.
+ */
+const NON_BANK_TRANSFER_PAYMENT_TYPES = [
+  'credit_card',
+  'debit_card',
+  'prepaid_card',
+  'atm',
+  'digital_wallet',
+  'ticket',
+] as const;
+
+const EXCLUDED_PAYMENT_TYPES: Record<'oxxo' | 'spei', readonly string[]> = {
+  oxxo: NON_TICKET_PAYMENT_TYPES,
+  spei: NON_BANK_TRANSFER_PAYMENT_TYPES,
+};
+
 export interface MercadoPagoGatewayOptions {
   accessToken: string;
   /** The webhook Secret Signature from Your Integrations → Webhooks. */
   webhookSecret: string;
-  /** Only 'oxxo' is ever meaningful here; kept as a list for symmetry with StripeGateway. */
-  methods?: readonly Extract<GatewayMethod, 'oxxo'>[];
+  /** 'oxxo' and/or 'spei' — never 'card', that stays on Stripe. */
+  methods?: readonly Extract<GatewayMethod, 'oxxo' | 'spei'>[];
   apiBase?: string;
   fetch?: typeof fetch;
   now?: () => number;
@@ -150,7 +172,10 @@ export class MercadoPagoGateway implements PaymentGateway {
     if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
       throw new GatewayError(`Invalid amount ${input.amountCents}`, this.name, false);
     }
-    if (input.method !== 'oxxo' || !this.supportedMethods.includes('oxxo')) {
+    if (
+      (input.method !== 'oxxo' && input.method !== 'spei') ||
+      !this.supportedMethods.includes(input.method)
+    ) {
       throw new GatewayError(`Mercado Pago does not have ${input.method} enabled`, this.name, false);
     }
 
@@ -171,11 +196,12 @@ export class MercadoPagoGateway implements PaymentGateway {
         failure: input.cancelUrl,
       },
       auto_return: 'approved',
-      // Only the `ticket` family (OXXO's own type) stays offered — everything
-      // else excluded, so Checkout Pro's page never invites the customer to
-      // pay by card or transfer instead of the one method this button promised.
+      // Only the one method's own payment-type family stays offered —
+      // everything else excluded, so Checkout Pro's page never invites the
+      // customer to pay by card or the other method instead of the one this
+      // button promised.
       payment_methods: {
-        excluded_payment_types: NON_TICKET_PAYMENT_TYPES.map((id) => ({ id })),
+        excluded_payment_types: EXCLUDED_PAYMENT_TYPES[input.method].map((id) => ({ id })),
       },
       // Not set here: the app-level webhook (configured once in Your
       // Integrations → Webhooks) already covers every preference this

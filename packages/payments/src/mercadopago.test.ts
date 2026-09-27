@@ -106,12 +106,45 @@ describe('createCharge', () => {
     expect(calls[0]?.headers['X-Idempotency-Key']).toBe(calls[1]?.headers['X-Idempotency-Key']);
   });
 
-  it('refuses any method other than oxxo — card and SPEI stay on Stripe', async () => {
+  it('refuses card — that always stays on Stripe', async () => {
     const { impl, calls } = fakeFetch([]);
     await expect(gateway(impl).createCharge({ ...chargeInput, method: 'card' })).rejects.toBeInstanceOf(
       GatewayError,
     );
     expect(calls).toHaveLength(0);
+  });
+
+  it('refuses spei when only oxxo is configured', async () => {
+    const { impl, calls } = fakeFetch([]);
+    await expect(
+      gateway(impl, { methods: ['oxxo'] }).createCharge({ ...chargeInput, method: 'spei' }),
+    ).rejects.toBeInstanceOf(GatewayError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('refuses oxxo when only spei is configured', async () => {
+    const { impl, calls } = fakeFetch([]);
+    await expect(
+      gateway(impl, { methods: ['spei'] }).createCharge({ ...chargeInput, method: 'oxxo' }),
+    ).rejects.toBeInstanceOf(GatewayError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('creates a preference restricted to the bank_transfer family for SPEI', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'pref_1', init_point: 'https://www.mercadopago.com.mx/checkout/v1/redirect?pref_id=pref_1' } },
+    ]);
+
+    await gateway(impl, { methods: ['spei'] }).createCharge({ ...chargeInput, method: 'spei' });
+
+    const body = JSON.parse(calls[0]!.body!);
+    const excludedIds = body.payment_methods.excluded_payment_types.map((t: { id: string }) => t.id);
+    // Everything but the bank_transfer family excluded, so SPEI is the only
+    // option Checkout Pro's own page can offer — including `ticket` (OXXO),
+    // the mirror image of the oxxo preference above.
+    expect(excludedIds).toEqual(expect.arrayContaining(['credit_card', 'debit_card', 'ticket']));
+    expect(excludedIds).not.toContain('bank_transfer');
+    expect(excludedIds).not.toContain('account_money');
   });
 
   it('refuses without return URLs, before calling Mercado Pago', async () => {

@@ -28,8 +28,11 @@ import type { DateRange } from './mexico-city-time.js';
  * stripe.com/mx/pricing/local-payment-methods.
  *
  * Mercado Pago: checked 2026-09-24 against mercadopago.com.mx's own
- * published Checkout Pro rate for cash/OXXO payments (3.49% + $4.00 MXN).
- * Only 'oxxo' is listed — card/SPEI stay on Stripe, see lib/mercadopago.ts.
+ * published Checkout Pro rate for cash/OXXO payments (3.49% + $4.00 MXN);
+ * checked again 2026-09-27 that the same rate applies to SPEI transfers
+ * through Checkout Pro (Mercado Pago's own docs: SPEI and Mercado Pago
+ * balance are charged the same as card, "no hay descuento por estos
+ * métodos"). Card always stays on Stripe, see lib/mercadopago.ts.
  */
 const IVA = 1.16;
 const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number }>> = {
@@ -40,6 +43,7 @@ const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number
   },
   mercadopago: {
     oxxo: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN
+    spei: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN — same as OXXO on Checkout Pro
   },
 };
 

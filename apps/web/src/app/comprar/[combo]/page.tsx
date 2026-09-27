@@ -157,6 +157,7 @@ export default async function BuyPage({
         cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
         cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
         mercadoPagoOxxoEnabled={mercadoPago?.supportedMethods.includes('oxxo') ?? false}
+        mercadoPagoSpeiEnabled={mercadoPago?.supportedMethods.includes('spei') ?? false}
         transferEnabled={methodsEnabled.transfer}
         oxxoEnabled={methodsEnabled.oxxo}
         cancelledNotice={cancelledNotice}

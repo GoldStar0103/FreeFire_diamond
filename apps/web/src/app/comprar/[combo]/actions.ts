@@ -340,7 +340,7 @@ const STRIPE_METHOD_COPY: Record<
  * Create the order and send the customer to a gateway's hosted checkout,
  * restricted to exactly the one method they picked.
  *
- * Shared between Stripe (card/oxxo/spei) and Mercado Pago (oxxo only) —
+ * Shared between Stripe (card/oxxo/spei) and Mercado Pago (oxxo/spei) —
  * both are a `PaymentGateway` from `@levelup/payments`, and every step here
  * (reserve the order, open the charge, link it, or cancel on failure) is
  * identical regardless of which gateway is actually doing the work. Only
@@ -487,6 +487,21 @@ export async function payWithMercadoPagoOxxo(
   const gateway = getMercadoPago();
   if (!gateway) return { error: MERCADOPAGO_OXXO_COPY.unavailable };
   return payWithGatewayMethod(gateway, MERCADOPAGO, 'oxxo', MERCADOPAGO_OXXO_COPY, formData);
+}
+
+const MERCADOPAGO_SPEI_COPY = {
+  unavailable: 'La transferencia SPEI no está disponible en este momento. Paga con tarjeta.',
+  openFailed: 'No pudimos abrir la transferencia SPEI. Intenta de nuevo o paga con tarjeta.',
+  verb: 'spei',
+};
+
+export async function payWithMercadoPagoSpei(
+  _prev: CheckoutState,
+  formData: FormData,
+): Promise<CheckoutState> {
+  const gateway = getMercadoPago();
+  if (!gateway) return { error: MERCADOPAGO_SPEI_COPY.unavailable };
+  return payWithGatewayMethod(gateway, MERCADOPAGO, 'spei', MERCADOPAGO_SPEI_COPY, formData);
 }
 
 async function attachComprobante(orderId: string, key: string): Promise<void> {
