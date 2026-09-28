@@ -114,7 +114,7 @@ async function completeOrder(
   opts: {
     completedAt: Date;
     costUsd: string;
-    method: 'card' | 'transfer_manual';
+    method: 'card' | 'transfer_manual' | 'spei' | 'oxxo';
     gateway: string | null;
     amountReceivedCents: number;
   },
@@ -171,7 +171,9 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
     expect(summary.estimatedFeeCents).toBe(766);
     expect(summary.netSalesCents).toBe(10_000 - 3_000 - 766);
     expect(summary.orderCounts).toEqual({ completed: 1, pending: 0, cancelled: 0 });
-    expect(summary.totalsByMethod).toEqual([{ method: 'card', totalCents: 10_000, count: 1 }]);
+    expect(summary.totalsByMethod).toEqual([
+      { method: 'card', gateway: 'stripe', totalCents: 10_000, count: 1 },
+    ]);
     expect(summary.movements).toHaveLength(1);
     expect(summary.movements[0]).toMatchObject({
       orderNumber: order.orderNumber,
@@ -183,6 +185,40 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
       // because the fee itself is an estimate for card payments.
       netProfitCents: 10_000 - 3_000 - 766,
     });
+  });
+
+  it('keeps a Stripe SPEI sale and a Mercado Pago SPEI sale in separate buckets, not merged under one "spei"', async () => {
+    // Real gap found 2026-09-27: SPEI moved from Stripe to Mercado Pago, but
+    // totalsByMethod used to group by method alone — a Mercado Pago sale
+    // would have silently pooled into the same bucket as older Stripe ones.
+    const stripeOrder = await placeOrder('8888888881');
+    const mpOrder = await placeOrder('8888888882');
+    const inRange = new Date('2026-09-14T18:00:00Z');
+
+    await completeOrder(stripeOrder.id, {
+      completedAt: inRange,
+      costUsd: '1.0000',
+      method: 'spei',
+      gateway: 'stripe',
+      amountReceivedCents: 10_000,
+    });
+    await completeOrder(mpOrder.id, {
+      completedAt: inRange,
+      costUsd: '1.0000',
+      method: 'spei',
+      gateway: 'mercadopago',
+      amountReceivedCents: 10_000,
+    });
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(inRange));
+
+    expect(summary.totalsByMethod).toEqual(
+      expect.arrayContaining([
+        { method: 'spei', gateway: 'stripe', totalCents: 10_000, count: 1 },
+        { method: 'spei', gateway: 'mercadopago', totalCents: 10_000, count: 1 },
+      ]),
+    );
+    expect(summary.totalsByMethod).toHaveLength(2);
   });
 
   it('charges no estimated fee for the manual transfer flow, and reports an exact net profit', async () => {

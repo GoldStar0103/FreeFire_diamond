@@ -39,11 +39,6 @@ export function resolveRange(
   }
 }
 
-/** MXN payment methods have a Spanish label the client reads, not the enum value. */
-export const METHOD_LABELS: Record<string, string> = {
-  card: 'Tarjeta',
-  oxxo: 'OXXO (Stripe)',
-  spei: 'SPEI (Stripe)',
-  transfer_manual: 'Transferencia/OXXO manual',
-  paypal: 'PayPal',
-};
+// methodLabel moved to lib/format.ts — shared with the order-detail page,
+// which needed the exact same gateway-aware OXXO/SPEI labeling.
+export { methodLabel } from '../../../lib/format';

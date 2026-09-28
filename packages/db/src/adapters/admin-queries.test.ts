@@ -517,6 +517,8 @@ describe.skipIf(!PG_AVAILABLE)('getOrderDetail', () => {
 
     expect(detail?.orderNumber).toBe(order.orderNumber);
     expect(detail?.payment?.method).toBe('transfer_manual');
+    // Null for the manual comprobante flow — never a gateway name to label.
+    expect(detail?.payment?.gateway).toBeNull();
     expect(detail?.payment?.amountExpectedCents).toBe(86_000);
     expect(detail?.items).toHaveLength(2);
     expect(detail?.progress).toEqual({ delivered: 0, total: 7326, pct: 0 });

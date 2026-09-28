@@ -425,6 +425,8 @@ export interface OrderDetail {
   payment: {
     paymentId: string;
     method: string;
+    /** null for the manual comprobante flow — schema.ts's own comment on that column. */
+    gateway: string | null;
     status: string;
     amountExpectedCents: number;
     amountReceivedCents: number | null;
@@ -487,6 +489,7 @@ export async function getOrderDetail(db: Database, orderId: string): Promise<Ord
       ? {
           paymentId: payment.id,
           method: payment.method,
+          gateway: payment.gateway,
           status: payment.status,
           amountExpectedCents: payment.amountExpectedCents,
           amountReceivedCents: payment.amountReceivedCents,

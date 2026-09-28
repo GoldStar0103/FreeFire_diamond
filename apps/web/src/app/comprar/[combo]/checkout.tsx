@@ -643,13 +643,17 @@ export function Checkout({
                 <li>💲 Deposita el monto exacto para agilizar la validación</li>
                 <li>📤 Después sube tu comprobante</li>
               </ul>
+              {/* Client request, 2026-09-27: this used to be a small muted
+                  caption below the button, easy to skip entirely — it needs
+                  to actually be read before confirming, since it's the whole
+                  reason the recharge isn't instant on this method. */}
+              <div className="alert warn">
+                🕐 Tu comprobante será revisado por nuestro equipo. Puede tomar de{' '}
+                <strong>5 minutos hasta 3 horas</strong> en aprobarse y procesar la recarga.
+              </div>
               <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
                 Ya deposité, continuar →
               </button>
-              <p className="hint center">
-                🔒 Tu comprobante será revisado por nuestro equipo. Puede tomar de 5 minutos hasta 3
-                horas en aprobarse y procesar la recarga.
-              </p>
             </>
           ) : payTo ? (
             <>

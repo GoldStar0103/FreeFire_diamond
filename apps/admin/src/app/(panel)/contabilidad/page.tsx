@@ -3,7 +3,7 @@ import { getAccountingSummary, mexicoCityTodayYmd } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, mxn } from '../../../lib/format';
-import { METHOD_LABELS, RANGES, parseRangeKey, resolveRange } from './range';
+import { methodLabel, RANGES, parseRangeKey, resolveRange } from './range';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +28,9 @@ export default async function ContabilidadPage({
       <h1 style={{ marginBottom: 0 }}>Contabilidad</h1>
       <p className="subtitle">
         Ventas, costos y ganancia.{' '}
-        <strong>La comisión de tarjeta es una estimación</strong>, no el monto exacto que cobra
-        Stripe — para transferencia y OXXO la ganancia es exacta, no hay comisión que estimar.
+        <strong>La comisión de tarjeta, SPEI y OXXO automático es una estimación</strong>, no el
+        monto exacto que cobra el gateway — solo la transferencia/OXXO con comprobante manual tiene
+        ganancia exacta, porque ahí no hay ninguna comisión de por medio.
       </p>
 
       <div className="row" style={{ marginBottom: 6, justifyContent: 'space-between' }}>
@@ -83,7 +84,7 @@ export default async function ContabilidadPage({
           <div className="stat-value">{mxn(summary.recargaCostCents)}</div>
         </div>
         <div className="card">
-          <div className="stat-label">Comisión estimada (tarjeta)</div>
+          <div className="stat-label">Comisión estimada</div>
           <div className="stat-value">{mxn(summary.estimatedFeeCents)}</div>
         </div>
         <div className="card">
@@ -123,8 +124,8 @@ export default async function ContabilidadPage({
               </thead>
               <tbody>
                 {summary.totalsByMethod.map((m) => (
-                  <tr key={m.method}>
-                    <td>{METHOD_LABELS[m.method] ?? m.method}</td>
+                  <tr key={`${m.method}:${m.gateway ?? ''}`}>
+                    <td>{methodLabel(m.method, m.gateway)}</td>
                     <td className="num">{m.count}</td>
                     <td className="num">{mxn(m.totalCents)}</td>
                   </tr>
@@ -157,7 +158,7 @@ export default async function ContabilidadPage({
                   <td>{m.orderNumber}</td>
                   <td>{m.comboName}</td>
                   <td className="num">{mxn(m.priceMxnCents)}</td>
-                  <td>{m.paymentMethod ? (METHOD_LABELS[m.paymentMethod] ?? m.paymentMethod) : '—'}</td>
+                  <td>{m.paymentMethod ? methodLabel(m.paymentMethod, m.paymentGateway) : '—'}</td>
                   <td className="num">{m.netProfitCents === null ? 'N/D' : mxn(m.netProfitCents)}</td>
                   <td>{dateTime(m.completedAt)}</td>
                 </tr>

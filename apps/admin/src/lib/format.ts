@@ -63,10 +63,31 @@ const RESOLUTION_LABELS: Record<string, string> = {
   manual: 'decisión manual',
 };
 
+const GATEWAY_LABELS: Record<string, string> = { stripe: 'Stripe', mercadopago: 'Mercado Pago' };
+
 export const orderStatusLabel = (s: string): string => ORDER_STATUS_LABELS[s] ?? s;
 export const itemStatusLabel = (s: string): string => ITEM_STATUS_LABELS[s] ?? s;
 export const resolutionLabel = (s: string | null): string =>
   s === null ? '—' : (RESOLUTION_LABELS[s] ?? s);
+
+/**
+ * `oxxo`/`spei` alone don't say which gateway settled it, and both have moved
+ * between Stripe and Mercado Pago at different times — a flat label per
+ * method would either be wrong or merge two different gateways' money under
+ * one name. `card` and `transfer_manual` never carry more than one gateway
+ * (card is always Stripe; transfer_manual has none), so they stay plain.
+ */
+export function methodLabel(method: string, gateway: string | null): string {
+  if (method === 'oxxo' || method === 'spei') {
+    const base = method === 'oxxo' ? 'OXXO' : 'SPEI';
+    const via = gateway ? (GATEWAY_LABELS[gateway] ?? gateway) : 'gateway desconocido';
+    return `${base} (${via})`;
+  }
+  if (method === 'card') return 'Tarjeta';
+  if (method === 'transfer_manual') return 'Transferencia/OXXO manual';
+  if (method === 'paypal') return 'PayPal';
+  return method;
+}
 
 /** Maps a status to a CSS class in globals.css. */
 export function statusTone(status: string): 'ok' | 'warn' | 'bad' | 'muted' {

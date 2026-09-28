@@ -10,6 +10,7 @@ import {
   dateTime,
   diamonds,
   itemStatusLabel,
+  methodLabel,
   mxn,
   orderStatusLabel,
   resolutionLabel,
@@ -18,14 +19,6 @@ import {
 } from '../../../../lib/format';
 
 export const dynamic = 'force-dynamic';
-
-const METHOD_LABEL: Record<string, string> = {
-  transfer_manual: 'Transferencia / depósito con comprobante',
-  card: 'Tarjeta u OXXO (Stripe)',
-  spei: 'SPEI',
-  oxxo: 'OXXO',
-  paypal: 'PayPal',
-};
 
 const PAYMENT_STATUS_LABEL: Record<string, string> = {
   pending: 'Pendiente',
@@ -190,7 +183,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           {order.payment && (
             <>
               <dt>Método</dt>
-              <dd>{METHOD_LABEL[order.payment.method] ?? order.payment.method}</dd>
+              <dd>{methodLabel(order.payment.method, order.payment.gateway)}</dd>
 
               <dt>Estado del pago</dt>
               <dd>

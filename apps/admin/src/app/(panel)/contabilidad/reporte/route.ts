@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAccountingSummary, mexicoCityTodayYmd } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
-import { METHOD_LABELS, parseRangeKey, resolveRange } from '../range';
+import { methodLabel, parseRangeKey, resolveRange } from '../range';
 
 /**
  * The "generar reporte" button the client asked for — a CSV of exactly what
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   lines.push('Resumen');
   lines.push(`Ventas brutas,${centsToDecimal(summary.grossSalesCents)}`);
   lines.push(`Costo de recargas,${centsToDecimal(summary.recargaCostCents)}`);
-  lines.push(`Comision estimada (tarjeta),${centsToDecimal(summary.estimatedFeeCents)}`);
+  lines.push(`Comision estimada,${centsToDecimal(summary.estimatedFeeCents)}`);
   lines.push(`Ganancia neta,${centsToDecimal(summary.estimatedProfitCents)}`);
   lines.push(`Pedidos completados,${summary.orderCounts.completed}`);
   lines.push(`Pedidos pendientes,${summary.orderCounts.pending}`);
@@ -62,11 +62,7 @@ export async function GET(request: Request) {
   lines.push('Metodo,Pedidos,Total');
   for (const m of summary.totalsByMethod) {
     lines.push(
-      [
-        csvField(METHOD_LABELS[m.method] ?? m.method),
-        String(m.count),
-        centsToDecimal(m.totalCents),
-      ].join(','),
+      [csvField(methodLabel(m.method, m.gateway)), String(m.count), centsToDecimal(m.totalCents)].join(','),
     );
   }
   lines.push('');
@@ -79,7 +75,7 @@ export async function GET(request: Request) {
         csvField(m.orderNumber),
         csvField(m.comboName),
         centsToDecimal(m.priceMxnCents),
-        csvField(m.paymentMethod ? (METHOD_LABELS[m.paymentMethod] ?? m.paymentMethod) : ''),
+        csvField(m.paymentMethod ? methodLabel(m.paymentMethod, m.paymentGateway) : ''),
         m.netProfitCents === null ? 'N/D' : centsToDecimal(m.netProfitCents),
         csvField(formatDateTime(m.completedAt)),
       ].join(','),

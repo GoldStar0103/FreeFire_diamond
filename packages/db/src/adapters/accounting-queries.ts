@@ -65,7 +65,7 @@ export interface SalesTotals {
   costDataIncomplete: boolean;
   estimatedFeeCents: number;
   netSalesCents: number;
-  totalsByMethod: Array<{ method: string; totalCents: number; count: number }>;
+  totalsByMethod: Array<{ method: string; gateway: string | null; totalCents: number; count: number }>;
   /** Per completed order: USD cost sum (only orders with at least one costed item). */
   costByOrder: Map<string, number>;
   /** Per completed order: the settled payment's method/gateway, for per-order enrichment. */
@@ -143,7 +143,14 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     .where(and(completedFilter, eq(payments.status, 'paid')));
 
   let estimatedFeeCents = 0;
-  const methodTotals = new Map<string, { totalCents: number; count: number }>();
+  // Keyed by method+gateway, not method alone — a SPEI sale settled through
+  // Stripe and one settled through Mercado Pago are different money movements
+  // with different fees, and merging them into one "spei" bucket would hide
+  // exactly the split the Contabilidad report exists to show. Real gap found
+  // 2026-09-27: this used to be method-only, so once SPEI moved to Mercado
+  // Pago its sales would have silently pooled with old Stripe-SPEI ones under
+  // a single stale "SPEI (Stripe)" label.
+  const methodTotals = new Map<string, { method: string; gateway: string | null; totalCents: number; count: number }>();
   const feeByOrder = new Map<string, number>();
   const paymentInfoByOrder = new Map<string, { method: string; gateway: string | null }>();
   for (const row of paidRows) {
@@ -153,10 +160,11 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     feeByOrder.set(row.orderId, fee);
     paymentInfoByOrder.set(row.orderId, { method: row.method, gateway: row.gateway });
 
-    const bucket = methodTotals.get(row.method) ?? { totalCents: 0, count: 0 };
+    const key = `${row.method}:${row.gateway ?? ''}`;
+    const bucket = methodTotals.get(key) ?? { method: row.method, gateway: row.gateway, totalCents: 0, count: 0 };
     bucket.totalCents += amount;
     bucket.count += 1;
-    methodTotals.set(row.method, bucket);
+    methodTotals.set(key, bucket);
   }
 
   const netSalesCents = grossSalesCents - recargaCostCents - estimatedFeeCents;
@@ -167,7 +175,7 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     costDataIncomplete,
     estimatedFeeCents,
     netSalesCents,
-    totalsByMethod: [...methodTotals.entries()].map(([method, v]) => ({ method, ...v })),
+    totalsByMethod: [...methodTotals.values()],
     costByOrder,
     paymentInfoByOrder,
     feeByOrder,
@@ -217,7 +225,7 @@ export interface AccountingSummary {
   netSalesCents: number;
   estimatedProfitCents: number;
   orderCounts: { completed: number; pending: number; cancelled: number };
-  totalsByMethod: Array<{ method: string; totalCents: number; count: number }>;
+  totalsByMethod: Array<{ method: string; gateway: string | null; totalCents: number; count: number }>;
   movements: AccountingMovement[];
 }
 
