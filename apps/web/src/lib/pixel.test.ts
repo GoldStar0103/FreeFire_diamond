@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { tiktokEvent, trackPixel, type PixelEvent } from './pixel.js';
+import { setPixelUserData, tiktokEvent, trackPixel, type PixelEvent } from './pixel.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -133,5 +133,51 @@ describe('trackPixel', () => {
     });
     expect(() => trackPixel('AddPaymentInfo', params)).not.toThrow();
     expect(fbq).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('setPixelUserData', () => {
+  it('sends the player id and a normalised phone to both pixels, in plain text — each SDK hashes it', () => {
+    const fbq = vi.fn();
+    const identify = vi.fn();
+    vi.stubGlobal('window', { fbq, ttq: { identify, track: vi.fn(), page: vi.fn() } });
+
+    setPixelUserData({ playerId: '123456789', whatsapp: '55 1234 5678' });
+
+    expect(fbq).toHaveBeenCalledWith('set', 'userData', { external_id: '123456789', ph: '525512345678' });
+    expect(identify).toHaveBeenCalledWith({ external_id: '123456789', phone_number: '+525512345678' });
+  });
+
+  it('sends only the player id when the phone does not come out as a plausible Mexican number', () => {
+    const fbq = vi.fn();
+    vi.stubGlobal('window', { fbq });
+
+    setPixelUserData({ playerId: '123456789', whatsapp: 'abc' });
+
+    expect(fbq).toHaveBeenCalledWith('set', 'userData', { external_id: '123456789' });
+  });
+
+  it('calls neither pixel when there is nothing usable at all', () => {
+    const fbq = vi.fn();
+    const identify = vi.fn();
+    vi.stubGlobal('window', { fbq, ttq: { identify, track: vi.fn(), page: vi.fn() } });
+
+    setPixelUserData({});
+
+    expect(fbq).not.toHaveBeenCalled();
+    expect(identify).not.toHaveBeenCalled();
+  });
+
+  it('is a silent no-op with no window at all, as during server rendering', () => {
+    expect(() => setPixelUserData({ playerId: '123456789' })).not.toThrow();
+  });
+
+  it('still reports the phone even without a player id, and the other way round', () => {
+    const fbq = vi.fn();
+    vi.stubGlobal('window', { fbq });
+
+    setPixelUserData({ whatsapp: '5512345678' });
+
+    expect(fbq).toHaveBeenCalledWith('set', 'userData', { ph: '525512345678' });
   });
 });

@@ -13,7 +13,7 @@ import {
   type CheckoutState,
   type ValidateState,
 } from './actions';
-import { trackPixel } from '../../../lib/pixel';
+import { setPixelUserData, trackPixel } from '../../../lib/pixel';
 import { BankIcon, CardIcon, StoreIcon } from '../../icons';
 
 /**
@@ -327,6 +327,13 @@ export function Checkout({
 
   const pixel = { value: priceMxn, currency: 'MXN' as const, content_ids: [comboKey], content_type: 'product' as const };
 
+  /** Fires AddPaymentInfo and, now that the form has it, passes the WhatsApp along for Advanced Matching too. */
+  const trackPaymentInfo = (form: HTMLFormElement) => {
+    trackPixel('AddPaymentInfo', pixel);
+    const whatsapp = String(new FormData(form).get('whatsapp') ?? '');
+    if (whatsapp) setPixelUserData({ whatsapp });
+  };
+
   useEffect(() => {
     trackPixel('ViewContent', { ...pixel, content_name: comboName });
     // Once per page view, not per render.
@@ -336,6 +343,7 @@ export function Checkout({
   const confirmIdentity = () => {
     setStep('pago');
     trackPixel('InitiateCheckout', pixel);
+    if (validation.playerId) setPixelUserData({ playerId: validation.playerId });
   };
 
   const methodLabel =
@@ -724,9 +732,9 @@ export function Checkout({
           {payView === 'tarjeta' ? (
             <form
               action={cardAction}
-              onSubmit={() => {
+              onSubmit={(e) => {
                 openCardTab();
-                trackPixel('AddPaymentInfo', pixel);
+                trackPaymentInfo(e.currentTarget);
               }}
             >
               <input type="hidden" name="comboKey" value={comboKey} />
@@ -748,9 +756,9 @@ export function Checkout({
           ) : payView === 'oxxo' && oxxoAutomatic === 'mercadopago' ? (
             <form
               action={mpOxxoAction}
-              onSubmit={() => {
+              onSubmit={(e) => {
                 openMpOxxoTab();
-                trackPixel('AddPaymentInfo', pixel);
+                trackPaymentInfo(e.currentTarget);
               }}
             >
               <input type="hidden" name="comboKey" value={comboKey} />
@@ -770,9 +778,9 @@ export function Checkout({
           ) : payView === 'oxxo' && oxxoAutomatic === 'stripe' ? (
             <form
               action={stripeOxxoAction}
-              onSubmit={() => {
+              onSubmit={(e) => {
                 openOxxoTab();
-                trackPixel('AddPaymentInfo', pixel);
+                trackPaymentInfo(e.currentTarget);
               }}
             >
               <input type="hidden" name="comboKey" value={comboKey} />
@@ -792,9 +800,9 @@ export function Checkout({
           ) : payView === 'transferencia' && transferAutomatic === 'mercadopago' ? (
             <form
               action={mpSpeiAction}
-              onSubmit={() => {
+              onSubmit={(e) => {
                 openMpSpeiTab();
-                trackPixel('AddPaymentInfo', pixel);
+                trackPaymentInfo(e.currentTarget);
               }}
             >
               <input type="hidden" name="comboKey" value={comboKey} />
@@ -814,9 +822,9 @@ export function Checkout({
           ) : payView === 'transferencia' && transferAutomatic === 'stripe' ? (
             <form
               action={stripeSpeiAction}
-              onSubmit={() => {
+              onSubmit={(e) => {
                 openSpeiTab();
-                trackPixel('AddPaymentInfo', pixel);
+                trackPaymentInfo(e.currentTarget);
               }}
             >
               <input type="hidden" name="comboKey" value={comboKey} />
@@ -834,7 +842,7 @@ export function Checkout({
               <p className="hint center">🔒 Stripe te da tu cuenta CLABE para SPEI al continuar.</p>
             </form>
           ) : (
-            <form action={transferAction} onSubmit={() => trackPixel('AddPaymentInfo', pixel)}>
+            <form action={transferAction} onSubmit={(e) => trackPaymentInfo(e.currentTarget)}>
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
               {/* No nickname field: the server re-validates and takes the name

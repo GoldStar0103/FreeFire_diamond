@@ -10,7 +10,10 @@
  * two can never drift into reporting different things about the same click.
  */
 
-type Fbq = (command: 'track' | 'trackCustom', event: string, params?: object, options?: object) => void;
+type Fbq = {
+  (command: 'track' | 'trackCustom', event: string, params?: object, options?: object): void;
+  (command: 'set', field: 'userData', data: Record<string, string>): void;
+};
 
 /**
  * The part of TikTok's `ttq` the storefront uses. Before the SDK arrives, the
@@ -19,6 +22,7 @@ type Fbq = (command: 'track' | 'trackCustom', event: string, params?: object, op
 interface Ttq {
   page: () => void;
   track: (event: string, params?: object, options?: object) => void;
+  identify: (data: Record<string, string>) => void;
 }
 
 declare global {
@@ -115,6 +119,56 @@ export function trackPixel(event: PixelEvent, params: PixelParams = {}, eventId?
   try {
     const ttq = window.ttq;
     if (ttq) ttq.track(...tiktokEvent(event, params, eventId));
+  } catch {
+    // Likewise.
+  }
+}
+
+/**
+ * A Mexican phone in the E.164 digits Meta/TikTok hash: `52` plus ten digits,
+ * or null for anything that doesn't come out as a plausible number. Mirrors
+ * `normaliseMxPhone` in the worker's meta-capi.ts (server-only, so not
+ * importable here) — same rule, so the browser signal and the server-side
+ * Conversions API signal describe the same phone the same way, which is
+ * what lets Meta match the two reports to one person in the first place.
+ */
+function normaliseMxPhone(raw: string): string | null {
+  let digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.length === 13 && digits.startsWith('521')) digits = `52${digits.slice(3)}`;
+  if (digits.length === 10) digits = `52${digits}`;
+  return /^52\d{10}$/.test(digits) ? digits : null;
+}
+
+/**
+ * Manual Advanced Matching — Meta flagged this as missing 2026-09-27
+ * ("Configura las coincidencias avanzadas manuales"): the server-side
+ * Conversions API call already sends hashed phone/player-id, but the browser
+ * Pixel's own `track` calls carried no customer data at all, only the
+ * product/value fields. Call this as soon as each piece of data is known
+ * (player id once identity is confirmed, phone once the checkout form has
+ * it) — both Meta's and TikTok's SDKs accept plain text here and hash it
+ * themselves before it leaves the browser, this file never sends either in
+ * the clear over the wire. No email: this checkout has never collected one
+ * (a deliberate choice, see the WhatsApp-required change instead), so there
+ * is nothing to pass for `em`.
+ */
+export function setPixelUserData(data: { playerId?: string; whatsapp?: string }): void {
+  const phone = data.whatsapp ? normaliseMxPhone(data.whatsapp) : null;
+
+  try {
+    const payload: Record<string, string> = {};
+    if (data.playerId) payload.external_id = data.playerId;
+    if (phone) payload.ph = phone;
+    if (Object.keys(payload).length > 0) window.fbq?.('set', 'userData', payload);
+  } catch {
+    // Deliberately silent — see trackPixel's own comment.
+  }
+  try {
+    const payload: Record<string, string> = {};
+    if (data.playerId) payload.external_id = data.playerId;
+    if (phone) payload.phone_number = `+${phone}`;
+    if (Object.keys(payload).length > 0) window.ttq?.identify(payload);
   } catch {
     // Likewise.
   }
