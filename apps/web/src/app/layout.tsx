@@ -7,6 +7,7 @@ import { TikTokPixel } from './tiktok-pixel';
 import { BottomNav } from './bottom-nav';
 import { WhatsappChannelPopup } from './whatsapp-channel-popup';
 import { whatsappChannelUrl } from '../lib/whatsapp-channel';
+import { legalIdentity, pending } from '../lib/legal';
 import logo from '../assets/logo.webp';
 import './globals.css';
 
@@ -122,6 +123,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <div className="footer-note">
             No afiliado a Garena. Free Fire es marca de sus respectivos dueños.
+          </div>
+          <div className="footer-note">
+            Operado por {pending(legalIdentity().legalName, 'razón social')}.
           </div>
           <div className="footer-note">Juega más. Domina más.</div>
         </footer>
