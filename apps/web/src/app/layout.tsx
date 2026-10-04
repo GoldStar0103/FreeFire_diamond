@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { googleSiteVerification } from '../lib/google-verification';
+import { facebookDomainVerification, googleSiteVerification } from '../lib/google-verification';
 import { siteOrigin } from '../lib/site';
 import { metaPixelId, tiktokPixelId } from '../lib/pixel-ids';
 import { MetaPixel } from './meta-pixel';
@@ -37,6 +37,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function generateMetadata(): Promise<Metadata> {
   const google = googleSiteVerification();
+  const facebook = facebookDomainVerification();
+  const verification = {
+    ...(google ? { google } : {}),
+    ...(facebook ? { other: { 'facebook-domain-verification': facebook } } : {}),
+  };
 
   return {
     metadataBase: new URL(siteOrigin()),
@@ -53,7 +58,7 @@ export async function generateMetadata(): Promise<Metadata> {
     // override it declare itself to be the homepage — which tells search engines
     // to drop /confianza and both legal notices in favour of it. Each page sets
     // its own.
-    ...(google ? { verification: { google } } : {}),
+    ...(Object.keys(verification).length > 0 ? { verification } : {}),
     openGraph: {
       type: 'website',
       siteName: 'LevelUp Store',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { googleSiteVerification } from './google-verification.js';
+import { facebookDomainVerification, googleSiteVerification } from './google-verification.js';
 
 /**
  * The token is interpolated into a meta tag on every storefront page.
@@ -36,5 +36,23 @@ describe('googleSiteVerification', () => {
 
   it.each(INJECTIONS)('never lets %p through', (value) => {
     expect(googleSiteVerification(value)).toBeNull();
+  });
+});
+
+describe('facebookDomainVerification', () => {
+  it('accepts the token Business Manager shows for the HTML tag', () => {
+    expect(facebookDomainVerification('s62my11hzeeq6wbmjhqsskt6kgo8gt')).toBe(
+      's62my11hzeeq6wbmjhqsskt6kgo8gt',
+    );
+  });
+
+  it('trims what gets pasted around it', () => {
+    expect(facebookDomainVerification('  s62my11hzeeq6wbmjhqsskt6kgo8gt\n')).toBe(
+      's62my11hzeeq6wbmjhqsskt6kgo8gt',
+    );
+  });
+
+  it.each(INJECTIONS)('never lets %p through', (value) => {
+    expect(facebookDomainVerification(value)).toBeNull();
   });
 });
