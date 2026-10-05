@@ -228,8 +228,10 @@ export class RecargasAmericaProvider implements TopupProvider {
       throw new ProviderProtocolError(`Validation failed: ${res.message}`);
     }
 
-    // The capability check itself: only the manual_id recharge family
-    // supports pre-purchase validation — see catalog.ts's doc comment.
+    // Capability check: /catalog/validate sets supported:false for product
+    // families that cannot look up a nickname (e.g. redeemable pins). Direct
+    // diamond recharges — both manual_id and player_id — return supported:true
+    // on the live catalog as of 2026-10-05; see catalog.ts.
     if (!res.data.supported) {
       throw new ValidationUnsupportedError(providerProductId);
     }

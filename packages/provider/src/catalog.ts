@@ -10,22 +10,21 @@
  * `type`/`required_fields` instead of by which endpoint a row came from:
  *
  *   - `type: "recharge"`, `required_fields: ["manual_id"]` — direct top-up to
- *     the player's account, WITH pre-purchase validation. This is the old
- *     `/products/pins` "type=recharge" row, and the only kind of product
- *     LevelUp's six combos are actually built from (`pins_recharge`).
- *   - `type: "recharge"`, `required_fields: ["player_id"]` — direct top-up,
- *     no validation. The old `/products/games` row (`games`).
+ *     the player's account, WITH pre-purchase validation (`pins_recharge`).
+ *     Was the only Free Fire diamond family on 2026-09-20; later removed from
+ *     the live catalog in favour of the `player_id` family below.
+ *   - `type: "recharge"`, `required_fields: ["player_id"]` — direct top-up
+ *     (`games`). As of 2026-10-05 this is what the live catalog actually
+ *     returns for the six diamond packs, and `/catalog/validate` reports
+ *     `supported:true` for those ids (confirmed against product id 5).
  *   - anything else (`type: "pin"`) — a redeemable code, not a top-up
  *     (`pins_code`) — never sold as a recarga, same as before.
  *
- * Confirmed empirically against the live API on 2026-09-20 (no public docs
- * for the unified shape were found): `POST /catalog/validate` for a
- * `pins_recharge`-shaped product returns
- * `{"supported":true,"status":true,"account_name":"…"}` for a known player,
- * and `{"supported":false}` for a `games`- or `pins_code`-shaped one — so
- * `supported` is the new capability flag replacing the old API's
- * `INVALID_PRODUCT_TYPE` error code, while `status`/`account_name` are
- * unchanged from before.
+ * `canValidate` follows what `/catalog/validate` actually supports today, not
+ * the 2026-09-20 snapshot that had `supported:false` for the `player_id`
+ * family. Leaving that flag false after the provider dropped `manual_id`
+ * SKUs left the storefront with zero active validatable products and blocked
+ * every checkout at step 1.
  *
  * Its product names are still free text. Turning that into the six base
  * denominations LevelUp actually builds combos from is guesswork on strings,
@@ -151,9 +150,10 @@ export function normaliseCatalogProduct(raw: RawCatalogProduct): ProviderProduct
       diamondsBase: extractDiamonds(name),
       costUsd: safeUsd(raw.price),
       requiresServerId: fields.some((f) => /server/i.test(f)),
-      // /catalog/validate reports supported:false for anything but the
-      // manual_id recharge family.
-      canValidate: false,
+      // Live /catalog/validate returns supported:true for these diamond packs
+      // (2026-10-05). Checkout looks up active+canValidate; false here bricks
+      // every ID check even though fulfilment still works.
+      canValidate: true,
       raw,
     };
   }
@@ -175,8 +175,10 @@ export function normaliseCatalogProduct(raw: RawCatalogProduct): ProviderProduct
  * Pick the best product for a denomination.
  *
  * Preference order matters commercially, not just technically:
- *   1. `pins_recharge` — direct top-up AND a nickname check before charging
- *   2. `games`         — direct top-up, but the customer confirms their own ID
+ *   1. `pins_recharge` — direct top-up (manual_id family), when the provider
+ *      still lists it
+ *   2. `games`         — direct top-up (player_id family); also validatable on
+ *      today's catalog
  *   3. `pins_code`     — a redeemable code, which is not the product LevelUp sells
  */
 export function rankProduct(product: ProviderProduct): number {

@@ -65,7 +65,7 @@ describe('normaliseCatalogProduct with delivered-figure names', () => {
     });
     expect(product.diamondsBase).toBe(1060);
     expect(product.endpointKind).toBe('games');
-    expect(product.canValidate).toBe(false);
+    expect(product.canValidate).toBe(true);
   });
 
   it('still maps a direct-to-account recharge product renamed to its delivered count', () => {
