@@ -683,6 +683,16 @@ export const levelPassCheckpointEvents = pgTable(
     relatedOrderId: uuid('related_order_id').references(() => orders.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The synthetic `$0` order that delivers this specific reward — distinct
+     * from `related_order_id`, which is the paid order that crossed the
+     * checkpoint. Null until `createPendingRewardOrders` creates one; once
+     * set, it never changes — a second attempt is a different concept this
+     * schema does not need yet.
+     */
+    rewardOrderId: uuid('reward_order_id').references(() => orders.id, {
+      onDelete: 'set null',
+    }),
     reason: text('reason'),
     reachedAt: timestamp('reached_at', { withTimezone: true }).notNull().defaultNow(),
     grantedAt: timestamp('granted_at', { withTimezone: true }),

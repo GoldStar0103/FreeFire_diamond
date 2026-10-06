@@ -8,8 +8,10 @@
 
 import {
   closeDueSeasons,
+  createPendingRewardOrders,
   expireOverduePayments,
   fulfillOrder,
+  grantCompletedRewardOrders,
   PROVIDER_LOCK_KEY,
   recoverStalledItems,
   pollPendingOrders,
@@ -29,6 +31,7 @@ import type {
   LevelPassSweepResult,
   LevelPassSweepStore,
   RecoveryStore,
+  RewardFulfillmentStore,
   SeasonCloseResult,
   SeasonStore,
   StuckPaymentStore,
@@ -406,5 +409,38 @@ export async function runSeasonClose(deps: { store: SeasonStore }): Promise<Seas
   } catch (err) {
     console.error(`[seasons] Sweep failed: ${String(err)}`);
     return null;
+  }
+}
+
+/**
+ * Level Pass reward delivery, in two halves: turn a reached checkpoint into a
+ * real `$0` order (which `runFulfillmentLoop`/the poller above then deliver
+ * like any other order, on their own next pass), then close the loop for
+ * whichever of those orders has since completed. Same "separate optional dep
+ * bundle" shape as `runLevelPassSync` — a failure here must never hold up a
+ * real delivery.
+ */
+export async function runRewardDelivery(
+  deps: { store: RewardFulfillmentStore },
+  batchSize: number,
+): Promise<void> {
+  try {
+    const created = await createPendingRewardOrders(deps, batchSize);
+    if (created.examined > 0) {
+      console.log(
+        `[rewards] ${created.created} order(s) created, ${created.unresolved} unresolved, ${created.failed} failed`,
+      );
+    }
+  } catch (err) {
+    console.error(`[rewards] Could not create pending reward orders: ${String(err)}`);
+  }
+
+  try {
+    const granted = await grantCompletedRewardOrders(deps, batchSize);
+    if (granted.examined > 0) {
+      console.log(`[rewards] ${granted.granted} granted, ${granted.failed} failed`);
+    }
+  } catch (err) {
+    console.error(`[rewards] Could not grant completed reward orders: ${String(err)}`);
   }
 }

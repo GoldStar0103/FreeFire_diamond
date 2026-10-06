@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
-import { createOrder } from '@levelup/engine';
+import { createOrder, LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import { ProviderSimulator, type ProviderProduct, type UsdTenK } from '@levelup/provider';
 import { createDb, type Database } from '../index.js';
 import { campaigns, comboItems, combos, baseProducts, orderItems, orders, payments } from '../schema.js';
@@ -140,6 +140,37 @@ async function completeOrder(
   });
 }
 
+/**
+ * A Level Pass reward order, inserted directly rather than through
+ * `createOrder` — it has no real combo, no payment, and a real recharge
+ * cost against a $0 price, exactly what `createRewardOrder` produces.
+ */
+async function seedCompletedRewardOrder(playerId: string, completedAt: Date, costUsd: string) {
+  const [order] = await db
+    .insert(orders)
+    .values({
+      orderNumber: `LU-REWARD-${playerId}`,
+      playerId,
+      comboId: null,
+      comboKey: LEVEL_PASS_REWARD_COMBO_KEY,
+      comboSnapshot: { name: 'Recompensa Level Pass' },
+      priceMxnCents: 0,
+      status: 'completed',
+      completedAt,
+      createdAt: completedAt,
+    })
+    .returning();
+  await db.insert(orderItems).values({
+    orderId: order!.id,
+    sequence: 0,
+    providerProductId: 'd100',
+    diamondsBase: 100,
+    costUsd,
+    status: 'succeeded',
+  });
+  return order!;
+}
+
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
   await db.execute(
@@ -185,6 +216,31 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
       // because the fee itself is an estimate for card payments.
       netProfitCents: 10_000 - 3_000 - 766,
     });
+  });
+
+  it('excludes a completed Level Pass reward order from every figure — it is not a sale', async () => {
+    const saleOrder = await placeOrder('1111111111');
+    const inRange = new Date('2026-09-14T18:00:00Z');
+    await completeOrder(saleOrder.id, {
+      completedAt: inRange,
+      costUsd: '1.5000',
+      method: 'card',
+      gateway: 'stripe',
+      amountReceivedCents: 10_000,
+    });
+    // A real recharge cost, zero price — exactly what a granted reward looks
+    // like. If this were counted, it would drag net sales down by its cost
+    // with no corresponding revenue, and inflate the completed-order count.
+    await seedCompletedRewardOrder('2222222222', inRange, '1.0000');
+
+    const range = mexicoCityDayRange(inRange);
+    const summary = await getAccountingSummary(db, range);
+
+    expect(summary.grossSalesCents).toBe(10_000);
+    expect(summary.recargaCostCents).toBe(3_000); // only the real sale's cost
+    expect(summary.orderCounts).toEqual({ completed: 1, pending: 0, cancelled: 0 });
+    expect(summary.movements).toHaveLength(1);
+    expect(summary.movements[0]?.orderNumber).toBe(saleOrder.orderNumber);
   });
 
   it('keeps a Stripe SPEI sale and a Mercado Pago SPEI sale in separate buckets, not merged under one "spei"', async () => {

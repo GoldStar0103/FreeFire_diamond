@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
+import { baseProducts } from '../schema.js';
 import {
   DEFAULT_LEVEL_PASS_CHECKPOINTS,
   getLevelPassCheckpoints,
   reviewLevelPassCheckpoints,
   saveLevelPassCheckpoints,
+  type LevelPassCheckpointDraft,
 } from './level-pass-settings.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -51,9 +53,29 @@ afterAll(async () => {
   await client?.end({ timeout: 5 });
 }, 30_000);
 
+/** A minimal active provider product for the given denomination, for recipe resolution. */
+async function seedProduct(diamondsBase: number): Promise<void> {
+  await db.insert(baseProducts).values({
+    providerProductId: `prov-${diamondsBase}`,
+    endpointKind: 'pins_recharge',
+    name: `Test ${diamondsBase}`,
+    diamondsBase,
+    costUsd: '1.0000',
+    active: true,
+  });
+}
+
+const draft = (overrides: Partial<LevelPassCheckpointDraft> = {}): LevelPassCheckpointDraft => ({
+  lp: 10,
+  rewardDiamonds: 5,
+  costCents: 50,
+  recipe: [5],
+  ...overrides,
+});
+
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
-  await db.execute(raw`TRUNCATE settings`);
+  await db.execute(raw`TRUNCATE settings, base_products CASCADE`);
 });
 
 describe('getLevelPassCheckpoints', () => {
@@ -61,20 +83,33 @@ describe('getLevelPassCheckpoints', () => {
     expect(await getLevelPassCheckpoints(db)).toEqual(DEFAULT_LEVEL_PASS_CHECKPOINTS);
   });
 
-  it('returns a saved ladder, and saving again overwrites it', async () => {
-    await saveLevelPassCheckpoints(db, [{ lp: 10, rewardDiamonds: 5, costCents: 50 }]);
-    expect(await getLevelPassCheckpoints(db)).toEqual([{ lp: 10, rewardDiamonds: 5, costCents: 50 }]);
+  it('returns a saved ladder, pinned to the active product for its recipe, and saving again overwrites it', async () => {
+    await seedProduct(5);
+    await saveLevelPassCheckpoints(db, [draft()]);
+    const [saved] = await getLevelPassCheckpoints(db);
+    expect(saved).toMatchObject({ lp: 10, rewardDiamonds: 5, costCents: 50 });
+    expect(saved?.recipe).toHaveLength(1);
+    expect(saved?.recipe[0]?.diamondsBase).toBe(5);
 
-    await saveLevelPassCheckpoints(db, [{ lp: 20, rewardDiamonds: 15, costCents: 150 }]);
-    expect(await getLevelPassCheckpoints(db)).toEqual([{ lp: 20, rewardDiamonds: 15, costCents: 150 }]);
+    await seedProduct(15);
+    await saveLevelPassCheckpoints(db, [draft({ lp: 20, rewardDiamonds: 15, costCents: 150, recipe: [15] })]);
+    const [resaved] = await getLevelPassCheckpoints(db);
+    expect(resaved).toMatchObject({ lp: 20, rewardDiamonds: 15, costCents: 150 });
+  });
+
+  it('refuses to save a recipe denomination with no active provider product', async () => {
+    await expect(saveLevelPassCheckpoints(db, [draft({ recipe: [999] })])).rejects.toThrow(/999/);
   });
 });
 
 describe('reviewLevelPassCheckpoints', () => {
-  it('accepts a strictly ascending, positive-integer ladder', () => {
-    const result = reviewLevelPassCheckpoints(DEFAULT_LEVEL_PASS_CHECKPOINTS);
-    expect(result.checkpoints).toEqual(DEFAULT_LEVEL_PASS_CHECKPOINTS);
+  it('accepts a strictly ascending, positive-integer ladder with a delivering recipe', () => {
+    const result = reviewLevelPassCheckpoints([
+      draft({ lp: 60, rewardDiamonds: 110, costCents: 1_200, recipe: [100] }),
+      draft({ lp: 260, rewardDiamonds: 340, costCents: 4_000, recipe: [310] }),
+    ]);
     expect(result.issues).toEqual([]);
+    expect(result.checkpoints).not.toBeNull();
   });
 
   it('rejects an empty ladder', () => {
@@ -84,17 +119,27 @@ describe('reviewLevelPassCheckpoints', () => {
   });
 
   it('rejects LP thresholds that are not strictly increasing', () => {
-    const result = reviewLevelPassCheckpoints([
-      { lp: 100, rewardDiamonds: 10, costCents: 100 },
-      { lp: 100, rewardDiamonds: 20, costCents: 200 },
-    ]);
+    const result = reviewLevelPassCheckpoints([draft({ lp: 100 }), draft({ lp: 100 })]);
     expect(result.checkpoints).toBeNull();
     expect(result.issues.some((i) => i.message.includes('crecientes'))).toBe(true);
   });
 
   it('rejects a non-integer or non-positive reward/cost value', () => {
-    const result = reviewLevelPassCheckpoints([{ lp: 100, rewardDiamonds: -5, costCents: 1.5 }]);
+    const result = reviewLevelPassCheckpoints([draft({ rewardDiamonds: -5, costCents: 1.5 })]);
     expect(result.checkpoints).toBeNull();
     expect(result.issues.length).toBeGreaterThan(0);
+  });
+
+  it('rejects an empty recipe', () => {
+    const result = reviewLevelPassCheckpoints([draft({ recipe: [] })]);
+    expect(result.checkpoints).toBeNull();
+    expect(result.issues.some((i) => i.message.includes('receta'))).toBe(true);
+  });
+
+  it('rejects a recipe that under-delivers against the promised reward', () => {
+    // 5 diamonds + 10% bonus = 5 (rounded down), nowhere near 500.
+    const result = reviewLevelPassCheckpoints([draft({ rewardDiamonds: 500, recipe: [5] })]);
+    expect(result.checkpoints).toBeNull();
+    expect(result.issues.some((i) => i.message.includes('entrega'))).toBe(true);
   });
 });

@@ -1,5 +1,7 @@
+import type { EndpointKind, UsdTenK } from '@levelup/provider';
+
 /**
- * Level Pass: the order-completion event flow.
+ * Level Pass: the order-completion event flow, and reward delivery.
  *
  * Level Points (LP) are a customer-friendly stand-in for roughly $1 MXN of
  * net profit per paid order. The customer must never see that relationship —
@@ -27,8 +29,33 @@
  * reached) never flow back through this function — they are not "orders" in
  * the paid sense, so nothing here generates recursive LP for them. That is
  * enforced simply by never calling this for a reward delivery, not by a
- * special case in the logic below.
+ * special case in the logic below — AND by `findUnprocessedOrders` excluding
+ * `LEVEL_PASS_REWARD_COMBO_KEY` orders explicitly, since the sweep below
+ * discovers completed orders itself rather than being handed one.
+ *
+ * Reward delivery (`createPendingRewardOrders`/`grantCompletedRewardOrders`,
+ * further down) deliberately reuses the real paid-order pipeline —
+ * `fulfillOrder`, the poller, the wallet-delta ambiguity resolution — instead
+ * of a second, simpler delivery path. A reward is free diamonds, but the
+ * provider call that delivers them is the exact same call with the exact same
+ * "never retry an ambiguous outcome blindly" hazard a real sale has; that
+ * logic is already correct and already tested, so a checkpoint reward
+ * becomes a normal `$0` order that the existing worker sweep fulfils like any
+ * other, rather than a parallel implementation of the hard part.
  */
+
+export interface LevelPassRewardRecipeEntry {
+  /**
+   * Pinned to a specific `base_products` row at save time, exactly like a
+   * combo's `comboItems.baseProductId` — not to a `providerProductId`, which
+   * a catalog re-sync can re-point onto a different row. `diamondsBase` is a
+   * snapshot for display only; delivery re-reads the live row by id, so a
+   * later re-sync that changes its cost or deactivates it is picked up
+   * automatically, the same as a combo's recipe.
+   */
+  baseProductId: string;
+  diamondsBase: number;
+}
 
 export interface LevelPassCheckpointConfig {
   /** Cumulative LP threshold, e.g. 60, 260, 585, 1185. */
@@ -36,7 +63,27 @@ export interface LevelPassCheckpointConfig {
   rewardDiamonds: number;
   /** Internal cost of that reward, frozen onto the grant when awarded. */
   costCents: number;
+  /**
+   * What actually gets delivered: one or more provider denominations summing
+   * to at least `rewardDiamonds` (checked with `checkRecipe`, same tolerance
+   * rule combos use). Authored in /temporadas against the live synced
+   * catalog — the provider has no denomination smaller than its own base
+   * SKUs, so a reward that does not land exactly on one must over-deliver
+   * onto the next one up, same as a combo would.
+   */
+  recipe: LevelPassRewardRecipeEntry[];
 }
+
+/**
+ * Marks a synthetic order that delivers a free Level Pass reward rather than
+ * a real sale. `combo_key` is a plain, non-FK column on `orders` for exactly
+ * this reason — a reward order needs a stable marker but must never need a
+ * real row in `combos` (which the admin catalog UI manages and would
+ * otherwise have to know to hide). Accounting-queries.ts excludes this key
+ * from every revenue/order-count figure; level-pass-store.ts excludes it from
+ * the LP-award sweep so a free reward can never generate recursive LP.
+ */
+export const LEVEL_PASS_REWARD_COMBO_KEY = 'level_pass_reward';
 
 export interface LevelPassOrderFinancials {
   orderId: string;
@@ -225,6 +272,160 @@ export async function syncLevelPass(deps: LevelPassSweepDeps): Promise<LevelPass
     } catch (err) {
       result.failed++;
       console.error(`[level-pass] Could not process order ${order.orderId}: ${String(err)}`);
+    }
+  }
+
+  return result;
+}
+
+// ── reward delivery ───────────────────────────────────────────────────────────
+
+/** One checkpoint waiting for a reward order: reached, not yet delivered. */
+export interface PendingCheckpointReward {
+  checkpointEventId: string;
+  seasonId: string;
+  /** Free Fire ID — what the provider call actually tops up. */
+  playerId: string;
+  checkpointLp: number;
+  rewardDiamonds: number;
+  recipe: LevelPassRewardRecipeEntry[];
+}
+
+/** A `recipe` line resolved against the live catalog, ready to become an order item. */
+export interface ResolvedRewardCatalogEntry {
+  providerProductId: string;
+  baseProductId: string;
+  endpointKind: EndpointKind;
+  diamondsBase: number;
+  /** Null when the catalog has not synced a cost for this product yet. */
+  costUsd: UsdTenK | null;
+  active: boolean;
+}
+
+export interface ResolvedRewardItem {
+  sequence: number;
+  baseProductId: string;
+  providerProductId: string;
+  endpointKind: EndpointKind;
+  diamondsBase: number;
+  costUsd: UsdTenK;
+}
+
+/** A reward order whose items have all reached their terminal state as `completed`. */
+export interface GrantableRewardOrder {
+  checkpointEventId: string;
+  seasonId: string;
+  rewardOrderId: string;
+  internalCostCents: number;
+}
+
+export interface RewardFulfillmentStore {
+  /** Checkpoint events reached but with no reward order created yet. */
+  findGrantableCheckpointEvents(limit: number): Promise<PendingCheckpointReward[]>;
+  /** Live catalog rows for the given `base_products.id`s, by that same id. */
+  resolveRewardCatalog(baseProductIds: string[]): Promise<ResolvedRewardCatalogEntry[]>;
+  /**
+   * Creates the `$0` order and links it onto the checkpoint event in one
+   * transaction, guarded so a second call for the same event is a no-op —
+   * the real guard against ever creating two reward orders for one grant.
+   */
+  createRewardOrder(
+    reward: PendingCheckpointReward,
+    items: ResolvedRewardItem[],
+  ): Promise<{ created: boolean; orderId: string; orderNumber: string }>;
+  /** Reward orders that reached `completed` since they were created. */
+  findCompletedRewardOrders(limit: number): Promise<GrantableRewardOrder[]>;
+  /** Marks the checkpoint granted and records the ledger expense, together, idempotently. */
+  grantReward(row: GrantableRewardOrder): Promise<void>;
+}
+
+export interface CreatePendingRewardOrdersResult {
+  examined: number;
+  created: number;
+  /** Recipe did not resolve against the live catalog — needs an admin fix in /temporadas. */
+  unresolved: number;
+  failed: number;
+}
+
+/**
+ * Turn every reached-but-undelivered checkpoint into a real `$0` order the
+ * existing fulfilment worker will pick up on its own next pass — nothing
+ * here calls the provider directly.
+ */
+export async function createPendingRewardOrders(
+  deps: { store: RewardFulfillmentStore },
+  batchSize: number,
+): Promise<CreatePendingRewardOrdersResult> {
+  const pending = await deps.store.findGrantableCheckpointEvents(batchSize);
+  const result: CreatePendingRewardOrdersResult = { examined: pending.length, created: 0, unresolved: 0, failed: 0 };
+
+  for (const reward of pending) {
+    try {
+      const ids = [...new Set(reward.recipe.map((r) => r.baseProductId))];
+      const catalog = await deps.store.resolveRewardCatalog(ids);
+      const byId = new Map(catalog.map((c) => [c.baseProductId, c]));
+
+      const items: ResolvedRewardItem[] = [];
+      let unresolved = false;
+      reward.recipe.forEach((entry, index) => {
+        const match = byId.get(entry.baseProductId);
+        if (!match || !match.active || match.costUsd === null) {
+          unresolved = true;
+          return;
+        }
+        items.push({
+          sequence: index,
+          baseProductId: match.baseProductId,
+          providerProductId: match.providerProductId,
+          endpointKind: match.endpointKind,
+          diamondsBase: match.diamondsBase,
+          costUsd: match.costUsd,
+        });
+      });
+
+      if (unresolved || items.length === 0) {
+        result.unresolved++;
+        console.error(
+          `[level-pass] Checkpoint ${reward.checkpointLp} reward for player ${reward.playerId} has no ` +
+            `deliverable recipe against the live catalog — fix it in /temporadas before this can grant.`,
+        );
+        continue;
+      }
+
+      const outcome = await deps.store.createRewardOrder(reward, items);
+      if (outcome.created) result.created++;
+    } catch (err) {
+      result.failed++;
+      console.error(
+        `[level-pass] Could not create a reward order for checkpoint event ${reward.checkpointEventId}: ${String(err)}`,
+      );
+    }
+  }
+
+  return result;
+}
+
+export interface GrantCompletedRewardsResult {
+  examined: number;
+  granted: number;
+  failed: number;
+}
+
+/** Close the loop: a reward order that finished delivering becomes a granted checkpoint and a ledger expense. */
+export async function grantCompletedRewardOrders(
+  deps: { store: RewardFulfillmentStore },
+  batchSize: number,
+): Promise<GrantCompletedRewardsResult> {
+  const completed = await deps.store.findCompletedRewardOrders(batchSize);
+  const result: GrantCompletedRewardsResult = { examined: completed.length, granted: 0, failed: 0 };
+
+  for (const row of completed) {
+    try {
+      await deps.store.grantReward(row);
+      result.granted++;
+    } catch (err) {
+      result.failed++;
+      console.error(`[level-pass] Could not grant checkpoint event ${row.checkpointEventId}: ${String(err)}`);
     }
   }
 

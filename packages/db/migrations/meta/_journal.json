@@ -50,6 +50,13 @@
       "when": 1791284629355,
       "tag": "0006_seasons_level_pass_vault_badges",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791307158019,
+      "tag": "0007_level_pass_reward_order",
+      "breakpoints": true
     }
   ]
 }

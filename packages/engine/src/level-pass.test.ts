@@ -1,20 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createPendingRewardOrders,
   decideLevelPassOutcome,
+  grantCompletedRewardOrders,
   processOrderCompletion,
   syncLevelPass,
+  type GrantableRewardOrder,
   type LevelPassCheckpointConfig,
   type LevelPassCurrentState,
   type LevelPassOrderFinancials,
   type LevelPassStore,
   type LevelPassSweepStore,
+  type PendingCheckpointReward,
+  type ResolvedRewardCatalogEntry,
+  type RewardFulfillmentStore,
 } from './level-pass.js';
+import type { UsdTenK } from '@levelup/provider';
 
 const CHECKPOINTS: LevelPassCheckpointConfig[] = [
-  { lp: 60, rewardDiamonds: 110, costCents: 1_200 },
-  { lp: 260, rewardDiamonds: 340, costCents: 4_000 },
-  { lp: 585, rewardDiamonds: 570, costCents: 6_500 },
-  { lp: 1_185, rewardDiamonds: 1_160, costCents: 12_000 },
+  { lp: 60, rewardDiamonds: 110, costCents: 1_200, recipe: [{ baseProductId: 'bp-110', diamondsBase: 110 }] },
+  { lp: 260, rewardDiamonds: 340, costCents: 4_000, recipe: [{ baseProductId: 'bp-340', diamondsBase: 340 }] },
+  { lp: 585, rewardDiamonds: 570, costCents: 6_500, recipe: [{ baseProductId: 'bp-570', diamondsBase: 570 }] },
+  { lp: 1_185, rewardDiamonds: 1_160, costCents: 12_000, recipe: [{ baseProductId: 'bp-1160', diamondsBase: 1_160 }] },
 ];
 
 const state = (overrides: Partial<LevelPassCurrentState> = {}): LevelPassCurrentState => ({
@@ -257,5 +264,143 @@ describe('syncLevelPass', () => {
       completedAfter: new Date('2026-10-09T23:00:00Z'),
       limit: 7,
     });
+  });
+});
+
+const usd = (n: number) => (n * 10_000) as UsdTenK;
+
+const reward = (overrides: Partial<PendingCheckpointReward> = {}): PendingCheckpointReward => ({
+  checkpointEventId: 'event-1',
+  seasonId: 'season-1',
+  playerId: '100001',
+  checkpointLp: 60,
+  rewardDiamonds: 110,
+  recipe: [{ baseProductId: 'bp-100', diamondsBase: 100 }],
+  ...overrides,
+});
+
+const catalogEntry = (overrides: Partial<ResolvedRewardCatalogEntry> = {}): ResolvedRewardCatalogEntry => ({
+  providerProductId: 'prov-100',
+  baseProductId: 'bp-100',
+  endpointKind: 'pins_recharge',
+  diamondsBase: 100,
+  costUsd: usd(1),
+  active: true,
+  ...overrides,
+});
+
+function rewardStoreHarness(overrides: Partial<RewardFulfillmentStore> = {}): RewardFulfillmentStore {
+  return {
+    findGrantableCheckpointEvents: vi.fn(async () => []),
+    resolveRewardCatalog: vi.fn(async () => [catalogEntry()]),
+    createRewardOrder: vi.fn(async () => ({ created: true, orderId: 'order-r1', orderNumber: 'LU-TEST' })),
+    findCompletedRewardOrders: vi.fn(async () => []),
+    grantReward: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+describe('createPendingRewardOrders', () => {
+  it('does nothing when nothing is grantable', async () => {
+    const store = rewardStoreHarness();
+    const result = await createPendingRewardOrders({ store }, 50);
+    expect(result).toEqual({ examined: 0, created: 0, unresolved: 0, failed: 0 });
+  });
+
+  it('resolves the recipe against the live catalog and creates an order', async () => {
+    const store = rewardStoreHarness({
+      findGrantableCheckpointEvents: vi.fn(async () => [reward()]),
+    });
+    const result = await createPendingRewardOrders({ store }, 50);
+
+    expect(result).toEqual({ examined: 1, created: 1, unresolved: 0, failed: 0 });
+    expect(store.resolveRewardCatalog).toHaveBeenCalledWith(['bp-100']);
+    expect(store.createRewardOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ checkpointEventId: 'event-1' }),
+      [
+        expect.objectContaining({
+          sequence: 0,
+          baseProductId: 'bp-100',
+          providerProductId: 'prov-100',
+          diamondsBase: 100,
+          costUsd: usd(1),
+        }),
+      ],
+    );
+  });
+
+  it('counts as unresolved, not failed, when the recipe product is inactive', async () => {
+    const store = rewardStoreHarness({
+      findGrantableCheckpointEvents: vi.fn(async () => [reward()]),
+      resolveRewardCatalog: vi.fn(async () => [catalogEntry({ active: false })]),
+    });
+    const result = await createPendingRewardOrders({ store }, 50);
+
+    expect(result).toEqual({ examined: 1, created: 0, unresolved: 1, failed: 0 });
+    expect(store.createRewardOrder).not.toHaveBeenCalled();
+  });
+
+  it('counts as unresolved when the catalog has no synced cost yet', async () => {
+    const store = rewardStoreHarness({
+      findGrantableCheckpointEvents: vi.fn(async () => [reward()]),
+      resolveRewardCatalog: vi.fn(async () => [catalogEntry({ costUsd: null })]),
+    });
+    const result = await createPendingRewardOrders({ store }, 50);
+    expect(result.unresolved).toBe(1);
+  });
+
+  it('counts as unresolved when a recipe line has no matching catalog row at all', async () => {
+    const store = rewardStoreHarness({
+      findGrantableCheckpointEvents: vi.fn(async () => [reward()]),
+      resolveRewardCatalog: vi.fn(async () => []),
+    });
+    const result = await createPendingRewardOrders({ store }, 50);
+    expect(result.unresolved).toBe(1);
+  });
+
+  it('keeps going and reports the failure when one reward throws', async () => {
+    const store = rewardStoreHarness({
+      findGrantableCheckpointEvents: vi.fn(async () => [reward({ checkpointEventId: 'a' }), reward({ checkpointEventId: 'b' })]),
+      createRewardOrder: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('db down'))
+        .mockResolvedValueOnce({ created: true, orderId: 'order-r2', orderNumber: 'LU-TEST2' }),
+    });
+    const result = await createPendingRewardOrders({ store }, 50);
+    expect(result).toEqual({ examined: 2, created: 1, unresolved: 0, failed: 1 });
+  });
+});
+
+describe('grantCompletedRewardOrders', () => {
+  const grantable = (overrides: Partial<GrantableRewardOrder> = {}): GrantableRewardOrder => ({
+    checkpointEventId: 'event-1',
+    seasonId: 'season-1',
+    rewardOrderId: 'order-r1',
+    internalCostCents: 1_200,
+    ...overrides,
+  });
+
+  it('does nothing when nothing has completed', async () => {
+    const store = rewardStoreHarness();
+    const result = await grantCompletedRewardOrders({ store }, 50);
+    expect(result).toEqual({ examined: 0, granted: 0, failed: 0 });
+  });
+
+  it('grants every completed reward order', async () => {
+    const store = rewardStoreHarness({
+      findCompletedRewardOrders: vi.fn(async () => [grantable({ checkpointEventId: 'a' }), grantable({ checkpointEventId: 'b' })]),
+    });
+    const result = await grantCompletedRewardOrders({ store }, 50);
+    expect(result).toEqual({ examined: 2, granted: 2, failed: 0 });
+    expect(store.grantReward).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps going and reports the failure when one grant throws', async () => {
+    const store = rewardStoreHarness({
+      findCompletedRewardOrders: vi.fn(async () => [grantable({ checkpointEventId: 'a' }), grantable({ checkpointEventId: 'b' })]),
+      grantReward: vi.fn().mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(undefined),
+    });
+    const result = await grantCompletedRewardOrders({ store }, 50);
+    expect(result).toEqual({ examined: 2, granted: 1, failed: 1 });
   });
 });

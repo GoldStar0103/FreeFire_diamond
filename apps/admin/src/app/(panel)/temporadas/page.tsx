@@ -1,4 +1,4 @@
-import { getCurrentSeason, getLevelPassCheckpoints, listSeasonHistory } from '@levelup/db';
+import { DrizzleCatalogAdminStore, getCurrentSeason, getLevelPassCheckpoints, listSeasonHistory } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, diamonds } from '../../../lib/format';
@@ -10,11 +10,19 @@ export const dynamic = 'force-dynamic';
 export default async function TemporadasPage() {
   await requireSession();
   const db = getDb();
-  const [season, checkpoints, history] = await Promise.all([
+  const [season, checkpoints, history, available] = await Promise.all([
     getCurrentSeason(db),
     getLevelPassCheckpoints(db),
     listSeasonHistory(db),
+    new DrizzleCatalogAdminStore(db).listAvailableProducts(),
   ]);
+
+  const checkpointRows = checkpoints.map((cp) => ({
+    lp: cp.lp,
+    rewardDiamonds: cp.rewardDiamonds,
+    costCents: cp.costCents,
+    recipe: cp.recipe.map((r) => r.diamondsBase),
+  }));
 
   return (
     <>
@@ -46,7 +54,7 @@ export default async function TemporadasPage() {
           Cambiar estos valores no afecta recompensas ya otorgadas — cada una guarda su propio costo
           al momento de entregarse.
         </p>
-        <CheckpointsForm initial={checkpoints} />
+        <CheckpointsForm initial={checkpointRows} available={available} />
       </div>
 
       {history.length > 0 && (

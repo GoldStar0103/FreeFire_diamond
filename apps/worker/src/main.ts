@@ -30,6 +30,7 @@ import {
   runConversions,
   runFulfillmentLoop,
   runLevelPassSync,
+  runRewardDelivery,
   runSeasonClose,
   runSweepOnce,
   ShutdownSignal,
@@ -117,6 +118,10 @@ async function main(): Promise<void> {
         lookbackMs: config.levelPass.lookbackMs,
         batchSize: config.levelPass.batchSize,
       });
+      // Reuses the same store instance — it also implements
+      // `RewardFulfillmentStore`. Delivery itself happens through the
+      // ordinary fulfilment loop above, not here.
+      await runRewardDelivery({ store: levelPassStore }, config.levelPass.batchSize);
       await runSeasonClose({ store: seasonStore });
       // A beat per completed sweep, on top of the timer's. The timer proves the
       // event loop turns; this proves the sweep itself is still coming round.

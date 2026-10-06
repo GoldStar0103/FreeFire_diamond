@@ -11,7 +11,8 @@
  * back from the gateway) that this deliberately does not attempt.
  */
 
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
+import { LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import type { Database } from '../index.js';
 import { orderItems, orders, payments } from '../schema.js';
 import { getFxRate } from './payment-settings.js';
@@ -96,10 +97,15 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
 
   // This is a sales/revenue report — completed is the FSM's terminal,
   // irreversible recognition point (matches the existing Inicio dashboard tile).
+  // A Level Pass reward order is not a sale — it carries a real recharge
+  // cost but zero price, which would understate net sales if counted here.
+  // Its cost is recorded separately as a `financial_ledger_entries` expense
+  // once granted; see level-pass.ts's own note on why.
   const completedFilter = and(
     eq(orders.status, 'completed'),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
+    ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
   );
 
   const [gross] = await db
@@ -255,7 +261,13 @@ export async function getAccountingSummary(
   const statusRows = await db
     .select({ status: orders.status, n: sql<string>`COUNT(*)::text` })
     .from(orders)
-    .where(and(gte(orders.createdAt, range.start), lt(orders.createdAt, range.end)))
+    .where(
+      and(
+        gte(orders.createdAt, range.start),
+        lt(orders.createdAt, range.end),
+        ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
+      ),
+    )
     .groupBy(orders.status);
 
   const orderCounts = { completed: 0, pending: 0, cancelled: 0 };
@@ -270,6 +282,7 @@ export async function getAccountingSummary(
     eq(orders.status, 'completed'),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
+    ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
   );
 
   const movementRows = await db

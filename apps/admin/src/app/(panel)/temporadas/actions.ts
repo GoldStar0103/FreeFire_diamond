@@ -26,12 +26,27 @@ export interface CheckpointFormState {
   ok?: boolean;
 }
 
-/** Rows arrive as parallel `lp[]`/`rewardDiamonds[]`/`costCents[]` fields, one index per checkpoint. */
+/**
+ * Rows arrive as parallel `lp[]`/`rewardDiamonds[]`/`costCents[]`/`recipe[]`
+ * fields, one index per checkpoint. `recipe` is a comma-joined list of
+ * denominations, the same hidden-input convention the combo form uses.
+ */
 function readCheckpointRows(formData: FormData) {
   const lps = formData.getAll('lp').map(Number);
   const rewards = formData.getAll('rewardDiamonds').map(Number);
   const costs = formData.getAll('costCents').map(Number);
-  return lps.map((lp, i) => ({ lp, rewardDiamonds: rewards[i] ?? 0, costCents: costs[i] ?? 0 }));
+  const recipes = formData.getAll('recipe').map((r) =>
+    String(r)
+      .split(',')
+      .filter((d) => d !== '')
+      .map(Number),
+  );
+  return lps.map((lp, i) => ({
+    lp,
+    rewardDiamonds: rewards[i] ?? 0,
+    costCents: costs[i] ?? 0,
+    recipe: recipes[i] ?? [],
+  }));
 }
 
 export async function saveCheckpoints(
@@ -44,7 +59,11 @@ export async function saveCheckpoints(
   const { checkpoints, issues } = reviewLevelPassCheckpoints(draft);
   if (!checkpoints) return { issues };
 
-  await saveLevelPassCheckpoints(getDb(), checkpoints);
+  try {
+    await saveLevelPassCheckpoints(getDb(), checkpoints);
+  } catch (err) {
+    return { error: String(err instanceof Error ? err.message : err) };
+  }
   revalidatePath('/temporadas');
   return { ok: true };
 }
