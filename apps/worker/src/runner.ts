@@ -7,6 +7,7 @@
  */
 
 import {
+  closeDueSeasons,
   expireOverduePayments,
   fulfillOrder,
   PROVIDER_LOCK_KEY,
@@ -15,6 +16,7 @@ import {
   reportConversions,
   summariseSync,
   syncCatalog,
+  syncLevelPass,
 } from '@levelup/engine';
 import type {
   Alerter,
@@ -24,7 +26,11 @@ import type {
   ConversionDeps,
   ConversionResult,
   ExpiryStore,
+  LevelPassSweepResult,
+  LevelPassSweepStore,
   RecoveryStore,
+  SeasonCloseResult,
+  SeasonStore,
   StuckPaymentStore,
 } from '@levelup/engine';
 import type { TopupProvider, UsdTenK } from '@levelup/provider';
@@ -353,6 +359,52 @@ export async function runConversions(deps: ConversionDeps): Promise<ConversionRe
     return result;
   } catch (err) {
     console.error(`[conversions] Sweep failed: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Credit Level Points for newly completed orders. Same shape as
+ * `runConversions`: a separate, optional dep bundle rather than folded into
+ * `RunnerDeps`/`runSweepOnce`, since this touches nothing fulfilment needs and
+ * a failure here must never hold up a delivery. Harmless before any season
+ * exists — `syncLevelPass` finds completed orders, `processOrderCompletion`
+ * reports `no_active_season` for each, counted as a skip, not a failure.
+ */
+export interface LevelPassSweepDeps {
+  store: LevelPassSweepStore;
+  lookbackMs: number;
+  batchSize: number;
+}
+
+export async function runLevelPassSync(deps: LevelPassSweepDeps): Promise<LevelPassSweepResult | null> {
+  try {
+    const result = await syncLevelPass(deps);
+    if (result.examined > 0) {
+      console.log(
+        `[level-pass] ${result.applied} applied, ${result.skipped} skipped, ${result.failed} failed`,
+      );
+    }
+    return result;
+  } catch (err) {
+    console.error(`[level-pass] Sweep failed: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Close any season past its end date: freeze the ranking, award badges, open
+ * the next one. Same "separate optional dep bundle" shape as above.
+ */
+export async function runSeasonClose(deps: { store: SeasonStore }): Promise<SeasonCloseResult | null> {
+  try {
+    const result = await closeDueSeasons(deps);
+    if (result.closed.length > 0 || result.failed > 0) {
+      console.log(`[seasons] closed ${result.closed.length}, ${result.failed} failed`);
+    }
+    return result;
+  } catch (err) {
+    console.error(`[seasons] Sweep failed: ${String(err)}`);
     return null;
   }
 }

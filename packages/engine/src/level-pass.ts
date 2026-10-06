@@ -178,3 +178,55 @@ export async function processOrderCompletion(
 
   return { status: 'applied', decision };
 }
+
+/**
+ * The sweep-loop entry point, same shape as `reportConversions`: find
+ * candidate rows the store has not yet handled, process each one, survive
+ * and log one failure instead of letting it block the batch. An order that
+ * comes back `no_active_season`/`no_linked_account` is a terminal skip, not
+ * a failure to retry — it will never become eligible on its own, so it is
+ * not worth re-examining every sweep (the store's own `findUnprocessedOrders`
+ * query excludes anything already in `level_pass_lp_transactions`, but a
+ * skipped order has no such row, so without the `completedAfter` window this
+ * would re-scan it forever).
+ */
+export interface LevelPassSweepStore extends LevelPassStore {
+  /** Completed orders, in the window, with no level_pass_lp_transactions row yet. */
+  findUnprocessedOrders(input: { completedAfter: Date; limit: number }): Promise<LevelPassOrderFinancials[]>;
+}
+
+export interface LevelPassSweepDeps extends LevelPassDeps {
+  store: LevelPassSweepStore;
+  /** How far back to look for newly-completed orders. */
+  lookbackMs: number;
+  batchSize: number;
+  now?: () => Date;
+}
+
+export interface LevelPassSweepResult {
+  examined: number;
+  applied: number;
+  skipped: number;
+  failed: number;
+}
+
+export async function syncLevelPass(deps: LevelPassSweepDeps): Promise<LevelPassSweepResult> {
+  const now = (deps.now ?? (() => new Date()))();
+  const completedAfter = new Date(now.getTime() - deps.lookbackMs);
+  const pending = await deps.store.findUnprocessedOrders({ completedAfter, limit: deps.batchSize });
+
+  const result: LevelPassSweepResult = { examined: pending.length, applied: 0, skipped: 0, failed: 0 };
+
+  for (const order of pending) {
+    try {
+      const outcome = await processOrderCompletion(deps, order);
+      if (outcome.status === 'applied') result.applied++;
+      else result.skipped++;
+    } catch (err) {
+      result.failed++;
+      console.error(`[level-pass] Could not process order ${order.orderId}: ${String(err)}`);
+    }
+  }
+
+  return result;
+}

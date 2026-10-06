@@ -47,8 +47,14 @@ const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number
   },
 };
 
-/** `gateway` is null for the manual comprobante flow — schema.ts's own comment on that column. */
-function estimateFeeCents(gateway: string | null, method: string, amountCents: number): number {
+/**
+ * `gateway` is null for the manual comprobante flow — schema.ts's own comment
+ * on that column. Exported for reuse by level-pass-store.ts: Level Pass's
+ * per-order profit estimate must use the exact same fee figure Contabilidad
+ * shows, or the two would silently disagree about what one order actually
+ * earned.
+ */
+export function estimateFeeCents(gateway: string | null, method: string, amountCents: number): number {
   if (!gateway) return 0;
   const rate = FEE_RATES[gateway]?.[method];
   if (!rate) return 0; // no published rate for this gateway/method yet (e.g. paypal, unimplemented)

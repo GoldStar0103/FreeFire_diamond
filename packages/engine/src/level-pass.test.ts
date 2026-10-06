@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   decideLevelPassOutcome,
   processOrderCompletion,
+  syncLevelPass,
   type LevelPassCheckpointConfig,
   type LevelPassCurrentState,
   type LevelPassOrderFinancials,
   type LevelPassStore,
+  type LevelPassSweepStore,
 } from './level-pass.js';
 
 const CHECKPOINTS: LevelPassCheckpointConfig[] = [
@@ -190,5 +192,70 @@ describe('processOrderCompletion', () => {
     );
     expect(result.status).toBe('applied');
     if (result.status === 'applied') expect(result.decision.calculatedLp).toBe(12);
+  });
+});
+
+function sweepHarness(
+  orders: LevelPassOrderFinancials[],
+  storeOverrides: Partial<LevelPassSweepStore> = {},
+) {
+  const store: LevelPassSweepStore = {
+    hasProcessedOrder: vi.fn(async () => false),
+    findActiveSeason: vi.fn(async () => ({ id: 'season-1', endsAt: new Date('2026-12-01') })),
+    getPlayerState: vi.fn(async () => state()),
+    getCheckpointConfig: vi.fn(async () => CHECKPOINTS),
+    applyDecision: vi.fn(async () => undefined),
+    findUnprocessedOrders: vi.fn(async () => orders),
+    ...storeOverrides,
+  };
+  return { store };
+}
+
+describe('syncLevelPass', () => {
+  it('does nothing when nothing is pending', async () => {
+    const { store } = sweepHarness([]);
+    const result = await syncLevelPass({ store, lookbackMs: 86_400_000, batchSize: 50 });
+
+    expect(result).toEqual({ examined: 0, applied: 0, skipped: 0, failed: 0 });
+  });
+
+  it('applies every pending order and counts each outcome', async () => {
+    const { store } = sweepHarness([order({ orderId: 'a' }), order({ orderId: 'b' })]);
+    const result = await syncLevelPass({ store, lookbackMs: 86_400_000, batchSize: 50 });
+
+    expect(result).toEqual({ examined: 2, applied: 2, skipped: 0, failed: 0 });
+    expect(store.applyDecision).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts a terminal skip (no linked account) separately from a failure', async () => {
+    const { store } = sweepHarness([order({ orderId: 'a' })], {
+      getPlayerState: vi.fn(async () => null),
+    });
+    const result = await syncLevelPass({ store, lookbackMs: 86_400_000, batchSize: 50 });
+
+    expect(result).toEqual({ examined: 1, applied: 0, skipped: 1, failed: 0 });
+  });
+
+  it('keeps going and reports the failure when one order throws', async () => {
+    const { store } = sweepHarness([order({ orderId: 'a' }), order({ orderId: 'b' })], {
+      applyDecision: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('db down'))
+        .mockResolvedValueOnce(undefined),
+    });
+    const result = await syncLevelPass({ store, lookbackMs: 86_400_000, batchSize: 50 });
+
+    expect(result).toEqual({ examined: 2, applied: 1, skipped: 0, failed: 1 });
+  });
+
+  it('passes the lookback window and batch size through to the query', async () => {
+    const now = new Date('2026-10-10T00:00:00Z');
+    const { store } = sweepHarness([]);
+    await syncLevelPass({ store, lookbackMs: 3_600_000, batchSize: 7, now: () => now });
+
+    expect(store.findUnprocessedOrders).toHaveBeenCalledWith({
+      completedAfter: new Date('2026-10-09T23:00:00Z'),
+      limit: 7,
+    });
   });
 });

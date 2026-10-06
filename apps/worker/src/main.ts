@@ -13,8 +13,10 @@ import {
   createDb,
   DrizzleCatalogSyncStore,
   DrizzleConversionStore,
+  DrizzleLevelPassStore,
   DrizzleOrderQueue,
   DrizzleRecoveryStore,
+  DrizzleSeasonStore,
   PostgresAdvisoryLock,
 } from '@levelup/db';
 import { InMemoryLock } from '@levelup/engine';
@@ -27,6 +29,8 @@ import {
   CatalogSyncSchedule,
   runConversions,
   runFulfillmentLoop,
+  runLevelPassSync,
+  runSeasonClose,
   runSweepOnce,
   ShutdownSignal,
   type RunnerDeps,
@@ -59,6 +63,9 @@ async function main(): Promise<void> {
   };
 
   const catalogSchedule = new CatalogSyncSchedule(config.catalogSync.intervalMs);
+
+  const levelPassStore = new DrizzleLevelPassStore(db);
+  const seasonStore = new DrizzleSeasonStore(db);
 
   // Server-side purchase reporting for the ad account. Off without a token.
   const conversions = config.meta
@@ -105,6 +112,12 @@ async function main(): Promise<void> {
       await runSweepOnce(deps);
       await catalogSchedule.runIfDue(deps);
       if (conversions) await runConversions(conversions);
+      await runLevelPassSync({
+        store: levelPassStore,
+        lookbackMs: config.levelPass.lookbackMs,
+        batchSize: config.levelPass.batchSize,
+      });
+      await runSeasonClose({ store: seasonStore });
       // A beat per completed sweep, on top of the timer's. The timer proves the
       // event loop turns; this proves the sweep itself is still coming round.
       heartbeat.beat();

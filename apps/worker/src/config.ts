@@ -36,6 +36,16 @@ export interface WorkerConfig {
      */
     intervalMs: number;
   };
+  levelPass: {
+    /**
+     * How far back `syncLevelPass` looks for newly completed orders each
+     * sweep. Wide enough to absorb any realistic worker downtime, narrow
+     * enough that an unconfigured deployment (no active season yet) is not
+     * re-scanning years of history every 30 seconds.
+     */
+    lookbackMs: number;
+    batchSize: number;
+  };
   telegram: { botToken: string; chatId: string } | null;
   /**
    * Server-side purchase reporting to Meta. Null unless both the pixel id and
@@ -147,6 +157,10 @@ export function loadConfig(): WorkerConfig {
       batchSize: number('SWEEP_BATCH_SIZE', 25),
     },
     catalogSync: { intervalMs: catalogSyncIntervalMs },
+    levelPass: {
+      lookbackMs: number('LEVEL_PASS_LOOKBACK_MS', 14 * 24 * 60 * 60_000),
+      batchSize: number('LEVEL_PASS_SWEEP_BATCH_SIZE', 50),
+    },
     telegram,
     meta: loadMeta(),
     heartbeatFile: process.env.WORKER_HEARTBEAT_FILE?.trim() || undefined,
