@@ -127,3 +127,24 @@ export function comprobantePath(
   const safeExt = extension.replace(/[^a-z0-9]/g, '').slice(0, 5);
   return `comprobantes/${safeOrder}/${safeId}.${safeExt}`;
 }
+
+/**
+ * Profile pictures reuse the same magic-byte detection and size cap as a
+ * comprobante, but a PDF makes no sense as an avatar — reject it here rather
+ * than let a document silently become someone's profile picture.
+ */
+export function validateImageUpload(bytes: Uint8Array, maxBytes = MAX_UPLOAD_BYTES): UploadValidation {
+  const result = validateUpload(bytes, maxBytes);
+  if (result.ok && result.kind === 'pdf') {
+    return { ok: false, rejection: { code: 'UNSUPPORTED_TYPE', message: 'Solo se aceptan fotos (JPG, PNG, WEBP).' } };
+  }
+  return result;
+}
+
+/** Storage path for a profile picture — built from the profile id and a random id, never from client input. */
+export function avatarPath(playerProfileId: string, extension: string, randomId: string): string {
+  const safeProfile = playerProfileId.replace(/[^A-Za-z0-9-]/g, '').slice(0, 64) || 'sin-perfil';
+  const safeId = randomId.replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+  const safeExt = extension.replace(/[^a-z0-9]/g, '').slice(0, 5);
+  return `avatars/${safeProfile}/${safeId}.${safeExt}`;
+}

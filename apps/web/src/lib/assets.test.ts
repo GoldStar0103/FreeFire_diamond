@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flyerUrl } from './assets.js';
+import { avatarUrl, flyerUrl } from './assets.js';
 
 describe('flyerUrl', () => {
   it('turns a stored key into a URL the browser can actually fetch', () => {
@@ -48,5 +48,40 @@ describe('flyerUrl', () => {
 
   it('tolerates the whitespace an operator pastes in', () => {
     expect(flyerUrl('  flyers/lluvia/x.webp  ')).toBe('/media/flyers/lluvia/x.webp');
+  });
+});
+
+describe('avatarUrl', () => {
+  it('resolves a stored avatar key to a media URL', () => {
+    expect(avatarUrl('avatars/profile-1/abc123.jpg')).toBe('/media/avatars/profile-1/abc123.jpg');
+  });
+
+  it('passes an absolute https URL through untouched', () => {
+    expect(avatarUrl('https://cdn.example.com/avatar.jpg')).toBe('https://cdn.example.com/avatar.jpg');
+  });
+
+  it('returns null for nothing stored', () => {
+    expect(avatarUrl(null)).toBeNull();
+    expect(avatarUrl(undefined)).toBeNull();
+    expect(avatarUrl('')).toBeNull();
+  });
+
+  it('refuses a key outside the avatars/ prefix — including comprobantes and flyers', () => {
+    expect(avatarUrl('comprobantes/LU-1/abc.jpg')).toBeNull();
+    expect(avatarUrl('flyers/promo/abc.jpg')).toBeNull();
+  });
+
+  it('refuses path traversal and an absolute path', () => {
+    expect(avatarUrl('avatars/../../etc/passwd')).toBeNull();
+    expect(avatarUrl('/etc/passwd')).toBeNull();
+  });
+
+  it('refuses a non-http protocol', () => {
+    expect(avatarUrl('javascript:alert(1)')).toBeNull();
+    expect(avatarUrl('data:image/png;base64,abc')).toBeNull();
+  });
+
+  it('refuses a bare prefix with nothing after it', () => {
+    expect(avatarUrl('avatars/')).toBeNull();
   });
 });

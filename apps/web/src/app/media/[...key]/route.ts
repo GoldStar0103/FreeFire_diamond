@@ -1,11 +1,11 @@
 /**
- * Serve a public flyer.
+ * Serve a public flyer or customer avatar.
  *
- * Flyers are uploaded through the admin panel into UPLOAD_DIR, which sits
- * outside anything the web server exposes — deliberately, because comprobantes
- * live in the same volume and those must never be reachable by URL. So the
- * public half needs a door of its own, and this is it: flyers only, images
- * only, read-only.
+ * Flyers and avatars are uploaded into UPLOAD_DIR, which sits outside
+ * anything the web server exposes — deliberately, because comprobantes live
+ * in the same volume and those must never be reachable by URL. So the public
+ * half needs a door of its own, and this is it: flyers and avatars only,
+ * images only, read-only.
  *
  * Unlike the comprobante route, the path here comes from the request rather
  * than from a database lookup, so the containment checks are load-bearing
@@ -15,7 +15,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { contentTypeForKey, safeStorageKey, uploadRoot } from '@levelup/shared';
-import { FLYER_PREFIX } from '../../../lib/assets';
+import { AVATAR_PREFIX, FLYER_PREFIX } from '../../../lib/assets';
 
 /** Images only. A PDF is a valid stored type but not something to inline here. */
 const SERVEABLE = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -28,7 +28,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ key
 
   // The prefix check is the whole security boundary: without it this route
   // serves `comprobantes/...` to anyone who asks.
-  if (!safe.relative.startsWith(FLYER_PREFIX)) return new Response('No encontrado', { status: 404 });
+  if (!safe.relative.startsWith(FLYER_PREFIX) && !safe.relative.startsWith(AVATAR_PREFIX)) {
+    return new Response('No encontrado', { status: 404 });
+  }
 
   const contentType = contentTypeForKey(safe.relative);
   if (!contentType || !SERVEABLE.has(contentType)) {

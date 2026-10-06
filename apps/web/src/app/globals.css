@@ -587,6 +587,14 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .quote p { margin: 0 0 10px; font-size: 15px; }
 .quote footer { color: var(--muted); font-size: 13px; }
 
+/* Mi LevelUp: a featured badge or achievement, shown as a small pill. */
+.badge-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700;
+}
+.badge-pill.selected { border-color: var(--accent); background: rgba(139, 92, 246, 0.14); }
+
 /* --- support page --- */
 .support-cta {
   display: block;

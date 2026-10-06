@@ -13,6 +13,8 @@
 
 /** Only flyers are public. Comprobantes live under their own prefix. */
 export const FLYER_PREFIX = 'flyers/';
+/** Customer profile pictures — public for the same reason flyers are: shown on pages anyone can open. */
+export const AVATAR_PREFIX = 'avatars/';
 
 /** Where the storefront serves public assets from. */
 export const MEDIA_ROUTE = '/media/';
@@ -43,6 +45,30 @@ export function flyerUrl(stored: string | null | undefined): string | null {
 
   if (value.startsWith('/')) return null;
   if (!value.startsWith(FLYER_PREFIX)) return null;
+  if (value.includes('..')) return null;
+
+  const segments = value.split('/').filter(Boolean);
+  if (segments.length < 2) return null;
+
+  return MEDIA_ROUTE + segments.map(encodeURIComponent).join('/');
+}
+
+/**
+ * Same resolution as `flyerUrl`, for `avatars/` keys instead — a customer's
+ * `player_profiles.avatar_asset_url` column, not an operator-editable campaign
+ * field, but the same "only a known-safe prefix becomes a public URL" rule
+ * applies: a stray value in that column must not become an arbitrary fetch.
+ */
+export function avatarUrl(stored: string | null | undefined): string | null {
+  const value = stored?.trim();
+  if (!value) return null;
+
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value) || value.startsWith('//')) {
+    return /^https?:\/\//i.test(value) ? value : null;
+  }
+
+  if (value.startsWith('/')) return null;
+  if (!value.startsWith(AVATAR_PREFIX)) return null;
   if (value.includes('..')) return null;
 
   const segments = value.split('/').filter(Boolean);
