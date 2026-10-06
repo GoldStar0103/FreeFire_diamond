@@ -43,3 +43,6 @@ export * from './adapters/level-pass-settings.js';
 export * from './adapters/level-pass-store.js';
 export * from './adapters/season-store.js';
 export * from './adapters/customer-auth-store.js';
+export * from './adapters/season-admin-queries.js';
+export * from './adapters/badge-admin-store.js';
+export * from './adapters/vault-admin-store.js';
