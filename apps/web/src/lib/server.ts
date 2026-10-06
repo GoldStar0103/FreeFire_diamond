@@ -21,6 +21,8 @@ declare global {
   // eslint-disable-next-line no-var
   var __webLookupLimiter: RateLimiter | undefined;
   // eslint-disable-next-line no-var
+  var __webOtpRequestLimiter: RateLimiter | undefined;
+  // eslint-disable-next-line no-var
   var __webProvider: TopupProvider | undefined;
 }
 
@@ -86,6 +88,19 @@ export const lookupLimiter: RateLimiter =
     windowMs: Number(process.env.LOOKUP_RATE_WINDOW_MS ?? 300_000),
   });
 if (process.env.NODE_ENV !== 'production') globalThis.__webLookupLimiter = lookupLimiter;
+
+/**
+ * Keyed by WhatsApp number, not IP: the thing this protects against is one
+ * person's phone getting hammered with OTP messages, which an IP-keyed limit
+ * would not stop (different networks, same target number).
+ */
+export const otpRequestLimiter: RateLimiter =
+  globalThis.__webOtpRequestLimiter ??
+  createRateLimiter({
+    limit: Number(process.env.OTP_REQUEST_RATE_LIMIT ?? 3),
+    windowMs: Number(process.env.OTP_REQUEST_RATE_WINDOW_MS ?? 10 * 60_000),
+  });
+if (process.env.NODE_ENV !== 'production') globalThis.__webOtpRequestLimiter = otpRequestLimiter;
 
 function buildProvider(): TopupProvider {
   if (process.env.WEB_DRY_RUN === 'true') {
