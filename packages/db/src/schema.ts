@@ -19,6 +19,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -470,3 +471,406 @@ export const settings = pgTable('settings', {
   value: jsonb('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── player accounts, seasons, Level Pass, Vault, badges ───────────────────────
+//
+// Keyed on `orders.player_id` (the Free Fire UID) rather than a new FK column
+// on `orders` — see player_profiles' own comment. Checkpoint thresholds and
+// reward diamonds/costs live in `settings` (key-value, already the pattern for
+// admin-tunable values), NOT snapshotted onto `seasons`: the one thing that
+// must freeze historically is the cost actually paid per grant, which
+// `level_pass_checkpoint_events.internal_cost_cents` captures directly.
+// Manual overrides use the existing `audit_log` table — no parallel audit
+// mechanism — recorded by the adapter in the same transaction as the write.
+
+export const seasonStatus = pgEnum('season_status', ['active', 'closed']);
+
+export const badgeCategory = pgEnum('badge_category', [
+  'ranking',
+  'level_pass',
+  'special',
+  'event',
+]);
+
+export const badgeRarity = pgEnum('badge_rarity', [
+  'common',
+  'rare',
+  'epic',
+  'legendary',
+  'exclusive',
+]);
+
+/** Shared by badge ownership and Level Pass checkpoint events: who caused it. */
+export const awardSource = pgEnum('award_source', ['automatic', 'manual']);
+
+export const rewardStatus = pgEnum('reward_status', ['pending', 'granted', 'reversed']);
+
+export const vaultStatus = pgEnum('vault_status', ['active', 'expired']);
+
+export const ledgerEntryType = pgEnum('ledger_entry_type', [
+  'level_pass_reward',
+  'manual_expense',
+  'manual_income',
+]);
+
+/**
+ * A persistent player identity, independent of any season. `player_id` (the
+ * Free Fire UID already on every order) is its natural key — there is no FK
+ * from `orders` to this table; linking is by that shared value, matching the
+ * existing `one_mega_oferta_per_player` precedent of treating player_id as
+ * the per-player identity rather than inventing a parallel relationship.
+ *
+ * `lifetime_*` counters are maintained (updated transactionally at order
+ * completion), never recalculated by aggregation — the same discipline as
+ * every other counter in this schema.
+ */
+export const playerProfiles = pgTable(
+  'player_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playerId: text('player_id').notNull(),
+    whatsapp: text('whatsapp').notNull(),
+    displayName: text('display_name'),
+    avatarAssetUrl: text('avatar_asset_url'),
+
+    lifetimeDiamondsPurchased: integer('lifetime_diamonds_purchased').notNull().default(0),
+    lifetimeRechargeCount: integer('lifetime_recharge_count').notNull().default(0),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('player_profiles_player_id_idx').on(t.playerId),
+    uniqueIndex('player_profiles_whatsapp_idx').on(t.whatsapp),
+    // Only enforced among profiles that have actually set one.
+    uniqueIndex('player_profiles_display_name_idx')
+      .on(t.displayName)
+      .where(sql`display_name IS NOT NULL`),
+  ],
+);
+
+/** Short-lived WhatsApp login codes. Never store the code itself, only its hash. */
+export const playerOtpCodes = pgTable(
+  'player_otp_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    whatsapp: text('whatsapp').notNull(),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('player_otp_codes_whatsapp_idx').on(t.whatsapp)],
+);
+
+/** A 60-day Level Pass / ranking cycle. Exactly one row should be `active`. */
+export const seasons = pgTable(
+  'seasons',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seasonNumber: integer('season_number').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    status: seasonStatus('status').notNull().default('active'),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('seasons_number_idx').on(t.seasonNumber)],
+);
+
+/**
+ * The maintained per-player, per-season counters: current Level Pass LP and
+ * seasonal ranking diamonds. Two independent metrics in one row because
+ * they're written together on every eligible order and read together on
+ * every profile view — see the spec's explicit warning that LP and ranking
+ * diamonds "must never be conflated" despite sharing a lifecycle.
+ */
+export const seasonPlayerStats = pgTable(
+  'season_player_stats',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seasonId: uuid('season_id')
+      .notNull()
+      .references(() => seasons.id, { onDelete: 'restrict' }),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    lp: integer('lp').notNull().default(0),
+    seasonalDiamonds: integer('seasonal_diamonds').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('season_player_stats_unique_idx').on(t.seasonId, t.playerProfileId),
+    // Powers the Top 50 query: one season, ordered by diamonds, limited.
+    index('season_player_stats_ranking_idx').on(t.seasonId, t.seasonalDiamonds),
+  ],
+);
+
+/**
+ * The frozen financial calculation behind one order's awarded LP. Stored at
+ * order-completion time so a later edit to product cost or pricing can never
+ * change what a historical order appears to have earned — the same
+ * `comboSnapshot` discipline `orders` already uses, applied to profit/LP.
+ */
+export const levelPassLpTransactions = pgTable(
+  'level_pass_lp_transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'restrict' }),
+    seasonId: uuid('season_id')
+      .notNull()
+      .references(() => seasons.id, { onDelete: 'restrict' }),
+    // Plain columns, not inline `.references()` — see the identical comment
+    // on `level_pass_checkpoint_events`; both FK names here also truncate.
+    playerProfileId: uuid('player_profile_id').notNull(),
+
+    saleAmountCents: integer('sale_amount_cents').notNull(),
+    productCostCents: integer('product_cost_cents').notNull(),
+    paymentFeeCents: integer('payment_fee_cents').notNull(),
+    estimatedProfitCents: integer('estimated_profit_cents').notNull(),
+    calculatedLp: integer('calculated_lp').notNull(),
+    awardedLp: integer('awarded_lp').notNull(),
+
+    /** Both null unless an admin manually overrode the calculated LP. */
+    overriddenByAdminId: uuid('overridden_by_admin_id'),
+    overrideReason: text('override_reason'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('level_pass_lp_tx_order_idx').on(t.orderId),
+    index('level_pass_lp_tx_player_season_idx').on(t.playerProfileId, t.seasonId),
+    foreignKey({
+      columns: [t.playerProfileId],
+      foreignColumns: [playerProfiles.id],
+      name: 'lp_lp_tx_profile_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.overriddenByAdminId],
+      foreignColumns: [adminUsers.id],
+      name: 'lp_lp_tx_overridden_admin_fk',
+    }).onDelete('set null'),
+  ],
+);
+
+/**
+ * One row per checkpoint a player ever crosses. The unique index is the
+ * guard against a double grant — "cannot be granted twice for the same
+ * user/season/checkpoint" is enforced by Postgres, not application code.
+ */
+export const levelPassCheckpointEvents = pgTable(
+  'level_pass_checkpoint_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seasonId: uuid('season_id')
+      .notNull()
+      .references(() => seasons.id, { onDelete: 'restrict' }),
+    // Plain column, not inline `.references()` — the auto-derived FK name for
+    // this table+column pair exceeds Postgres's 63-byte identifier limit and
+    // gets silently truncated. Named explicitly below instead.
+    playerProfileId: uuid('player_profile_id').notNull(),
+    checkpointLp: integer('checkpoint_lp').notNull(),
+    rewardDiamonds: integer('reward_diamonds').notNull(),
+    /** Frozen at grant time — a later change to this checkpoint's cost must not alter history. */
+    internalCostCents: integer('internal_cost_cents').notNull(),
+    status: rewardStatus('status').notNull().default('pending'),
+    source: awardSource('source').notNull().default('automatic'),
+    /** The order whose completion crossed this checkpoint, if any. */
+    relatedOrderId: uuid('related_order_id').references(() => orders.id, {
+      onDelete: 'set null',
+    }),
+    reason: text('reason'),
+    reachedAt: timestamp('reached_at', { withTimezone: true }).notNull().defaultNow(),
+    grantedAt: timestamp('granted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('level_pass_checkpoint_unique_idx').on(
+      t.seasonId,
+      t.playerProfileId,
+      t.checkpointLp,
+    ),
+    foreignKey({
+      columns: [t.playerProfileId],
+      foreignColumns: [playerProfiles.id],
+      name: 'lp_checkpoint_events_profile_fk',
+    }).onDelete('restrict'),
+  ],
+);
+
+/** One per player per season — closes automatically when the season ends. */
+export const vaultEntitlements = pgTable(
+  'vault_entitlements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seasonId: uuid('season_id')
+      .notNull()
+      .references(() => seasons.id, { onDelete: 'restrict' }),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    status: vaultStatus('status').notNull().default('active'),
+    unlockedAt: timestamp('unlocked_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('vault_entitlements_unique_idx').on(t.seasonId, t.playerProfileId)],
+);
+
+/**
+ * The (up to 6) discounted offers shown once the Vault unlocks. Each
+ * references an existing public combo so the "normal price vs. Vault price"
+ * comparison is always accurate — no duplicated product data to drift.
+ */
+export const vaultOffers = pgTable(
+  'vault_offers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    comboId: uuid('combo_id')
+      .notNull()
+      .references(() => combos.id, { onDelete: 'restrict' }),
+    vaultPriceMxnCents: integer('vault_price_mxn_cents').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('vault_offers_combo_idx').on(t.comboId)],
+);
+
+/**
+ * A badge *type* (Top 10, Founder, Level Pass Completed...), not an award.
+ * One definition is reused across every season for season-scoped categories —
+ * `badge_ownerships.season_id` is what makes "Top 10 — Season 7" a distinct
+ * historical record from "Top 10 — Season 2", not a proliferation of rows here.
+ */
+export const badgeDefinitions = pgTable(
+  'badge_definitions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    badgeKey: text('badge_key').notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    category: badgeCategory('category').notNull(),
+    rarity: badgeRarity('rarity').notNull().default('common'),
+    artworkAssetUrl: text('artwork_asset_url'),
+    seasonScoped: boolean('season_scoped').notNull().default(false),
+    /** Null means always obtainable (subject to `obtainable`); set for Founder. */
+    eligibilityStartsAt: timestamp('eligibility_starts_at', { withTimezone: true }),
+    eligibilityEndsAt: timestamp('eligibility_ends_at', { withTimezone: true }),
+    obtainable: boolean('obtainable').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('badge_definitions_key_idx').on(t.badgeKey)],
+);
+
+/**
+ * One real historical achievement. `revokedAt` rather than deletion — a
+ * revoked badge still answers "did this ever happen" for audit purposes.
+ *
+ * Two partial unique indexes instead of one plain unique index: Postgres
+ * treats every NULL as distinct, so a plain `unique(player, badge, season)`
+ * would silently allow the same non-seasonal badge (Founder) to be granted
+ * to one player any number of times, since every row would have `season_id
+ * IS NULL` and NULLs never compare equal to each other.
+ */
+export const badgeOwnerships = pgTable(
+  'badge_ownerships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    badgeDefinitionId: uuid('badge_definition_id')
+      .notNull()
+      .references(() => badgeDefinitions.id, { onDelete: 'restrict' }),
+    seasonId: uuid('season_id').references(() => seasons.id, { onDelete: 'restrict' }),
+    achievementData: jsonb('achievement_data'),
+    source: awardSource('source').notNull().default('automatic'),
+    awardedByAdminId: uuid('awarded_by_admin_id').references(() => adminUsers.id, {
+      onDelete: 'set null',
+    }),
+    reason: text('reason'),
+    earnedAt: timestamp('earned_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('badge_ownerships_seasonal_unique_idx')
+      .on(t.playerProfileId, t.badgeDefinitionId, t.seasonId)
+      .where(sql`season_id IS NOT NULL`),
+    uniqueIndex('badge_ownerships_evergreen_unique_idx')
+      .on(t.playerProfileId, t.badgeDefinitionId)
+      .where(sql`season_id IS NULL`),
+    index('badge_ownerships_player_idx').on(t.playerProfileId),
+  ],
+);
+
+/** Which owned badges a player has chosen to show on their banner, and in what order. */
+export const featuredBadges = pgTable(
+  'featured_badges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'cascade' }),
+    badgeOwnershipId: uuid('badge_ownership_id')
+      .notNull()
+      .references(() => badgeOwnerships.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (t) => [uniqueIndex('featured_badges_unique_idx').on(t.playerProfileId, t.badgeOwnershipId)],
+);
+
+/**
+ * The podium frozen at season close, with the nickname/avatar as they stood
+ * at that moment — a later profile-picture or display-name change must not
+ * rewrite how a past Hall of Fame entry is remembered.
+ */
+export const hallOfFameEntries = pgTable(
+  'hall_of_fame_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seasonId: uuid('season_id')
+      .notNull()
+      .references(() => seasons.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    displayNameSnapshot: text('display_name_snapshot'),
+    avatarAssetUrlSnapshot: text('avatar_asset_url_snapshot'),
+    seasonalDiamonds: integer('seasonal_diamonds').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('hall_of_fame_unique_idx').on(t.seasonId, t.position)],
+);
+
+/**
+ * The single ledger backing every Level-Pass-adjacent financial report
+ * (daily P&L, reward ledger, profit-vs-reward-cost). Sales-side profit is
+ * already fully derivable from `orders`/`order_items`/`payments`; this table
+ * exists for what those don't capture: reward cost and manual adjustments.
+ */
+export const financialLedgerEntries = pgTable(
+  'financial_ledger_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    entryType: ledgerEntryType('entry_type').notNull(),
+    /** Signed: reward/expense rows are negative, manual income is positive. */
+    amountCents: integer('amount_cents').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    seasonId: uuid('season_id').references(() => seasons.id, { onDelete: 'set null' }),
+    sourceType: text('source_type'),
+    sourceId: uuid('source_id'),
+    note: text('note'),
+    createdByAdminId: uuid('created_by_admin_id').references(() => adminUsers.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('financial_ledger_occurred_idx').on(t.occurredAt)],
+);
