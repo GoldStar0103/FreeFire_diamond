@@ -10,12 +10,13 @@ import {
   getPaymentDetails,
   getStorefrontCombo,
 } from '@levelup/db';
-import { createOrder, rejectPayment, type CreateOrderFailure } from '@levelup/engine';
+import { createOrder, rejectPayment, type CreateOrderFailure, type CreateOrderInput } from '@levelup/engine';
 import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
 import type { PaymentGateway } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
+import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
@@ -188,12 +189,41 @@ function explain(failure: CreateOrderFailure): string {
       return 'El ID de jugador no es válido.';
     case 'SERVER_ID_REQUIRED':
       return 'Falta seleccionar tu servidor.';
+    case 'VAULT_OFFER_UNAVAILABLE':
+      return 'Tu descuento de la Bóveda ya no está disponible. Actualiza la página e intenta de nuevo.';
     default:
       // Recipe and catalog problems are our fault, not the customer's — never
       // show them the internals.
       console.error('[checkout] order creation failed', failure);
       return 'No pudimos crear tu pedido. Escríbenos por WhatsApp y lo resolvemos.';
   }
+}
+
+type VaultPurchaseResolution =
+  | { ok: true; vaultPurchase: CreateOrderInput['vaultPurchase'] }
+  | { ok: false; message: string };
+
+/**
+ * `vaultOfferId` is just an opaque reference sent back from a hidden form
+ * field — never, on its own, proof of who is buying. The account that
+ * actually owns the Vault entitlement is re-derived here from the
+ * authenticated session cookie, the same way the player ID is re-validated
+ * against the provider below, rather than trusted from anything the form
+ * carries.
+ */
+async function resolveVaultPurchase(formData: FormData): Promise<VaultPurchaseResolution> {
+  const vaultOfferId = String(formData.get('vaultOfferId') ?? '').trim();
+  if (!vaultOfferId) return { ok: true, vaultPurchase: undefined };
+
+  const session = await getCustomerSession();
+  if (!session) {
+    return {
+      ok: false,
+      message: 'Tu sesión expiró. Inicia sesión de nuevo en Mi LevelUp para usar tu descuento de la Bóveda.',
+    };
+  }
+
+  return { ok: true, vaultPurchase: { vaultOfferId, playerProfileId: session.playerProfileId } };
 }
 
 export async function placeOrder(
@@ -259,6 +289,9 @@ export async function placeOrder(
   const validation = validateUpload(bytes);
   if (!validation.ok) return { error: validation.rejection.message };
 
+  const vault = await resolveVaultPurchase(formData);
+  if (!vault.ok) return { error: vault.message };
+
   const created = await createOrder(
     { store: new DrizzleOrderingStore(getDb()) },
     {
@@ -269,6 +302,7 @@ export async function placeOrder(
       paymentMethod: 'transfer_manual',
       source: 'storefront',
       tracking: await trackingContext(),
+      ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
     },
   );
 
@@ -304,7 +338,10 @@ export async function placeOrder(
   notifyNewOrder({
     orderNumber: created.order.orderNumber,
     comboName: combo.name,
-    price: mxn(combo.priceMxnCents),
+    // The order's own price, not the combo's public one — a Vault purchase
+    // charges less, and the admin reading this notification needs the real
+    // amount to expect on the comprobante, not the public list price.
+    price: mxn(created.order.priceMxnCents),
   }).catch(() => {
     /* notifyNewOrder already logs and never rejects; this is only a backstop. */
   });
@@ -385,6 +422,9 @@ async function payWithGatewayMethod(
   const confirmed = await confirmPlayer(playerId);
   if (!confirmed.ok) return { error: confirmed.message };
 
+  const vault = await resolveVaultPurchase(formData);
+  if (!vault.ok) return { error: vault.message };
+
   const created = await createOrder(
     { store: new DrizzleOrderingStore(getDb()) },
     {
@@ -395,6 +435,7 @@ async function payWithGatewayMethod(
       paymentMethod: method,
       source: 'storefront',
       tracking: await trackingContext(),
+      ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
     },
   );
   if (!created.ok) return { error: explain(created.failure) };

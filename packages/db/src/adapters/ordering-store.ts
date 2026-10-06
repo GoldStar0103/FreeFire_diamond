@@ -7,12 +7,22 @@
  * an unpaid order be marked paid by accident.
  */
 
-import { and, asc, eq, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, notInArray, sql } from 'drizzle-orm';
 import { parseUsd } from '@levelup/provider';
 import type { ComboForOrder, NewOrder, OrderingStore, RecipeEntry } from '@levelup/engine';
 import { defaultOrderNumber } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { baseProducts, campaigns, comboItems, combos, orderItems, orders, payments } from '../schema.js';
+import {
+  baseProducts,
+  campaigns,
+  comboItems,
+  combos,
+  orderItems,
+  orders,
+  payments,
+  vaultEntitlements,
+  vaultOffers,
+} from '../schema.js';
 import { toNumericString } from './mapping.js';
 
 /**
@@ -205,5 +215,41 @@ export class DrizzleOrderingStore implements OrderingStore {
     }
 
     throw new Error('Could not allocate a unique order number after 5 attempts');
+  }
+
+  async resolveVaultOffer(input: {
+    vaultOfferId: string;
+    comboKey: string;
+    playerProfileId: string;
+  }): Promise<{ vaultPriceMxnCents: number } | null> {
+    const [offer] = await this.db
+      .select({ vaultPriceMxnCents: vaultOffers.vaultPriceMxnCents, comboKey: combos.key })
+      .from(vaultOffers)
+      .innerJoin(combos, eq(combos.id, vaultOffers.comboId))
+      .where(and(eq(vaultOffers.id, input.vaultOfferId), eq(vaultOffers.active, true)))
+      .limit(1);
+
+    // Not just "does the offer exist" — it has to wrap the SAME combo the
+    // caller is actually buying. An offer id alone proves nothing else.
+    if (!offer || offer.comboKey !== input.comboKey) return null;
+
+    const [entitlement] = await this.db
+      .select({ id: vaultEntitlements.id })
+      .from(vaultEntitlements)
+      .where(
+        and(
+          eq(vaultEntitlements.playerProfileId, input.playerProfileId),
+          eq(vaultEntitlements.status, 'active'),
+          // Checked directly rather than trusting `status` alone — the
+          // season-close sweep is what flips expired entitlements to
+          // 'expired', and a purchase landing in the gap before that sweep
+          // runs must not slip through on a status that hasn't caught up yet.
+          gt(vaultEntitlements.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    if (!entitlement) return null;
+    return { vaultPriceMxnCents: offer.vaultPriceMxnCents };
   }
 }

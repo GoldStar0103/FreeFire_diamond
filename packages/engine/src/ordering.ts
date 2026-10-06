@@ -68,6 +68,16 @@ export interface CreateOrderInput {
     clientIp?: string | null;
     userAgent?: string | null;
   };
+  /**
+   * Set only when the customer is buying this combo at its Vault-discounted
+   * price. Every other check in this function (recipe, availability, caps)
+   * runs exactly as normal — this only swaps which price gets frozen onto
+   * the order. `playerProfileId` must come from the caller's own
+   * authenticated session, never from a form field: it is what proves this
+   * specific account, not just anyone holding the offer id, actually has the
+   * Vault open right now.
+   */
+  vaultPurchase?: { vaultOfferId: string; playerProfileId: string };
 }
 
 export interface ComboSnapshot {
@@ -120,7 +130,8 @@ export type CreateOrderFailure =
   | { code: 'CATALOG_NOT_SYNCED'; message: string }
   | { code: 'SERVER_ID_REQUIRED'; message: string }
   | { code: 'PLAYER_LIMIT_REACHED'; message: string; limit: number }
-  | { code: 'INVALID_PLAYER_ID'; message: string };
+  | { code: 'INVALID_PLAYER_ID'; message: string }
+  | { code: 'VAULT_OFFER_UNAVAILABLE'; message: string };
 
 /** The persisted order carries its id — callers need it to approve payment,
  *  to redirect to a status page, and to link an order from the admin panel. */
@@ -135,6 +146,19 @@ export interface OrderingStore {
   /** Non-cancelled orders this player already has for this combo. */
   countPlayerOrders(playerId: string, comboKey: string): Promise<number>;
   persist(order: NewOrder): Promise<{ id: string; orderNumber: string }>;
+  /**
+   * Null unless EVERY one of these holds: the offer exists and is active, it
+   * wraps `comboKey` specifically (an offer id alone proves nothing about
+   * which combo it discounts), and `playerProfileId` currently has an
+   * active, unexpired Vault entitlement. Whatever price comes back is
+   * trusted as-is — it is the one seam `createOrder` has for charging
+   * anything other than the combo's own public price.
+   */
+  resolveVaultOffer(input: {
+    vaultOfferId: string;
+    comboKey: string;
+    playerProfileId: string;
+  }): Promise<{ vaultPriceMxnCents: number } | null>;
 }
 
 export interface OrderingDeps {
@@ -263,6 +287,26 @@ export async function createOrder(
     }
   }
 
+  // Resolved after every combo-health check above, and before anything is
+  // built from it below — a Vault purchase must pass every one of those
+  // same gates (recipe, availability, caps); this only ever changes which
+  // price gets frozen onto the order.
+  let priceMxnCents = combo.priceMxnCents;
+  if (input.vaultPurchase) {
+    const offer = await deps.store.resolveVaultOffer({
+      vaultOfferId: input.vaultPurchase.vaultOfferId,
+      comboKey: combo.key,
+      playerProfileId: input.vaultPurchase.playerProfileId,
+    });
+    if (!offer) {
+      return fail({
+        code: 'VAULT_OFFER_UNAVAILABLE',
+        message: 'This Vault offer is no longer available.',
+      });
+    }
+    priceMxnCents = offer.vaultPriceMxnCents;
+  }
+
   const items: NewOrderItem[] = combo.recipe
     .slice()
     .sort((a, b) => a.sequence - b.sequence)
@@ -280,7 +324,7 @@ export async function createOrder(
     comboKey: combo.key,
     name: combo.name,
     campaignName: combo.campaignName,
-    priceMxnCents: combo.priceMxnCents,
+    priceMxnCents,
     advertisedDiamonds: combo.advertisedDiamonds,
     deliveredDiamonds: check.delivered,
     recipe: items.map((i) => ({
@@ -302,7 +346,7 @@ export async function createOrder(
     comboId: combo.id,
     comboKey: combo.key,
     comboSnapshot: snapshot,
-    priceMxnCents: combo.priceMxnCents,
+    priceMxnCents,
     paymentMethod: input.paymentMethod,
     items,
     ...(input.tracking ? { tracking: input.tracking } : { tracking: undefined }),

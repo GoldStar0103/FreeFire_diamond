@@ -53,7 +53,11 @@ const megaPrime48k = (overrides: Partial<ComboForOrder> = {}): ComboForOrder => 
   };
 };
 
-function harness(combo: ComboForOrder | null, priorOrders = 0) {
+function harness(
+  combo: ComboForOrder | null,
+  priorOrders = 0,
+  storeOverrides: Partial<OrderingStore> = {},
+) {
   const persisted: NewOrder[] = [];
   const store: OrderingStore = {
     findComboForOrder: vi.fn(async () => combo),
@@ -62,6 +66,8 @@ function harness(combo: ComboForOrder | null, priorOrders = 0) {
       persisted.push(order);
       return { id: 'order-1', orderNumber: order.orderNumber };
     }),
+    resolveVaultOffer: vi.fn(async () => null),
+    ...storeOverrides,
   };
   return {
     store,
@@ -283,6 +289,61 @@ describe('missing combo', () => {
     expect(await createOrder(deps, input())).toMatchObject({
       failure: { code: 'COMBO_NOT_FOUND' },
     });
+  });
+});
+
+describe('Vault purchase', () => {
+  it('charges the discounted price instead of the combo price', async () => {
+    const { deps, persisted, store } = harness(megaPrime48k(), 0, {
+      resolveVaultOffer: vi.fn(async () => ({ vaultPriceMxnCents: 400_000 })),
+    });
+
+    const result = await createOrder(
+      deps,
+      input({ vaultPurchase: { vaultOfferId: 'offer-1', playerProfileId: 'profile-1' } }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(persisted[0]?.priceMxnCents).toBe(400_000);
+    expect((persisted[0]?.comboSnapshot as { priceMxnCents: number }).priceMxnCents).toBe(400_000);
+    expect(store.resolveVaultOffer).toHaveBeenCalledWith({
+      vaultOfferId: 'offer-1',
+      comboKey: 'mega_prime_48k',
+      playerProfileId: 'profile-1',
+    });
+  });
+
+  it('fails when the store cannot resolve the offer, rather than falling back to the public price', async () => {
+    const { deps } = harness(megaPrime48k(), 0, { resolveVaultOffer: vi.fn(async () => null) });
+
+    const result = await createOrder(
+      deps,
+      input({ vaultPurchase: { vaultOfferId: 'offer-1', playerProfileId: 'profile-1' } }),
+    );
+
+    expect(result).toMatchObject({ failure: { code: 'VAULT_OFFER_UNAVAILABLE' } });
+  });
+
+  it('still runs every ordinary combo-health check first', async () => {
+    const { deps } = harness(megaPrime48k({ active: false }), 0, {
+      resolveVaultOffer: vi.fn(async () => ({ vaultPriceMxnCents: 400_000 })),
+    });
+
+    const result = await createOrder(
+      deps,
+      input({ vaultPurchase: { vaultOfferId: 'offer-1', playerProfileId: 'profile-1' } }),
+    );
+
+    expect(result).toMatchObject({ failure: { code: 'COMBO_INACTIVE' } });
+  });
+
+  it('leaves an ordinary purchase (no vaultPurchase) charging the public price', async () => {
+    const { deps, persisted, store } = harness(megaPrime48k());
+
+    await createOrder(deps, input());
+
+    expect(persisted[0]?.priceMxnCents).toBe(585_000);
+    expect(store.resolveVaultOffer).not.toHaveBeenCalled();
   });
 });
 

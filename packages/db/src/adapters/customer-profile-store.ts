@@ -51,6 +51,9 @@ export interface MyCheckpointProgress {
 }
 
 export interface MyVaultOffer {
+  /** Needed to actually buy the offer — see `/comprar/[combo]?oferta=`. */
+  vaultOfferId: string;
+  comboKey: string;
   comboName: string;
   publicPriceMxnCents: number;
   vaultPriceMxnCents: number;
@@ -128,6 +131,8 @@ export async function getMyLevelUpOverview(db: Database, playerProfileId: string
   const offerRows = vaultUnlocked
     ? await db
         .select({
+          vaultOfferId: vaultOffers.id,
+          comboKey: combos.key,
           comboName: combos.name,
           publicPriceMxnCents: combos.priceMxnCents,
           vaultPriceMxnCents: vaultOffers.vaultPriceMxnCents,

@@ -2,12 +2,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import {
+  DrizzleOrderingStore,
   findCustomerOrder,
   getPaymentDetails,
   getPaymentMethodsEnabled,
   getStorefrontCombo,
 } from '@levelup/db';
 import { getDb } from '../../../lib/server';
+import { getCustomerSession } from '../../../lib/customer-session';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago } from '../../../lib/mercadopago';
 import { diamonds, mxn } from '../../../lib/format';
@@ -109,10 +111,10 @@ export default async function BuyPage({
   searchParams,
 }: {
   params: Promise<{ combo: string }>;
-  searchParams: Promise<{ cancelado?: string; id?: string }>;
+  searchParams: Promise<{ cancelado?: string; id?: string; oferta?: string }>;
 }) {
   const { combo: comboKey } = await params;
-  const { cancelado, id } = await searchParams;
+  const { cancelado, id, oferta } = await searchParams;
 
   const cancelledNotice =
     cancelado && id ? await handleCancelledCheckout(cancelado, id) : null;
@@ -124,6 +126,28 @@ export default async function BuyPage({
   ]);
 
   if (!combo) notFound();
+
+  // A Vault-discounted price, only when every one of these holds: a
+  // `?oferta=` link was followed, the visitor is logged into a customer
+  // account, and that account's Vault entitlement is currently active for an
+  // offer that actually wraps this combo. Anything short of that falls back
+  // to the ordinary public price — a stale or guessed link must never show,
+  // let alone charge, a discount nobody is entitled to right now. The charge
+  // itself re-checks this independently when the order is actually placed;
+  // this is only what gets displayed.
+  let vaultPriceMxnCents: number | null = null;
+  if (oferta) {
+    const session = await getCustomerSession();
+    if (session) {
+      const resolved = await new DrizzleOrderingStore(getDb()).resolveVaultOffer({
+        vaultOfferId: oferta,
+        comboKey: combo.key,
+        playerProfileId: session.playerProfileId,
+      });
+      if (resolved) vaultPriceMxnCents = resolved.vaultPriceMxnCents;
+    }
+  }
+  const priceMxnCents = vaultPriceMxnCents ?? combo.priceMxnCents;
 
   const stripe = getStripe();
   const mercadoPago = getMercadoPago();
@@ -149,9 +173,11 @@ export default async function BuyPage({
       <Checkout
         comboKey={combo.key}
         comboName={combo.name}
-        price={mxn(combo.priceMxnCents)}
-        priceMxn={combo.priceMxnCents / 100}
+        price={mxn(priceMxnCents)}
+        priceMxn={priceMxnCents / 100}
         diamonds={diamonds(combo.advertisedDiamonds)}
+        vaultOfferId={vaultPriceMxnCents !== null ? (oferta ?? null) : null}
+        publicPrice={vaultPriceMxnCents !== null ? mxn(combo.priceMxnCents) : null}
         payTo={payTo}
         cardEnabled={stripe !== null && methodsEnabled.card}
         cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}

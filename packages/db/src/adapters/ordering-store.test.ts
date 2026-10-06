@@ -11,7 +11,19 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { asc, eq, sql as raw } from 'drizzle-orm';
 import { createOrder } from '@levelup/engine';
 import { createDb, type Database } from '../index.js';
-import { baseProducts, campaigns, comboItems, combos, orderItems, orders, payments } from '../schema.js';
+import {
+  baseProducts,
+  campaigns,
+  comboItems,
+  combos,
+  orderItems,
+  orders,
+  payments,
+  playerProfiles,
+  seasons,
+  vaultEntitlements,
+  vaultOffers,
+} from '../schema.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
 import { DrizzleOrderQueue } from './order-queue.js';
 
@@ -55,7 +67,8 @@ afterAll(async () => {
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
   await db.execute(
-    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products RESTART IDENTITY CASCADE`,
+    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products,
+        vault_offers, vault_entitlements, player_profiles, seasons RESTART IDENTITY CASCADE`,
   );
 });
 
@@ -340,5 +353,127 @@ describe.skipIf(!PG_AVAILABLE)('handover to the worker', () => {
     const claimed = await new DrizzleOrderQueue(db).claimNext(300_000);
     expect(claimed).not.toBeNull();
     expect(claimed?.recovered).toBe(false);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('resolveVaultOffer / Vault purchase end to end', () => {
+  async function seedEntitledPlayer(status: 'active' | 'expired' = 'active', expiresAt?: Date) {
+    const [profile] = await db
+      .insert(playerProfiles)
+      .values({ playerId: '7288567050', whatsapp: '+527288567050' })
+      .returning();
+    const [season] = await db
+      .insert(seasons)
+      // Must be in the future relative to the real system clock (this suite
+      // runs against a real `now()` inside the store, not an injectable one).
+      .values({ seasonNumber: 1, startsAt: new Date('2026-09-01'), endsAt: new Date('2027-01-01'), status: 'active' })
+      .returning();
+    await db.insert(vaultEntitlements).values({
+      seasonId: season!.id,
+      playerProfileId: profile!.id,
+      status,
+      expiresAt: expiresAt ?? season!.endsAt,
+    });
+    return profile!;
+  }
+
+  it('resolves the discounted price when the offer, combo and entitlement all line up', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const profile = await seedEntitledPlayer();
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+
+    const result = await store().resolveVaultOffer({
+      vaultOfferId: offer!.id,
+      comboKey: 'mega_prime_48k',
+      playerProfileId: profile.id,
+    });
+
+    expect(result).toEqual({ vaultPriceMxnCents: 50_000 });
+  });
+
+  it('returns null when the offer wraps a different combo than the one being bought', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const profile = await seedEntitledPlayer();
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+
+    const result = await store().resolveVaultOffer({
+      vaultOfferId: offer!.id,
+      comboKey: 'some_other_combo',
+      playerProfileId: profile.id,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for an inactive offer', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const profile = await seedEntitledPlayer();
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: false }).returning();
+
+    expect(
+      await store().resolveVaultOffer({ vaultOfferId: offer!.id, comboKey: 'mega_prime_48k', playerProfileId: profile.id }),
+    ).toBeNull();
+  });
+
+  it('returns null when the player has no entitlement at all', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+    const [profile] = await db.insert(playerProfiles).values({ playerId: '7288567050', whatsapp: '+527288567050' }).returning();
+
+    expect(
+      await store().resolveVaultOffer({ vaultOfferId: offer!.id, comboKey: 'mega_prime_48k', playerProfileId: profile!.id }),
+    ).toBeNull();
+  });
+
+  it('returns null for an expired entitlement even when its status has not caught up yet', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    // status still 'active' but expiresAt is in the past — the season-close
+    // sweep hasn't run yet; the expiry check must still catch this.
+    const profile = await seedEntitledPlayer('active', new Date('2020-01-01'));
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+
+    expect(
+      await store().resolveVaultOffer({ vaultOfferId: offer!.id, comboKey: 'mega_prime_48k', playerProfileId: profile.id }),
+    ).toBeNull();
+  });
+
+  it('returns null for an explicitly expired entitlement', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const profile = await seedEntitledPlayer('expired');
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+
+    expect(
+      await store().resolveVaultOffer({ vaultOfferId: offer!.id, comboKey: 'mega_prime_48k', playerProfileId: profile.id }),
+    ).toBeNull();
+  });
+
+  it('createOrder charges the Vault price end to end, through the real store', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const profile = await seedEntitledPlayer();
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+
+    const result = await createOrder(
+      { store: store() },
+      input({ vaultPurchase: { vaultOfferId: offer!.id, playerProfileId: profile.id } }),
+    );
+
+    expect(result.ok).toBe(true);
+    const [order] = await db.select().from(orders);
+    expect(order?.priceMxnCents).toBe(50_000);
+    expect((order?.comboSnapshot as { priceMxnCents: number }).priceMxnCents).toBe(50_000);
+  });
+
+  it('createOrder refuses the purchase when the entitlement has expired, even mid-checkout', async () => {
+    const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const profile = await seedEntitledPlayer('expired');
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
+
+    const result = await createOrder(
+      { store: store() },
+      input({ vaultPurchase: { vaultOfferId: offer!.id, playerProfileId: profile.id } }),
+    );
+
+    expect(result).toMatchObject({ failure: { code: 'VAULT_OFFER_UNAVAILABLE' } });
+    expect(await db.select().from(orders)).toHaveLength(0);
   });
 });

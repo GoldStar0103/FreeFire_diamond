@@ -143,7 +143,7 @@ describe('getMyLevelUpOverview', () => {
     const season = await seedActiveSeason();
     const [campaign] = await db.insert(campaigns).values({ key: 'c', name: 'C' }).returning();
     const [combo] = await db.insert(combos).values({ campaignId: campaign!.id, key: 'combo1', name: 'Combo Uno', priceMxnCents: 10_000, advertisedDiamonds: 100, active: true }).returning();
-    await db.insert(vaultOffers).values({ comboId: combo!.id, vaultPriceMxnCents: 7_000, active: true });
+    const [offer] = await db.insert(vaultOffers).values({ comboId: combo!.id, vaultPriceMxnCents: 7_000, active: true }).returning();
 
     const withoutEntitlement = await getMyLevelUpOverview(db, p.id);
     expect(withoutEntitlement.vault).toEqual({ unlocked: false, expiresAt: null, offers: [] });
@@ -151,7 +151,9 @@ describe('getMyLevelUpOverview', () => {
     await db.insert(vaultEntitlements).values({ seasonId: season.id, playerProfileId: p.id, status: 'active', expiresAt: season.endsAt });
     const withEntitlement = await getMyLevelUpOverview(db, p.id);
     expect(withEntitlement.vault.unlocked).toBe(true);
-    expect(withEntitlement.vault.offers).toEqual([{ comboName: 'Combo Uno', publicPriceMxnCents: 10_000, vaultPriceMxnCents: 7_000 }]);
+    expect(withEntitlement.vault.offers).toEqual([
+      { vaultOfferId: offer!.id, comboKey: 'combo1', comboName: 'Combo Uno', publicPriceMxnCents: 10_000, vaultPriceMxnCents: 7_000 },
+    ]);
   });
 
   it('does not show an expired Vault entitlement as unlocked', async () => {

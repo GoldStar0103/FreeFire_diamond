@@ -75,6 +75,10 @@ interface Props {
   price: string;
   priceMxn: number;
   diamonds: string;
+  /** Set only when a valid, currently-active Vault discount resolved server-side for this visitor. */
+  vaultOfferId?: string | null;
+  /** The combo's ordinary price, for the struck-through comparison — set together with `vaultOfferId`. */
+  publicPrice?: string | null;
   /** Null when nobody has configured where the money goes. */
   payTo: PayTo | null;
   /** Stripe is configured for card. */
@@ -244,6 +248,8 @@ export function Checkout({
   price,
   priceMxn,
   diamonds,
+  vaultOfferId = null,
+  publicPrice = null,
   payTo,
   cardEnabled,
   cardIncludesOxxo,
@@ -390,9 +396,17 @@ export function Checkout({
   return (
     <div className="checkout">
       <div className="summary card">
+        {vaultOfferId && <div className="pay-option-badge">🔓 Precio de la Bóveda</div>}
         <div className="summary-name">{comboName}</div>
         <div className="summary-diamonds">{diamonds} 💎</div>
-        <div className="summary-price">{price}</div>
+        <div className="summary-price">
+          {publicPrice && (
+            <s className="hint" style={{ marginRight: 8 }}>
+              {publicPrice}
+            </s>
+          )}
+          {price}
+        </div>
       </div>
 
       <Stepper step={step} />
@@ -739,6 +753,7 @@ export function Checkout({
             >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+              {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
 
               {whatsappField(redirecting)}
 
@@ -763,6 +778,7 @@ export function Checkout({
             >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+              {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
 
               {whatsappField(mpOxxoRedirecting)}
 
@@ -785,6 +801,7 @@ export function Checkout({
             >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+              {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
 
               {whatsappField(oxxoRedirecting)}
 
@@ -807,6 +824,7 @@ export function Checkout({
             >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+              {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
 
               {whatsappField(mpSpeiRedirecting)}
 
@@ -829,6 +847,7 @@ export function Checkout({
             >
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+              {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
 
               {whatsappField(speiRedirecting)}
 
@@ -845,6 +864,7 @@ export function Checkout({
             <form action={transferAction} onSubmit={(e) => trackPaymentInfo(e.currentTarget)}>
               <input type="hidden" name="comboKey" value={comboKey} />
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+              {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
               {/* No nickname field: the server re-validates and takes the name
                   from the provider, so nothing the form sends could forge it. */}
 
