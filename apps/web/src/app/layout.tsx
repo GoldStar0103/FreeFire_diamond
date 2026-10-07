@@ -114,6 +114,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <div className="footer-links">
             <a href="/">Inicio</a>
+            <a href="/cuenta">Mi LevelUp</a>
+            <a href="/ranking">Ranking</a>
             <a href="/pedidos">Mis pedidos</a>
             <a href="/confianza">Confianza</a>
             {/* A real page now (see /soporte) rather than jumping straight to

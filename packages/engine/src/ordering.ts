@@ -78,6 +78,13 @@ export interface CreateOrderInput {
    * Vault open right now.
    */
   vaultPurchase?: { vaultOfferId: string; playerProfileId: string };
+  /**
+   * The signed-in account placing this order, when there is one. Distinct
+   * from `vaultPurchase.playerProfileId` (which also proves Vault access):
+   * this stamp is what lets Level Pass credit every top-up they make, even
+   * to a Free Fire ID that is not their linked season ID.
+   */
+  buyerProfileId?: string | null;
 }
 
 export interface ComboSnapshot {
@@ -118,6 +125,7 @@ export interface NewOrder {
   paymentMethod: PaymentMethod;
   items: NewOrderItem[];
   tracking: CreateOrderInput['tracking'];
+  playerProfileId?: string | null;
 }
 
 export type CreateOrderFailure =
@@ -350,6 +358,7 @@ export async function createOrder(
     paymentMethod: input.paymentMethod,
     items,
     ...(input.tracking ? { tracking: input.tracking } : { tracking: undefined }),
+    playerProfileId: input.buyerProfileId ?? input.vaultPurchase?.playerProfileId ?? null,
   };
 
   const persisted = await deps.store.persist(order);

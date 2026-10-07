@@ -165,6 +165,7 @@ export class DrizzleOrderingStore implements OrderingStore {
             .values({
               orderNumber,
               playerId: order.playerId,
+              playerProfileId: order.playerProfileId ?? null,
               playerNickname: order.playerNickname,
               serverId: order.serverId,
               contactEmail: order.contactEmail,

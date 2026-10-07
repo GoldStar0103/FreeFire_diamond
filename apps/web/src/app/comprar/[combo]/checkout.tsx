@@ -113,6 +113,7 @@ interface Props {
   /** The customer came back from Stripe without paying. */
   cancelledNotice: string | null;
   supportNumber: string;
+  isLoggedIn: boolean;
 }
 
 /**
@@ -260,6 +261,7 @@ export function Checkout({
   oxxoEnabled,
   cancelledNotice,
   supportNumber,
+  isLoggedIn,
 }: Props) {
   const [validation, validateAction, validating] = useActionState<ValidateState, FormData>(
     validatePlayer,
@@ -410,6 +412,14 @@ export function Checkout({
       </div>
 
       <Stepper step={step} />
+
+      {!isLoggedIn && (
+        <div className="alert warn" style={{ marginBottom: 12 }}>
+          Estás comprando como invitado.{' '}
+          <a href="/cuenta">Crea tu cuenta Mi LevelUp</a> para sumar Level Pass, ranking y La
+          Bóveda.
+        </div>
+      )}
 
       {cancelledNotice && <div className="alert warn">{cancelledNotice}</div>}
 

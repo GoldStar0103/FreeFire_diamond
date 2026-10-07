@@ -31,6 +31,8 @@ import {
   setFeaturedBadges,
   updateAvatar,
   updateDisplayName,
+  changeLinkedPlayerId,
+  getLinkedIdState,
 } from './customer-profile-store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -340,5 +342,23 @@ describe('getPublicProfile', () => {
     expect(result?.highestHistoricalRank).toBe(1);
     expect(result?.seasonsParticipatedIn).toBe(2);
     expect(result?.currentRank).toBe(2); // season B is the active one
+  });
+});
+
+describe('changeLinkedPlayerId', () => {
+  it('lets a player change their linked ID once per season, then refuses', async () => {
+    const p = await seedProfile('100001');
+    await seedActiveSeason(1);
+
+    expect(await getLinkedIdState(db, p.id)).toMatchObject({ playerId: '100001', canChange: true, seasonNumber: 1 });
+    expect(await changeLinkedPlayerId(db, p.id, '200002')).toEqual({ ok: true, playerId: '200002' });
+    expect(await getLinkedIdState(db, p.id)).toMatchObject({ playerId: '200002', canChange: false });
+    expect(await changeLinkedPlayerId(db, p.id, '300003')).toEqual({ ok: false, reason: 'already_changed' });
+  });
+
+  it('refuses an ID another account already linked', async () => {
+    const a = await seedProfile('100001', 'a@test.levelup');
+    await seedProfile('200002', 'b@test.levelup');
+    expect(await changeLinkedPlayerId(db, a.id, '200002')).toEqual({ ok: false, reason: 'taken' });
   });
 });

@@ -93,6 +93,11 @@ export interface LevelPassOrderFinancials {
   paymentFeeCents: number;
   /** Paid diamonds actually delivered by this order — drives ranking, not LP. */
   diamonds: number;
+  /**
+   * The signed-in Mi LevelUp account, when we know it. Level Pass / Vault
+   * credit this profile even if `playerId` is a different Free Fire ID.
+   */
+  buyerProfileId?: string | null;
   /** Set only when an admin manually overrides the calculated LP for this order. */
   manualLpOverride?: { lp: number; adminId: string; reason?: string };
 }
@@ -175,8 +180,15 @@ export function decideLevelPassOutcome(
 export interface LevelPassStore {
   /** Null means no eligible order feeds this — caller skips the whole flow. */
   findActiveSeason(): Promise<{ id: string; endsAt: Date } | null>;
-  /** Null means this Free Fire ID has no linked account — not eligible yet. */
-  getPlayerState(seasonId: string, playerId: string): Promise<LevelPassCurrentState | null>;
+  /**
+   * Null means nobody to credit: no signed-in buyer, and `playerId` is not
+   * anyone's linked season ID.
+   */
+  getPlayerState(
+    seasonId: string,
+    playerId: string,
+    buyerProfileId?: string | null,
+  ): Promise<LevelPassCurrentState | null>;
   getCheckpointConfig(): Promise<LevelPassCheckpointConfig[]>;
   hasProcessedOrder(orderId: string): Promise<boolean>;
   /**
@@ -216,7 +228,7 @@ export async function processOrderCompletion(
   const season = await deps.store.findActiveSeason();
   if (!season) return { status: 'no_active_season' };
 
-  const state = await deps.store.getPlayerState(season.id, order.playerId);
+  const state = await deps.store.getPlayerState(season.id, order.playerId, order.buyerProfileId);
   if (!state) return { status: 'no_linked_account' };
 
   const checkpoints = await deps.store.getCheckpointConfig();

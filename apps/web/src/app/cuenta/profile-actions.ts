@@ -2,9 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { setFeaturedBadges, updateAvatar, updateDisplayName } from '@levelup/db';
+import { changeLinkedPlayerId, setFeaturedBadges, updateAvatar, updateDisplayName } from '@levelup/db';
+import { createCustomerSessionToken } from '../../lib/customer-auth.js';
 import { getDb } from '../../lib/server.js';
-import { requireCustomerSession, clearCustomerSessionCookie } from '../../lib/customer-session.js';
+import {
+  requireCustomerSession,
+  clearCustomerSessionCookie,
+  setCustomerSessionCookie,
+} from '../../lib/customer-session.js';
 import { storeAvatar } from '../../lib/avatar-storage.js';
 
 export async function logout(): Promise<void> {
@@ -49,6 +54,40 @@ export async function saveAvatar(_prev: AvatarFormState, formData: FormData): Pr
   if (!stored.ok) return { error: stored.rejection.message };
 
   await updateAvatar(getDb(), session.playerProfileId, stored.key);
+  revalidatePath('/cuenta');
+  revalidatePath('/cuenta/perfil');
+  return { ok: true };
+}
+
+export interface LinkedIdFormState {
+  error?: string;
+  ok?: boolean;
+}
+
+export async function saveLinkedPlayerId(
+  _prev: LinkedIdFormState,
+  formData: FormData,
+): Promise<LinkedIdFormState> {
+  const session = await requireCustomerSession();
+  const result = await changeLinkedPlayerId(getDb(), session.playerProfileId, String(formData.get('playerId') ?? ''));
+  if (!result.ok) {
+    return {
+      error:
+        result.reason === 'taken'
+          ? 'Ese ID de Free Fire ya está ligado a otra cuenta.'
+          : result.reason === 'already_changed'
+            ? 'Este temporada ya cambiaste tu ID. Solo se puede una vez.'
+            : 'El ID de Free Fire debe tener entre 6 y 15 números.',
+    };
+  }
+
+  const secret = process.env.CUSTOMER_SESSION_SECRET;
+  if (secret && secret.length >= 32) {
+    await setCustomerSessionCookie(
+      createCustomerSessionToken({ playerProfileId: session.playerProfileId, playerId: result.playerId }, secret),
+    );
+  }
+
   revalidatePath('/cuenta');
   revalidatePath('/cuenta/perfil');
   return { ok: true };

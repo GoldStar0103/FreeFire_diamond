@@ -292,6 +292,7 @@ export async function placeOrder(
   const vault = await resolveVaultPurchase(formData);
   if (!vault.ok) return { error: vault.message };
 
+  const buyer = await getCustomerSession();
   const created = await createOrder(
     { store: new DrizzleOrderingStore(getDb()) },
     {
@@ -302,6 +303,7 @@ export async function placeOrder(
       paymentMethod: 'transfer_manual',
       source: 'storefront',
       tracking: await trackingContext(),
+      buyerProfileId: buyer?.playerProfileId ?? null,
       ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
     },
   );
@@ -425,6 +427,7 @@ async function payWithGatewayMethod(
   const vault = await resolveVaultPurchase(formData);
   if (!vault.ok) return { error: vault.message };
 
+  const buyer = await getCustomerSession();
   const created = await createOrder(
     { store: new DrizzleOrderingStore(getDb()) },
     {
@@ -435,6 +438,7 @@ async function payWithGatewayMethod(
       paymentMethod: method,
       source: 'storefront',
       tracking: await trackingContext(),
+      buyerProfileId: buyer?.playerProfileId ?? null,
       ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
     },
   );

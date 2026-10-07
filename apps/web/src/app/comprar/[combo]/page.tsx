@@ -119,10 +119,11 @@ export default async function BuyPage({
   const cancelledNotice =
     cancelado && id ? await handleCancelledCheckout(cancelado, id) : null;
 
-  const [combo, payTo, methodsEnabled] = await Promise.all([
+  const [combo, payTo, methodsEnabled, session] = await Promise.all([
     getStorefrontCombo(getDb(), comboKey),
     getPaymentDetails(getDb()),
     getPaymentMethodsEnabled(getDb()),
+    getCustomerSession(),
   ]);
 
   if (!combo) notFound();
@@ -137,7 +138,6 @@ export default async function BuyPage({
   // this is only what gets displayed.
   let vaultPriceMxnCents: number | null = null;
   if (oferta) {
-    const session = await getCustomerSession();
     if (session) {
       const resolved = await new DrizzleOrderingStore(getDb()).resolveVaultOffer({
         vaultOfferId: oferta,
@@ -188,6 +188,7 @@ export default async function BuyPage({
         oxxoEnabled={methodsEnabled.oxxo}
         cancelledNotice={cancelledNotice}
         supportNumber={supportNumber() ?? ''}
+        isLoggedIn={session !== null}
       />
     </main>
   );

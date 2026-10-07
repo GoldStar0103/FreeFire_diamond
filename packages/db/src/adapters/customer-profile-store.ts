@@ -8,7 +8,7 @@
  * `getPublicProfile`/`getPublicTop50` and their own comments.
  */
 
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import {
   badgeDefinitions,
@@ -17,6 +17,7 @@ import {
   levelPassCheckpointEvents,
   levelPassLpTransactions,
   orders,
+  playerLinkedIdChanges,
   playerProfiles,
   seasonPlayerStats,
   seasons,
@@ -253,7 +254,16 @@ export interface MyOrderRow {
   lpEarned: number | null;
 }
 
-export async function listMyOrders(db: Database, playerId: string, limit = 50): Promise<MyOrderRow[]> {
+export async function listMyOrders(
+  db: Database,
+  playerId: string,
+  limit = 50,
+  playerProfileId?: string,
+): Promise<MyOrderRow[]> {
+  const filter = playerProfileId
+    ? or(eq(orders.playerId, playerId), eq(orders.playerProfileId, playerProfileId))
+    : eq(orders.playerId, playerId);
+
   const rows = await db
     .select({
       orderNumber: orders.orderNumber,
@@ -265,7 +275,7 @@ export async function listMyOrders(db: Database, playerId: string, limit = 50): 
     })
     .from(orders)
     .leftJoin(levelPassLpTransactions, eq(levelPassLpTransactions.orderId, orders.id))
-    .where(eq(orders.playerId, playerId))
+    .where(filter)
     .orderBy(desc(orders.createdAt))
     .limit(limit);
 
@@ -449,4 +459,112 @@ export async function getPublicProfile(db: Database, playerProfileId: string): P
     seasonsParticipatedIn: Number(seasonCount?.count ?? 0),
     featuredBadges: featured,
   };
+}
+
+// ── linked Free Fire ID (season ranking) ─────────────────────────────────────
+
+export interface LinkedIdState {
+  playerId: string;
+  canChange: boolean;
+  seasonNumber: number | null;
+}
+
+export async function getLinkedIdState(db: Database, playerProfileId: string): Promise<LinkedIdState | null> {
+  const [profile] = await db
+    .select({ playerId: playerProfiles.playerId })
+    .from(playerProfiles)
+    .where(eq(playerProfiles.id, playerProfileId))
+    .limit(1);
+  if (!profile) return null;
+
+  const [season] = await db
+    .select({ id: seasons.id, seasonNumber: seasons.seasonNumber })
+    .from(seasons)
+    .where(eq(seasons.status, 'active'))
+    .orderBy(desc(seasons.seasonNumber))
+    .limit(1);
+
+  if (!season) return { playerId: profile.playerId, canChange: true, seasonNumber: null };
+
+  const [changed] = await db
+    .select({ id: playerLinkedIdChanges.id })
+    .from(playerLinkedIdChanges)
+    .where(
+      and(
+        eq(playerLinkedIdChanges.playerProfileId, playerProfileId),
+        eq(playerLinkedIdChanges.seasonId, season.id),
+      ),
+    )
+    .limit(1);
+
+  return { playerId: profile.playerId, canChange: !changed, seasonNumber: season.seasonNumber };
+}
+
+export type ChangeLinkedIdResult =
+  | { ok: true; playerId: string }
+  | { ok: false; reason: 'invalid' | 'taken' | 'already_changed' };
+
+export async function changeLinkedPlayerId(
+  db: Database,
+  playerProfileId: string,
+  rawPlayerId: string,
+): Promise<ChangeLinkedIdResult> {
+  const playerId = rawPlayerId.trim();
+  if (!/^\d{6,15}$/.test(playerId)) return { ok: false, reason: 'invalid' };
+
+  const [profile] = await db
+    .select({ playerId: playerProfiles.playerId })
+    .from(playerProfiles)
+    .where(eq(playerProfiles.id, playerProfileId))
+    .limit(1);
+  if (!profile) return { ok: false, reason: 'invalid' };
+  if (profile.playerId === playerId) return { ok: true, playerId };
+
+  const [taken] = await db
+    .select({ id: playerProfiles.id })
+    .from(playerProfiles)
+    .where(eq(playerProfiles.playerId, playerId))
+    .limit(1);
+  if (taken) return { ok: false, reason: 'taken' };
+
+  const [season] = await db
+    .select({ id: seasons.id })
+    .from(seasons)
+    .where(eq(seasons.status, 'active'))
+    .orderBy(desc(seasons.seasonNumber))
+    .limit(1);
+
+  try {
+    await db.transaction(async (tx) => {
+      if (season) {
+        const inserted = await tx
+          .insert(playerLinkedIdChanges)
+          .values({
+            playerProfileId,
+            seasonId: season.id,
+            fromPlayerId: profile.playerId,
+            toPlayerId: playerId,
+          })
+          .onConflictDoNothing({
+            target: [playerLinkedIdChanges.playerProfileId, playerLinkedIdChanges.seasonId],
+          })
+          .returning({ id: playerLinkedIdChanges.id });
+        if (inserted.length === 0) {
+          throw new Error('already_changed');
+        }
+      }
+
+      await tx
+        .update(playerProfiles)
+        .set({ playerId, updatedAt: sql`now()` })
+        .where(eq(playerProfiles.id, playerProfileId));
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'already_changed') {
+      return { ok: false, reason: 'already_changed' };
+    }
+    throw err;
+  }
+
+  return { ok: true, playerId };
 }

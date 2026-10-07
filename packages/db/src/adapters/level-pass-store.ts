@@ -56,12 +56,28 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
     return row ?? null;
   }
 
-  async getPlayerState(seasonId: string, playerId: string): Promise<LevelPassCurrentState | null> {
-    const [profile] = await this.db
-      .select({ id: playerProfiles.id })
-      .from(playerProfiles)
-      .where(eq(playerProfiles.playerId, playerId))
-      .limit(1);
+  async getPlayerState(
+    seasonId: string,
+    playerId: string,
+    buyerProfileId?: string | null,
+  ): Promise<LevelPassCurrentState | null> {
+    let profile: { id: string } | undefined;
+    if (buyerProfileId) {
+      const [byBuyer] = await this.db
+        .select({ id: playerProfiles.id })
+        .from(playerProfiles)
+        .where(eq(playerProfiles.id, buyerProfileId))
+        .limit(1);
+      profile = byBuyer;
+    }
+    if (!profile) {
+      const [byLinked] = await this.db
+        .select({ id: playerProfiles.id })
+        .from(playerProfiles)
+        .where(eq(playerProfiles.playerId, playerId))
+        .limit(1);
+      profile = byLinked;
+    }
     if (!profile) return null;
 
     const [stats] = await this.db
@@ -133,19 +149,28 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
         .returning({ id: levelPassLpTransactions.id });
       if (inserted.length === 0) return;
 
+      const [linked] = await tx
+        .select({ playerId: playerProfiles.playerId })
+        .from(playerProfiles)
+        .where(eq(playerProfiles.id, playerProfileId))
+        .limit(1);
+      // Season ranking is the one linked ID. Level Pass LP still always
+      // accrues — secondaries spend more, they just do not climb the board.
+      const rankingDiamonds = linked?.playerId === order.playerId ? order.diamonds : 0;
+
       await tx
         .insert(seasonPlayerStats)
         .values({
           seasonId,
           playerProfileId,
           lp: decision.awardedLp,
-          seasonalDiamonds: order.diamonds,
+          seasonalDiamonds: rankingDiamonds,
         })
         .onConflictDoUpdate({
           target: [seasonPlayerStats.seasonId, seasonPlayerStats.playerProfileId],
           set: {
             lp: sql`${seasonPlayerStats.lp} + ${decision.awardedLp}`,
-            seasonalDiamonds: sql`${seasonPlayerStats.seasonalDiamonds} + ${order.diamonds}`,
+            seasonalDiamonds: sql`${seasonPlayerStats.seasonalDiamonds} + ${rankingDiamonds}`,
             updatedAt: sql`now()`,
           },
         });
@@ -232,6 +257,7 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
       .select({
         orderId: orders.id,
         playerId: orders.playerId,
+        buyerProfileId: orders.playerProfileId,
         priceMxnCents: orders.priceMxnCents,
       })
       .from(orders)
@@ -292,6 +318,7 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
       return {
         orderId: row.orderId,
         playerId: row.playerId,
+        buyerProfileId: row.buyerProfileId,
         saleAmountCents: row.priceMxnCents,
         productCostCents: Math.round((costUsdByOrder.get(row.orderId) ?? 0) * fxRate * 100),
         paymentFeeCents,

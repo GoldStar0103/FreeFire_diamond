@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import { getMyProfile } from '@levelup/db';
+import { getLinkedIdState, getMyProfile } from '@levelup/db';
 import { requireCustomerSession } from '../../../lib/customer-session.js';
 import { getDb } from '../../../lib/server.js';
 import { avatarUrl } from '../../../lib/assets.js';
 import { initials } from '../../../lib/format.js';
-import { AvatarForm, DisplayNameForm } from './perfil-forms';
+import { AvatarForm, DisplayNameForm, LinkedIdForm } from './perfil-forms';
 
 export const metadata: Metadata = {
   title: 'Editar perfil',
@@ -15,7 +15,10 @@ export const dynamic = 'force-dynamic';
 
 export default async function PerfilPage() {
   const session = await requireCustomerSession();
-  const profile = await getMyProfile(getDb(), session.playerProfileId);
+  const [profile, linked] = await Promise.all([
+    getMyProfile(getDb(), session.playerProfileId),
+    getLinkedIdState(getDb(), session.playerProfileId),
+  ]);
   const name = profile?.displayName ?? '';
   const avatar = avatarUrl(profile?.avatarAssetUrl);
 
@@ -40,6 +43,16 @@ export default async function PerfilPage() {
       <div className="card" style={{ marginTop: 16 }}>
         <DisplayNameForm initial={name} />
       </div>
+
+      {linked && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <LinkedIdForm
+            playerId={linked.playerId}
+            canChange={linked.canChange}
+            seasonNumber={linked.seasonNumber}
+          />
+        </div>
+      )}
     </main>
   );
 }

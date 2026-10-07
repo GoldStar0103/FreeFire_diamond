@@ -246,6 +246,15 @@ describe('getPlayerState', () => {
     expect(state?.currentLp).toBe(300);
     expect(state?.reachedCheckpoints.sort((a, b) => a - b)).toEqual([60, 260]);
   });
+
+  it('credits a signed-in buyer even when the top-up ID is not their linked ID', async () => {
+    const season = await seedActiveSeason();
+    const profile = await seedProfile('100001');
+    const store = new DrizzleLevelPassStore(db);
+
+    const state = await store.getPlayerState(season.id, '555555', profile.id);
+    expect(state).toMatchObject({ playerProfileId: profile.id, currentLp: 0 });
+  });
 });
 
 describe('getCheckpointConfig', () => {
@@ -343,6 +352,31 @@ describe('applyDecision', () => {
 
     const [stats] = await db.select().from(seasonPlayerStats).where(eq(seasonPlayerStats.playerProfileId, profile.id));
     expect(stats).toMatchObject({ lp: 12, seasonalDiamonds: 200 });
+  });
+
+  it('credits LP for a secondary Free Fire ID but does not add season ranking diamonds', async () => {
+    const season = await seedActiveSeason();
+    const profile = await seedProfile('100001');
+    const order = await placeOrder('200002');
+    const store = new DrizzleLevelPassStore(db);
+
+    await store.applyDecision(
+      season.id,
+      profile.id,
+      {
+        orderId: order.id,
+        playerId: '200002',
+        buyerProfileId: profile.id,
+        saleAmountCents: 1_800,
+        productCostCents: 1_200,
+        paymentFeeCents: 0,
+        diamonds: 310,
+      },
+      decision({ awardedLp: 8, newLp: 8 }),
+    );
+
+    const [stats] = await db.select().from(seasonPlayerStats).where(eq(seasonPlayerStats.playerProfileId, profile.id));
+    expect(stats).toMatchObject({ lp: 8, seasonalDiamonds: 0 });
   });
 
   it('increments the player profile lifetime counters', async () => {

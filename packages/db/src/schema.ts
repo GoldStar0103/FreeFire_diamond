@@ -200,6 +200,13 @@ export const orders = pgTable(
     orderNumber: text('order_number').notNull(),
 
     playerId: text('player_id').notNull(),
+    /**
+     * The Mi LevelUp account that was signed in when this order was placed.
+     * Level Pass / Vault credit this profile even when `player_id` is a
+     * different Free Fire ID (secondaries). Season ranking still uses the
+     * profile's single linked `player_profiles.player_id`.
+     */
+    playerProfileId: uuid('player_profile_id').references(() => playerProfiles.id, { onDelete: 'set null' }),
     /** From /pins/validate. Shown as "¿Eres tú, X?" and kept as evidence. */
     playerNickname: text('player_nickname'),
     serverId: text('server_id'),
@@ -248,6 +255,7 @@ export const orders = pgTable(
   (t) => [
     uniqueIndex('orders_number_idx').on(t.orderNumber),
     index('orders_player_idx').on(t.playerId),
+    index('orders_player_profile_idx').on(t.playerProfileId),
     index('orders_status_idx').on(t.status),
     // What the conversions sweep scans: paid, not yet reported.
     index('orders_capi_pending_idx').on(t.paidAt).where(sql`capi_sent_at IS NULL`),
@@ -514,11 +522,10 @@ export const ledgerEntryType = pgEnum('ledger_entry_type', [
 ]);
 
 /**
- * A persistent player identity, independent of any season. `player_id` (the
- * Free Fire UID already on every order) is its natural key — there is no FK
- * from `orders` to this table; linking is by that shared value, matching the
- * existing `one_mega_oferta_per_player` precedent of treating player_id as
- * the per-player identity rather than inventing a parallel relationship.
+ * A persistent player identity, independent of any season. `player_id` is the
+ * single linked Free Fire ID that counts for the season ranking. Paid orders
+ * may stamp `orders.player_profile_id` so Level Pass / Vault credit this
+ * account even when the top-up went to a different Free Fire ID.
  *
  * `lifetime_*` counters are maintained (updated transactionally at order
  * completion), never recalculated by aggregation — the same discipline as
@@ -577,6 +584,27 @@ export const seasons = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('seasons_number_idx').on(t.seasonNumber)],
+);
+
+/**
+ * One linked-ID change per season. The first change in a season inserts a
+ * row; a second attempt finds it and is refused.
+ */
+export const playerLinkedIdChanges = pgTable(
+  'player_linked_id_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    seasonId: uuid('season_id')
+      .notNull()
+      .references(() => seasons.id, { onDelete: 'restrict' }),
+    fromPlayerId: text('from_player_id').notNull(),
+    toPlayerId: text('to_player_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('player_linked_id_changes_once_per_season_idx').on(t.playerProfileId, t.seasonId)],
 );
 
 /**

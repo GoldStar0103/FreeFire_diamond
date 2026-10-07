@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { findCustomerOrder, type CustomerOrder, type CustomerOrderStatus } from '@levelup/db';
+import { getCustomerSession } from '../../../lib/customer-session';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { AutoRefresh, PurchasePixel } from './live';
@@ -239,6 +240,7 @@ export default async function OrderPage({
   // the VIP group while their order is still processing would read as a sales
   // pitch at the exact moment they are waiting to find out if we delivered.
   const vipUrl = order.status === 'completado' ? vipGroupUrl() : null;
+  const session = await getCustomerSession();
 
   return (
     <main className="page narrow">
@@ -353,6 +355,19 @@ export default async function OrderPage({
         <a className="btn primary wide" href={helpUrl} target="_blank" rel="noreferrer">
           Escríbenos por WhatsApp
         </a>
+      )}
+
+      {!session && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h2 className="mini-title">Crea tu cuenta Mi LevelUp</h2>
+          <p className="hint">
+            Ya compraste como invitado. Con una cuenta, esta recarga y las siguientes suman al
+            Level Pass y desbloquean La Bóveda.
+          </p>
+          <Link className="btn primary wide" href="/cuenta">
+            Crear mi cuenta
+          </Link>
+        </div>
       )}
 
       {vipUrl && (

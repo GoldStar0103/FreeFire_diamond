@@ -49,7 +49,7 @@ export default async function CuentaPage() {
   const [profile, overview, orders] = await Promise.all([
     getMyProfile(db, session.playerProfileId),
     getMyLevelUpOverview(db, session.playerProfileId),
-    listMyOrders(db, session.playerId, 10),
+    listMyOrders(db, session.playerId, 10, session.playerProfileId),
   ]);
 
   if (!profile) {
@@ -83,6 +83,7 @@ export default async function CuentaPage() {
           <h1 className="page-title" style={{ marginBottom: 0 }}>
             {name}
           </h1>
+          <p className="hint mono">ID de temporada {profile.playerId}</p>
           {overview.season && overview.rank && <p className="hint">Posición #{overview.rank} esta temporada</p>}
         </div>
         <div className="spacer" />
