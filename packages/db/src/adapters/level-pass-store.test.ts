@@ -158,7 +158,7 @@ async function completeOrder(
 async function seedProfile(playerId: string, displayName: string | null = null) {
   const [profile] = await db
     .insert(playerProfiles)
-    .values({ playerId, whatsapp: `+52${playerId}`, displayName })
+    .values({ playerId, email: `${playerId}@test.levelup`, displayName })
     .returning();
   return profile!;
 }

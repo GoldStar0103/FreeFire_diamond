@@ -1,5 +1,5 @@
 /**
- * Player accounts and WhatsApp OTP codes.
+ * Player accounts and email OTP codes.
  *
  * Free-function query module (not an engine port — there is no shared
  * business logic here beyond plain CRUD and a couple of guarded writes),
@@ -19,7 +19,7 @@ const isUniqueViolation = (err: unknown): boolean =>
 
 export interface OtpCodeRow {
   id: string;
-  whatsapp: string;
+  email: string;
   codeHash: string;
   attempts: number;
   expiresAt: Date;
@@ -28,23 +28,23 @@ export interface OtpCodeRow {
 
 export async function createOtpCode(
   db: Database,
-  whatsapp: string,
+  email: string,
   codeHash: string,
   expiresAt: Date,
 ): Promise<OtpCodeRow> {
   const [row] = await db
     .insert(playerOtpCodes)
-    .values({ whatsapp, codeHash, expiresAt })
+    .values({ email, codeHash, expiresAt })
     .returning();
   return row!;
 }
 
-/** The newest unconsumed, unexpired code for this number — there should only ever be one live. */
-export async function findActiveOtpCode(db: Database, whatsapp: string, now = new Date()): Promise<OtpCodeRow | null> {
+/** The newest unconsumed, unexpired code for this address — there should only ever be one live. */
+export async function findActiveOtpCode(db: Database, email: string, now = new Date()): Promise<OtpCodeRow | null> {
   const [row] = await db
     .select()
     .from(playerOtpCodes)
-    .where(and(eq(playerOtpCodes.whatsapp, whatsapp), isNull(playerOtpCodes.consumedAt), gt(playerOtpCodes.expiresAt, now)))
+    .where(and(eq(playerOtpCodes.email, email), isNull(playerOtpCodes.consumedAt), gt(playerOtpCodes.expiresAt, now)))
     .orderBy(desc(playerOtpCodes.createdAt))
     .limit(1);
   return row ?? null;
@@ -79,13 +79,13 @@ export async function consumeOtpCode(db: Database, id: string): Promise<boolean>
 export interface PlayerProfileRow {
   id: string;
   playerId: string;
-  whatsapp: string;
+  email: string;
   displayName: string | null;
   avatarAssetUrl: string | null;
 }
 
-export async function findProfileByWhatsapp(db: Database, whatsapp: string): Promise<PlayerProfileRow | null> {
-  const [row] = await db.select().from(playerProfiles).where(eq(playerProfiles.whatsapp, whatsapp)).limit(1);
+export async function findProfileByEmail(db: Database, email: string): Promise<PlayerProfileRow | null> {
+  const [row] = await db.select().from(playerProfiles).where(eq(playerProfiles.email, email)).limit(1);
   return row ?? null;
 }
 
@@ -96,7 +96,7 @@ export async function findProfileByPlayerId(db: Database, playerId: string): Pro
 
 export type CreateProfileResult =
   | { ok: true; profile: PlayerProfileRow }
-  | { ok: false; reason: 'whatsapp_taken' | 'player_id_taken' };
+  | { ok: false; reason: 'email_taken' | 'player_id_taken' };
 
 /**
  * Creates the account. No backfill step needed for historical orders:
@@ -106,18 +106,18 @@ export type CreateProfileResult =
  */
 export async function createPlayerProfile(
   db: Database,
-  input: { playerId: string; whatsapp: string },
+  input: { playerId: string; email: string },
 ): Promise<CreateProfileResult> {
   try {
     const [profile] = await db
       .insert(playerProfiles)
-      .values({ playerId: input.playerId, whatsapp: input.whatsapp })
+      .values({ playerId: input.playerId, email: input.email })
       .returning();
     return { ok: true, profile: profile! };
   } catch (err) {
     if (isUniqueViolation(err)) {
       const message = String(err);
-      if (message.includes('player_profiles_whatsapp_idx')) return { ok: false, reason: 'whatsapp_taken' };
+      if (message.includes('player_profiles_email_idx')) return { ok: false, reason: 'email_taken' };
       if (message.includes('player_profiles_player_id_idx')) return { ok: false, reason: 'player_id_taken' };
     }
     throw err;

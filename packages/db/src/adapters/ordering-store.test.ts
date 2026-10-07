@@ -360,7 +360,7 @@ describe.skipIf(!PG_AVAILABLE)('resolveVaultOffer / Vault purchase end to end', 
   async function seedEntitledPlayer(status: 'active' | 'expired' = 'active', expiresAt?: Date) {
     const [profile] = await db
       .insert(playerProfiles)
-      .values({ playerId: '7288567050', whatsapp: '+527288567050' })
+      .values({ playerId: '7288567050', email: '7288567050@test.levelup' })
       .returning();
     const [season] = await db
       .insert(seasons)
@@ -418,7 +418,7 @@ describe.skipIf(!PG_AVAILABLE)('resolveVaultOffer / Vault purchase end to end', 
   it('returns null when the player has no entitlement at all', async () => {
     const combo = await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
     const [offer] = await db.insert(vaultOffers).values({ comboId: combo.id, vaultPriceMxnCents: 50_000, active: true }).returning();
-    const [profile] = await db.insert(playerProfiles).values({ playerId: '7288567050', whatsapp: '+527288567050' }).returning();
+    const [profile] = await db.insert(playerProfiles).values({ playerId: '7288567050', email: '7288567050@test.levelup' }).returning();
 
     expect(
       await store().resolveVaultOffer({ vaultOfferId: offer!.id, comboKey: 'mega_prime_48k', playerProfileId: profile!.id }),

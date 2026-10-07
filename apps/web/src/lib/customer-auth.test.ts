@@ -3,7 +3,7 @@ import {
   createCustomerSessionToken,
   generateOtpCode,
   hashOtpCode,
-  normaliseWhatsapp,
+  normaliseEmail,
   readCustomerSessionToken,
   readPurposeToken,
   signPurposeToken,
@@ -42,19 +42,16 @@ describe('OTP hashing', () => {
   });
 });
 
-describe('normaliseWhatsapp', () => {
+describe('normaliseEmail', () => {
   it.each([
-    ['55 1234 5678', '525512345678'],
-    ['5512345678', '525512345678'],
-    ['+52 55 1234 5678', '525512345678'],
-    ['525512345678', '525512345678'],
-    ['00525512345678', '525512345678'],
+    ['  Jose@LevelUp.mx  ', 'jose@levelup.mx'],
+    ['a.b+tag@gmail.com', 'a.b+tag@gmail.com'],
   ])('normalises %s to %s', (input, expected) => {
-    expect(normaliseWhatsapp(input)).toBe(expected);
+    expect(normaliseEmail(input)).toBe(expected);
   });
 
-  it.each(['abc', '123', '12345678901234567890'])('rejects implausible input (%s)', (input) => {
-    expect(normaliseWhatsapp(input)).toBeNull();
+  it.each(['', 'abc', 'a@b', 'no-at-sign.mx', '@levelup.mx', 'jose@'])('rejects implausible input (%s)', (input) => {
+    expect(normaliseEmail(input)).toBeNull();
   });
 });
 
@@ -98,12 +95,12 @@ describe('customer session tokens', () => {
 
 describe('purpose-bound tokens', () => {
   it('round-trips for the same purpose', () => {
-    const token = signPurposeToken({ whatsapp: '525512345678' }, SECRET, 'pending-signup', 600);
-    expect(readPurposeToken(token, SECRET, 'pending-signup')).toMatchObject({ whatsapp: '525512345678' });
+    const token = signPurposeToken({ email: 'jose@levelup.mx' }, SECRET, 'pending-signup', 600);
+    expect(readPurposeToken(token, SECRET, 'pending-signup')).toMatchObject({ email: 'jose@levelup.mx' });
   });
 
   it('never verifies for a different purpose, even with the right secret', () => {
-    const token = signPurposeToken({ whatsapp: '525512345678' }, SECRET, 'pending-signup', 600);
+    const token = signPurposeToken({ email: 'jose@levelup.mx' }, SECRET, 'pending-signup', 600);
     expect(readPurposeToken(token, SECRET, 'something-else')).toBeNull();
   });
 
@@ -116,7 +113,7 @@ describe('purpose-bound tokens', () => {
   });
 
   it('rejects an expired purpose token', () => {
-    const token = signPurposeToken({ whatsapp: '525512345678' }, SECRET, 'pending-signup', -1);
+    const token = signPurposeToken({ email: 'jose@levelup.mx' }, SECRET, 'pending-signup', -1);
     expect(readPurposeToken(token, SECRET, 'pending-signup')).toBeNull();
   });
 });

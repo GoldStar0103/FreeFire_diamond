@@ -120,7 +120,7 @@ describe('listSeasonHistory', () => {
   });
 
   it('returns closed seasons with their podium, newest first', async () => {
-    const [profile] = await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' }).returning();
+    const [profile] = await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' }).returning();
     const [seasonA] = await db
       .insert(seasons)
       .values({ seasonNumber: 1, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-03-01'), status: 'closed', closedAt: new Date('2026-03-01') })

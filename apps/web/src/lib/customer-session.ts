@@ -57,14 +57,14 @@ export async function clearCustomerSessionCookie(): Promise<void> {
   store.delete(CUSTOMER_SESSION_COOKIE);
 }
 
-// ── pending signup (verified WhatsApp, no account yet) ──────────────────────
+// ── pending signup (verified email, no account yet) ─────────────────────────
 
 const PENDING_SIGNUP_COOKIE = 'levelup_pending_signup';
 const PENDING_SIGNUP_PURPOSE = 'pending-signup';
 const PENDING_SIGNUP_TTL_SECONDS = 10 * 60;
 
-export async function setPendingSignupCookie(whatsapp: string): Promise<void> {
-  const token = signPurposeToken({ whatsapp }, sessionSecret(), PENDING_SIGNUP_PURPOSE, PENDING_SIGNUP_TTL_SECONDS);
+export async function setPendingSignupCookie(email: string): Promise<void> {
+  const token = signPurposeToken({ email }, sessionSecret(), PENDING_SIGNUP_PURPOSE, PENDING_SIGNUP_TTL_SECONDS);
   const store = await cookies();
   store.set(PENDING_SIGNUP_COOKIE, token, {
     httpOnly: true,
@@ -75,12 +75,12 @@ export async function setPendingSignupCookie(whatsapp: string): Promise<void> {
   });
 }
 
-/** The WhatsApp number a visitor proved they control via OTP, or null if that never happened (or expired). */
-export async function getPendingSignupWhatsapp(): Promise<string | null> {
+/** The email a visitor proved they control via OTP, or null if that never happened (or expired). */
+export async function getPendingSignupEmail(): Promise<string | null> {
   const store = await cookies();
   const payload = readPurposeToken(store.get(PENDING_SIGNUP_COOKIE)?.value, sessionSecret(), PENDING_SIGNUP_PURPOSE);
-  const whatsapp = payload?.whatsapp;
-  return typeof whatsapp === 'string' ? whatsapp : null;
+  const email = payload?.email;
+  return typeof email === 'string' ? email : null;
 }
 
 export async function clearPendingSignupCookie(): Promise<void> {

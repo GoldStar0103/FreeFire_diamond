@@ -26,11 +26,11 @@ export function CuentaForm() {
   );
 
   const [step, setStep] = useState<Step>('request');
-  const [whatsapp, setWhatsapp] = useState('');
+  const [email, setEmail] = useState('');
 
   useEffect(() => {
-    if (requestState.status === 'sent' && requestState.whatsapp) {
-      setWhatsapp(requestState.whatsapp);
+    if (requestState.status === 'sent' && requestState.email) {
+      setEmail(requestState.email);
       setStep('verify');
     }
   }, [requestState]);
@@ -53,12 +53,12 @@ export function CuentaForm() {
     return (
       <form className="card" action={requestAction}>
         <label className="field">
-          <span>Tu WhatsApp</span>
+          <span>Tu correo</span>
           <input
-            name="whatsapp"
-            type="tel"
-            inputMode="numeric"
-            placeholder="55 1234 5678"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="tunombre@correo.com"
             required
             autoFocus
             disabled={requestPending}
@@ -77,8 +77,8 @@ export function CuentaForm() {
   if (step === 'verify') {
     return (
       <form className="card" action={verifyAction}>
-        <input type="hidden" name="whatsapp" value={whatsapp} />
-        <p className="hint">Te mandamos un código de 6 dígitos a tu WhatsApp.</p>
+        <input type="hidden" name="email" value={email} />
+        <p className="hint">Te mandamos un código de 6 dígitos a {email}.</p>
 
         <label className="field">
           <span>Código</span>

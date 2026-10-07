@@ -1,5 +1,5 @@
 /**
- * Customer authentication: WhatsApp OTP codes and session cookies.
+ * Customer authentication: email OTP codes and session cookies.
  *
  * A separate primitive from apps/admin/src/lib/auth.ts, deliberately — this
  * repo does not share code across the apps/* boundary (see
@@ -36,21 +36,21 @@ export function verifyOtpCode(code: string, hash: string, secret: string): boole
   return timingSafeEqual(Buffer.from(expected), Buffer.from(hash));
 }
 
-// ── WhatsApp number normalisation ────────────────────────────────────────────
+// ── email normalisation ──────────────────────────────────────────────────────
 
 /**
- * A Mexican phone in the E.164 digits the WhatsApp API wants: `52` plus ten
- * digits, or null for anything that doesn't come out as a plausible number.
- * Same rule as pixel.ts's `normaliseMxPhone` and the worker's
- * meta-capi.ts — kept as its own copy per this repo's "no sharing code
- * across apps/*" convention, not an oversight.
+ * Lower-cased, trimmed address, or null when it is not a plausible email.
+ * Deliberately strict enough to reject "a@b" (no dot in the domain) — that
+ * shape is almost always a typo, and we would rather ask again than send a
+ * code into a hole.
  */
-export function normaliseWhatsapp(raw: string): string | null {
-  let digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('00')) digits = digits.slice(2);
-  if (digits.length === 13 && digits.startsWith('521')) digits = `52${digits.slice(3)}`;
-  if (digits.length === 10) digits = `52${digits}`;
-  return /^52\d{10}$/.test(digits) ? digits : null;
+export function normaliseEmail(raw: string): string | null {
+  const email = raw.trim().toLowerCase();
+  if (email.length < 6 || email.length > 254) return null;
+  if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(email)) {
+    return null;
+  }
+  return email;
 }
 
 // ── sessions ──────────────────────────────────────────────────────────────────
@@ -135,10 +135,10 @@ export function readCustomerSessionToken(
  * Same generalised primitive as admin's `signPurposeToken`/`readPurposeToken`
  * (apps/admin/src/lib/auth.ts), duplicated rather than imported per this
  * repo's apps/* boundary rule. Needed here for the same reason it exists
- * there: `verifyOtp` proves a visitor controls a WhatsApp number, but when no
+ * there: `verifyOtp` proves a visitor controls an email address, but when no
  * account exists yet, `completeSignup` still needs to know this WITHOUT
  * trusting a bare form field — otherwise anyone could create an account for
- * any WhatsApp number without ever receiving a code. `purpose` is mixed into
+ * any email without ever receiving a code. `purpose` is mixed into
  * the signing key, so this can never verify as a real session token even if
  * a cookie is ever misread under the wrong name.
  */

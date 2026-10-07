@@ -90,9 +90,9 @@ export const lookupLimiter: RateLimiter =
 if (process.env.NODE_ENV !== 'production') globalThis.__webLookupLimiter = lookupLimiter;
 
 /**
- * Keyed by WhatsApp number, not IP: the thing this protects against is one
- * person's phone getting hammered with OTP messages, which an IP-keyed limit
- * would not stop (different networks, same target number).
+ * Keyed by email, not IP: the thing this protects against is one mailbox
+ * getting hammered with OTP messages, which an IP-keyed limit would not
+ * stop (different networks, same target address).
  */
 export const otpRequestLimiter: RateLimiter =
   globalThis.__webOtpRequestLimiter ??

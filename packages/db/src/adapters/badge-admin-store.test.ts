@@ -130,14 +130,14 @@ describe('manuallyAwardBadge', () => {
 
   it('fails cleanly for an unknown badge key', async () => {
     const adminUserId = await seedAdmin();
-    await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' });
+    await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });
     const result = await manuallyAwardBadge(db, { playerId: '100001', badgeKey: 'does_not_exist', reason: 'test', adminUserId });
     expect(result).toEqual({ ok: false, reason: 'badge_not_found' });
   });
 
   it('requires a season number for a season-scoped badge', async () => {
     const adminUserId = await seedAdmin();
-    await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' });
+    await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });
     await saveBadgeDefinition(db, draft({ seasonScoped: true }), adminUserId);
 
     const result = await manuallyAwardBadge(db, { playerId: '100001', badgeKey: 'top_50', reason: 'test', adminUserId });
@@ -146,7 +146,7 @@ describe('manuallyAwardBadge', () => {
 
   it('fails cleanly when the given season number does not exist', async () => {
     const adminUserId = await seedAdmin();
-    await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' });
+    await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });
     await saveBadgeDefinition(db, draft({ seasonScoped: true }), adminUserId);
 
     const result = await manuallyAwardBadge(db, { playerId: '100001', badgeKey: 'top_50', seasonNumber: 7, reason: 'test', adminUserId });
@@ -155,7 +155,7 @@ describe('manuallyAwardBadge', () => {
 
   it('awards a non-seasonal badge and it shows up as a holder', async () => {
     const adminUserId = await seedAdmin();
-    await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' });
+    await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });
     await saveBadgeDefinition(db, draft({ badgeKey: 'founder', seasonScoped: false }), adminUserId);
 
     const result = await manuallyAwardBadge(db, { playerId: '100001', badgeKey: 'founder', reason: 'early tester', adminUserId });
@@ -171,7 +171,7 @@ describe('manuallyAwardBadge', () => {
 
   it('awards a season-scoped badge tagged to the right season', async () => {
     const adminUserId = await seedAdmin();
-    await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' });
+    await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });
     await db.insert(seasons).values({ seasonNumber: 3, startsAt: new Date(), endsAt: new Date(), status: 'closed' });
     await saveBadgeDefinition(db, draft({ badgeKey: 'top_50', seasonScoped: true }), adminUserId);
 
@@ -185,7 +185,7 @@ describe('manuallyAwardBadge', () => {
 describe('revokeBadgeOwnership', () => {
   it('marks a held badge revoked and excludes it from the holder count', async () => {
     const adminUserId = await seedAdmin();
-    await db.insert(playerProfiles).values({ playerId: '100001', whatsapp: '525500000001' });
+    await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });
     await saveBadgeDefinition(db, draft({ badgeKey: 'founder', seasonScoped: false }), adminUserId);
     await manuallyAwardBadge(db, { playerId: '100001', badgeKey: 'founder', reason: 'x', adminUserId });
 

@@ -80,8 +80,8 @@ beforeEach(async () => {
   );
 });
 
-async function seedProfile(playerId = '100001', whatsapp = '525500000001') {
-  const [p] = await db.insert(playerProfiles).values({ playerId, whatsapp }).returning();
+async function seedProfile(playerId = '100001', email = 'p100001@test.levelup') {
+  const [p] = await db.insert(playerProfiles).values({ playerId, email }).returning();
   return p!;
 }
 
@@ -302,7 +302,7 @@ describe('getPublicProfile', () => {
     expect(await getPublicProfile(db, '00000000-0000-0000-0000-000000000000')).toBeNull();
   });
 
-  it('never exposes whatsapp or player id — only the documented public fields', async () => {
+  it('never exposes email or player id — only the documented public fields', async () => {
     const p = await seedProfile();
     const result = await getPublicProfile(db, p.id);
     expect(result).not.toBeNull();

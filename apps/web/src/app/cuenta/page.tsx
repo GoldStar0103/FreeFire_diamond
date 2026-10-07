@@ -39,7 +39,7 @@ export default async function CuentaPage() {
     return (
       <main className="page narrow">
         <h1 className="page-title">Mi LevelUp</h1>
-        <p className="page-sub">Inicia sesión con tu WhatsApp para ver tu progreso, rachas y recompensas.</p>
+        <p className="page-sub">Inicia sesión con tu correo para ver tu progreso, rachas y recompensas.</p>
         <CuentaForm />
       </main>
     );

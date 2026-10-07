@@ -529,7 +529,7 @@ export const playerProfiles = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     playerId: text('player_id').notNull(),
-    whatsapp: text('whatsapp').notNull(),
+    email: text('email').notNull(),
     displayName: text('display_name'),
     avatarAssetUrl: text('avatar_asset_url'),
 
@@ -541,7 +541,7 @@ export const playerProfiles = pgTable(
   },
   (t) => [
     uniqueIndex('player_profiles_player_id_idx').on(t.playerId),
-    uniqueIndex('player_profiles_whatsapp_idx').on(t.whatsapp),
+    uniqueIndex('player_profiles_email_idx').on(t.email),
     // Only enforced among profiles that have actually set one.
     uniqueIndex('player_profiles_display_name_idx')
       .on(t.displayName)
@@ -549,19 +549,19 @@ export const playerProfiles = pgTable(
   ],
 );
 
-/** Short-lived WhatsApp login codes. Never store the code itself, only its hash. */
+/** Short-lived email login codes. Never store the code itself, only its hash. */
 export const playerOtpCodes = pgTable(
   'player_otp_codes',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    whatsapp: text('whatsapp').notNull(),
+    email: text('email').notNull(),
     codeHash: text('code_hash').notNull(),
     attempts: integer('attempts').notNull().default(0),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('player_otp_codes_whatsapp_idx').on(t.whatsapp)],
+  (t) => [index('player_otp_codes_email_idx').on(t.email)],
 );
 
 /** A 60-day Level Pass / ranking cycle. Exactly one row should be `active`. */

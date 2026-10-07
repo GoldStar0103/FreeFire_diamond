@@ -15,7 +15,7 @@ import {
   createPlayerProfile,
   findActiveOtpCode,
   findProfileByPlayerId,
-  findProfileByWhatsapp,
+  findProfileByEmail,
   incrementOtpAttempts,
 } from './customer-auth-store.js';
 
@@ -63,81 +63,81 @@ beforeEach(async () => {
 
 describe('OTP codes', () => {
   it('finds a freshly created code as active', async () => {
-    await createOtpCode(db, '525512345678', 'hash-1', new Date(Date.now() + 600_000));
-    const found = await findActiveOtpCode(db, '525512345678');
-    expect(found).toMatchObject({ whatsapp: '525512345678', codeHash: 'hash-1', attempts: 0, consumedAt: null });
+    await createOtpCode(db, 'jose@levelup.mx', 'hash-1', new Date(Date.now() + 600_000));
+    const found = await findActiveOtpCode(db, 'jose@levelup.mx');
+    expect(found).toMatchObject({ email: 'jose@levelup.mx', codeHash: 'hash-1', attempts: 0, consumedAt: null });
   });
 
   it('does not find an expired code', async () => {
-    await createOtpCode(db, '525512345678', 'hash-1', new Date(Date.now() - 1_000));
-    expect(await findActiveOtpCode(db, '525512345678')).toBeNull();
+    await createOtpCode(db, 'jose@levelup.mx', 'hash-1', new Date(Date.now() - 1_000));
+    expect(await findActiveOtpCode(db, 'jose@levelup.mx')).toBeNull();
   });
 
   it('does not find an already-consumed code', async () => {
-    const code = await createOtpCode(db, '525512345678', 'hash-1', new Date(Date.now() + 600_000));
+    const code = await createOtpCode(db, 'jose@levelup.mx', 'hash-1', new Date(Date.now() + 600_000));
     await consumeOtpCode(db, code.id);
-    expect(await findActiveOtpCode(db, '525512345678')).toBeNull();
+    expect(await findActiveOtpCode(db, 'jose@levelup.mx')).toBeNull();
   });
 
   it('returns the newest code when several exist for the same number', async () => {
-    await createOtpCode(db, '525512345678', 'hash-old', new Date(Date.now() + 600_000));
+    await createOtpCode(db, 'jose@levelup.mx', 'hash-old', new Date(Date.now() + 600_000));
     await new Promise((r) => setTimeout(r, 5));
-    await createOtpCode(db, '525512345678', 'hash-new', new Date(Date.now() + 600_000));
+    await createOtpCode(db, 'jose@levelup.mx', 'hash-new', new Date(Date.now() + 600_000));
 
-    const found = await findActiveOtpCode(db, '525512345678');
+    const found = await findActiveOtpCode(db, 'jose@levelup.mx');
     expect(found?.codeHash).toBe('hash-new');
   });
 
   it('increments attempts and returns the new count', async () => {
-    const code = await createOtpCode(db, '525512345678', 'hash-1', new Date(Date.now() + 600_000));
+    const code = await createOtpCode(db, 'jose@levelup.mx', 'hash-1', new Date(Date.now() + 600_000));
     expect(await incrementOtpAttempts(db, code.id)).toBe(1);
     expect(await incrementOtpAttempts(db, code.id)).toBe(2);
   });
 
   it('consumeOtpCode succeeds once and refuses a second call (compare-and-set)', async () => {
-    const code = await createOtpCode(db, '525512345678', 'hash-1', new Date(Date.now() + 600_000));
+    const code = await createOtpCode(db, 'jose@levelup.mx', 'hash-1', new Date(Date.now() + 600_000));
     expect(await consumeOtpCode(db, code.id)).toBe(true);
     expect(await consumeOtpCode(db, code.id)).toBe(false);
   });
 });
 
 describe('player profiles', () => {
-  it('creates a profile and finds it by whatsapp and by player id', async () => {
-    const result = await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' });
+  it('creates a profile and finds it by email and by player id', async () => {
+    const result = await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' });
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('unreachable');
 
-    expect(await findProfileByWhatsapp(db, '525512345678')).toMatchObject({ playerId: '100001' });
-    expect(await findProfileByPlayerId(db, '100001')).toMatchObject({ whatsapp: '525512345678' });
+    expect(await findProfileByEmail(db, 'jose@levelup.mx')).toMatchObject({ playerId: '100001' });
+    expect(await findProfileByPlayerId(db, '100001')).toMatchObject({ email: 'jose@levelup.mx' });
   });
 
-  it('returns null for an unknown whatsapp or player id', async () => {
-    expect(await findProfileByWhatsapp(db, '525500000000')).toBeNull();
+  it('returns null for an unknown email or player id', async () => {
+    expect(await findProfileByEmail(db, 'nadie@levelup.mx')).toBeNull();
     expect(await findProfileByPlayerId(db, '999999')).toBeNull();
   });
 
-  it('refuses a second account for an already-used WhatsApp number', async () => {
-    await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' });
-    const second = await createPlayerProfile(db, { playerId: '100002', whatsapp: '525512345678' });
-    expect(second).toEqual({ ok: false, reason: 'whatsapp_taken' });
+  it('refuses a second account for an already-used email', async () => {
+    await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' });
+    const second = await createPlayerProfile(db, { playerId: '100002', email: 'jose@levelup.mx' });
+    expect(second).toEqual({ ok: false, reason: 'email_taken' });
   });
 
   it('refuses a second account for an already-linked Free Fire ID', async () => {
-    await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' });
-    const second = await createPlayerProfile(db, { playerId: '100001', whatsapp: '525500000000' });
+    await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' });
+    const second = await createPlayerProfile(db, { playerId: '100001', email: 'otro@levelup.mx' });
     expect(second).toEqual({ ok: false, reason: 'player_id_taken' });
   });
 });
 
 describe('awardFounderBadgeIfEligible', () => {
   it('does nothing when no "founder" badge is defined', async () => {
-    const { profile } = (await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' })) as { profile: { id: string } };
+    const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     await expect(awardFounderBadgeIfEligible(db, profile.id)).resolves.not.toThrow();
     expect(await db.select().from(badgeOwnerships)).toEqual([]);
   });
 
   it('awards the badge when now is inside the eligibility window', async () => {
-    const { profile } = (await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' })) as { profile: { id: string } };
+    const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     const [badge] = await db
       .insert(badgeDefinitions)
       .values({
@@ -156,7 +156,7 @@ describe('awardFounderBadgeIfEligible', () => {
   });
 
   it('does not award the badge before the eligibility window opens', async () => {
-    const { profile } = (await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' })) as { profile: { id: string } };
+    const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     await db.insert(badgeDefinitions).values({
       badgeKey: 'founder',
       title: 'Founder',
@@ -170,7 +170,7 @@ describe('awardFounderBadgeIfEligible', () => {
   });
 
   it('does not award the badge after the eligibility window closes', async () => {
-    const { profile } = (await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' })) as { profile: { id: string } };
+    const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     await db.insert(badgeDefinitions).values({
       badgeKey: 'founder',
       title: 'Founder',
@@ -184,7 +184,7 @@ describe('awardFounderBadgeIfEligible', () => {
   });
 
   it('does not award a badge marked not obtainable', async () => {
-    const { profile } = (await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' })) as { profile: { id: string } };
+    const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     await db.insert(badgeDefinitions).values({ badgeKey: 'founder', title: 'Founder', category: 'special', obtainable: false });
 
     await awardFounderBadgeIfEligible(db, profile.id);
@@ -192,7 +192,7 @@ describe('awardFounderBadgeIfEligible', () => {
   });
 
   it('never awards it twice for the same profile', async () => {
-    const { profile } = (await createPlayerProfile(db, { playerId: '100001', whatsapp: '525512345678' })) as { profile: { id: string } };
+    const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     await db.insert(badgeDefinitions).values({ badgeKey: 'founder', title: 'Founder', category: 'special' });
 
     await awardFounderBadgeIfEligible(db, profile.id);
