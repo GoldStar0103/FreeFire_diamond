@@ -103,25 +103,19 @@ export function buildEmailSender(env = process.env): EmailSender {
 
 class SmtpSession {
   private buffer = '';
+  private queued: string[] = [];
   private waiters: Array<(line: string) => void> = [];
 
   constructor(private socket: Socket) {
-    socket.setEncoding('utf8');
-    socket.on('data', (chunk: string) => {
-      this.buffer += chunk;
-      for (;;) {
-        const nl = this.buffer.indexOf('\n');
-        if (nl < 0) break;
-        const line = this.buffer.slice(0, nl).replace(/\r$/, '');
-        this.buffer = this.buffer.slice(nl + 1);
-        const next = this.waiters.shift();
-        if (next) next(line);
-      }
-    });
+    this.listen(socket);
   }
 
   attach(socket: Socket): void {
     this.socket = socket;
+    this.listen(socket);
+  }
+
+  private listen(socket: Socket): void {
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => {
       this.buffer += chunk;
@@ -132,11 +126,14 @@ class SmtpSession {
         this.buffer = this.buffer.slice(nl + 1);
         const next = this.waiters.shift();
         if (next) next(line);
+        else this.queued.push(line);
       }
     });
   }
 
   private readLine(): Promise<string> {
+    const already = this.queued.shift();
+    if (already !== undefined) return Promise.resolve(already);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new EmailSendError('SMTP timed out waiting for a reply')), 20_000);
       this.waiters.push((line) => {
@@ -182,15 +179,19 @@ async function sendSmtpMail(
   config: SmtpConfig,
   mail: { to: string; subject: string; text: string },
 ): Promise<void> {
-  const raw = await openSocket(config);
-  const session = new SmtpSession(raw);
+  // Session must listen before the TCP/TLS handshake finishes — Hostinger
+  // (and most SMTPs) send the 220 greeting the instant the socket is up,
+  // and a late 'data' listener never sees it.
+  const { socket, ready } = connectSocket(config);
+  const session = new SmtpSession(socket);
   try {
+    await ready;
     await session.expect(220, 'connect');
     await session.command(`EHLO levelupstore.mx`, 250);
 
     if (!config.secure) {
       await session.command('STARTTLS', 220);
-      const tls = await upgradeToTls(raw, config.host);
+      const tls = await upgradeToTls(socket, config.host);
       session.attach(tls);
       await session.command(`EHLO levelupstore.mx`, 250);
       await authenticateAndSend(session, config, mail);
@@ -199,7 +200,7 @@ async function sendSmtpMail(
 
     await authenticateAndSend(session, config, mail);
   } finally {
-    raw.destroy();
+    socket.destroy();
   }
 }
 
@@ -233,23 +234,24 @@ async function authenticateAndSend(
   await session.command('QUIT', 221).catch(() => undefined);
 }
 
-function openSocket(config: SmtpConfig): Promise<Socket> {
-  return new Promise((resolve, reject) => {
+function connectSocket(config: SmtpConfig): { socket: Socket; ready: Promise<void> } {
+  let socket!: Socket;
+  const ready = new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => reject(new EmailSendError(`SMTP connect failed: ${err.message}`));
     if (config.secure) {
-      const socket = tlsConnect({ host: config.host, port: config.port, servername: config.host }, () => {
+      socket = tlsConnect({ host: config.host, port: config.port, servername: config.host }, () => {
         socket.off('error', onError);
-        resolve(socket);
+        resolve();
       });
-      socket.once('error', onError);
-      return;
+    } else {
+      socket = netConnect({ host: config.host, port: config.port }, () => {
+        socket.off('error', onError);
+        resolve();
+      });
     }
-    const socket = netConnect({ host: config.host, port: config.port }, () => {
-      socket.off('error', onError);
-      resolve(socket);
-    });
     socket.once('error', onError);
   });
+  return { socket, ready };
 }
 
 function upgradeToTls(socket: Socket, host: string): Promise<TLSSocket> {
