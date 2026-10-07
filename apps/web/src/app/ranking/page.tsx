@@ -7,7 +7,7 @@ import { diamonds, initials } from '../../lib/format.js';
 
 export const metadata: Metadata = {
   title: 'Ranking',
-  description: 'Los jugadores que más han recargado esta temporada.',
+  description: 'Los jugadores con más diamantes en su ID ligado esta temporada.',
   alternates: { canonical: '/ranking' },
 };
 
@@ -21,7 +21,10 @@ export default async function RankingPage() {
   return (
     <main className="page narrow">
       <h1 className="page-title">Ranking de la temporada</h1>
-      <p className="page-sub">Los 50 jugadores con más diamantes recargados esta temporada.</p>
+      <p className="page-sub">
+        Los 50 jugadores con más diamantes en su ID ligado esta temporada. Recargas a otros IDs
+        suman Level Pass, no este ranking.
+      </p>
 
       {top.length === 0 ? (
         <div className="card">

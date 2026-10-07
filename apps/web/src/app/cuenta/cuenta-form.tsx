@@ -107,10 +107,13 @@ export function CuentaForm() {
   if (step === 'signup') {
     return (
       <form className="card" action={signupAction}>
-        <p className="hint">Un paso más: dinos tu ID de Free Fire para crear tu cuenta LevelUp.</p>
+        <p className="hint">
+          Este ID es el que cuenta para el ranking. Puedes recargar otros IDs con la misma cuenta:
+          igual suman al Level Pass y La Bóveda. Solo puedes cambiarlo una vez por temporada.
+        </p>
 
         <label className="field">
-          <span>Tu ID de Free Fire</span>
+          <span>ID de Free Fire para el ranking</span>
           <input
             name="playerId"
             inputMode="numeric"

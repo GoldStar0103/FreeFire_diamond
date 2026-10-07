@@ -76,7 +76,7 @@ export async function saveLinkedPlayerId(
         result.reason === 'taken'
           ? 'Ese ID de Free Fire ya está ligado a otra cuenta.'
           : result.reason === 'already_changed'
-            ? 'Este temporada ya cambiaste tu ID. Solo se puede una vez.'
+            ? 'Esta temporada ya cambiaste tu ID. Solo se puede una vez.'
             : 'El ID de Free Fire debe tener entre 6 y 15 números.',
     };
   }

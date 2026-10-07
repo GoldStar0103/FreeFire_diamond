@@ -361,8 +361,8 @@ export default async function OrderPage({
         <div className="card" style={{ marginBottom: 16 }}>
           <h2 className="mini-title">Crea tu cuenta Mi LevelUp</h2>
           <p className="hint">
-            Ya compraste como invitado. Con una cuenta, esta recarga y las siguientes suman al
-            Level Pass y desbloquean La Bóveda.
+            Las próximas recargas con tu cuenta — en cualquier ID — suman al Level Pass y La
+            Bóveda. El ranking usa el ID que ligues en tu perfil.
           </p>
           <Link className="btn primary wide" href="/cuenta">
             Crear mi cuenta

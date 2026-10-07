@@ -416,8 +416,8 @@ export function Checkout({
       {!isLoggedIn && (
         <div className="alert warn" style={{ marginBottom: 12 }}>
           Estás comprando como invitado.{' '}
-          <a href="/cuenta">Crea tu cuenta Mi LevelUp</a> para sumar Level Pass, ranking y La
-          Bóveda.
+          <a href="/cuenta">Crea tu cuenta Mi LevelUp</a> — cualquier ID que recargues con la
+          cuenta suma al Level Pass y La Bóveda. El ranking usa un solo ID.
         </div>
       )}
 

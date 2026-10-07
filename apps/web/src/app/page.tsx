@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countCompletedOrders, countUniqueCustomers, listStorefront, listTestimonials } from '@levelup/db';
+import { getCustomerSession } from '../lib/customer-session';
 import { getDb } from '../lib/server';
 import { diamonds, mxn } from '../lib/format';
 import { flyerUrl } from '../lib/assets';
@@ -57,11 +58,12 @@ const BANNER_SLIDES = [
 ];
 
 export default async function HomePage() {
-  const [campaigns, delivered, customers, testimonials] = await Promise.all([
+  const [campaigns, delivered, customers, testimonials, session] = await Promise.all([
     listStorefront(getDb()),
     countCompletedOrders(getDb()),
     countUniqueCustomers(getDb()),
     listTestimonials(getDb()),
+    getCustomerSession(),
   ]);
 
   // Same "needs at least a few ratings to mean anything" rule as /confianza —
@@ -232,6 +234,22 @@ export default async function HomePage() {
       )}
 
       <HowItWorks />
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2 className="mini-title">Mi LevelUp</h2>
+        <p className="hint">
+          Un ID para el ranking (se cambia una vez por temporada). Cualquier recarga con tu
+          cuenta — aunque sea otro ID — suma al Level Pass y La Bóveda.
+        </p>
+        <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
+          <Link href="/cuenta" className="btn primary">
+            {session ? 'Ver mi progreso' : 'Crear mi cuenta'}
+          </Link>
+          <Link href="/ranking" className="btn ghost">
+            Ver ranking
+          </Link>
+        </div>
+      </div>
     </main>
   );
 }

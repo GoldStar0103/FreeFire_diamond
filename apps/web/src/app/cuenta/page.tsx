@@ -39,7 +39,10 @@ export default async function CuentaPage() {
     return (
       <main className="page narrow">
         <h1 className="page-title">Mi LevelUp</h1>
-        <p className="page-sub">Inicia sesión con tu correo para ver tu progreso, rachas y recompensas.</p>
+        <p className="page-sub">
+          Entra con tu correo — sin contraseña. Un ID para el ranking; cualquier recarga con tu
+          cuenta suma al Level Pass y La Bóveda.
+        </p>
         <CuentaForm />
       </main>
     );
@@ -84,6 +87,7 @@ export default async function CuentaPage() {
             {name}
           </h1>
           <p className="hint mono">ID de temporada {profile.playerId}</p>
+          <p className="hint">Recargas a otros IDs también suman LP y La Bóveda.</p>
           {overview.season && overview.rank && <p className="hint">Posición #{overview.rank} esta temporada</p>}
         </div>
         <div className="spacer" />
