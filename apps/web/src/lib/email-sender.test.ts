@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildEmailSender, ConsoleEmailSender, SmtpEmailSender } from './email-sender.js';
+import {
+  buildEmailSender,
+  ConsoleEmailSender,
+  SmtpEmailSender,
+  smtpEnvelopeAddress,
+  smtpFromHeader,
+} from './email-sender.js';
 
 describe('buildEmailSender', () => {
   it('falls back to the console sender when SMTP is unset outside production', () => {
@@ -20,5 +26,29 @@ describe('buildEmailSender', () => {
       SMTP_FROM: 'LevelUp <noreply@levelupstore.mx>',
     });
     expect(sender).toBeInstanceOf(SmtpEmailSender);
+  });
+});
+
+describe('smtpEnvelopeAddress', () => {
+  it('keeps a bare mailbox', () => {
+    expect(smtpEnvelopeAddress('noreply@levelupstore.mx')).toBe('noreply@levelupstore.mx');
+  });
+
+  it('pulls the mailbox out of a display-name From', () => {
+    expect(smtpEnvelopeAddress('LevelUp <noreply@levelupstore.mx>')).toBe('noreply@levelupstore.mx');
+  });
+
+  it('rejects junk so MAIL FROM cannot be sent as <LevelUp <addr>>', () => {
+    expect(() => smtpEnvelopeAddress('not-an-email')).toThrow(/not a mailbox/);
+  });
+});
+
+describe('smtpFromHeader', () => {
+  it('wraps a bare mailbox', () => {
+    expect(smtpFromHeader('noreply@levelupstore.mx')).toBe('LevelUp Store <noreply@levelupstore.mx>');
+  });
+
+  it('leaves a display-name From alone', () => {
+    expect(smtpFromHeader('LevelUp <noreply@levelupstore.mx>')).toBe('LevelUp <noreply@levelupstore.mx>');
   });
 });

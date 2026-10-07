@@ -108,6 +108,55 @@ algo no salió limpio y hace falta que un humano decida.
 
 ---
 
+## Temporadas, Level Pass y La Bóveda
+
+El Level Pass, el ranking público y La Bóveda viven dentro de una temporada
+de 60 días. **Hasta que inicies la primera, esas tres cosas están apagadas
+en la tienda.**
+
+### Iniciar una temporada
+
+**Temporadas → Iniciar Temporada 1 (60 días).**
+
+Hay que hacerlo una vez para arrancar. Al cerrarse sola a los 60 días puedes
+iniciar la siguiente desde la misma pantalla.
+
+### Checkpoints del Level Pass
+
+En esa misma pantalla está la tabla de checkpoints: cuántos puntos (LP) hacen
+falta, cuántos diamantes se entregan, el costo interno y **la receta de
+entrega** (qué recargas del proveedor se mandan).
+
+La receta empieza vacía a propósito, para no inventar números. Si un
+checkpoint no tiene receta, esa recompensa no se puede entregar. Agrégala
+con los botones de denominación (+ 100, + 310, etc.) y guarda.
+
+Cambiar un checkpoint no toca recompensas que ya se entregaron.
+
+### La Bóveda
+
+**La Bóveda** son ofertas con descuento que solo ve quien ya completó el
+Level Pass. Elige un combo activo, ponle el precio de Bóveda y actívala.
+Hasta 6 activas a la vez.
+
+### Insignias
+
+**Insignias** son las medallas del ranking y del Level Pass. Las de ranking y
+Level Pass se otorgan solas; las demás (por ejemplo "Fundador") se otorgan a
+mano desde la página de cada una.
+
+### Cuentas de cliente (Mi LevelUp)
+
+Los jugadores entran a **Mi LevelUp** en la tienda con su **correo**: piden
+un código, lo escriben, y si es la primera vez también ponen su ID de Free
+Fire. El WhatsApp del checkout sigue siendo solo para contactarlos.
+
+Los códigos los manda el sistema por correo. Si alguien te dice que no le
+llegó el código, avísale a tu desarrollador — casi siempre es el buzón de
+envío.
+
+---
+
 ## Cada mes
 
 ### Cambiar el flyer

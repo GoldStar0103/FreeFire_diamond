@@ -42,6 +42,27 @@ export interface SmtpConfig {
   from: string;
 }
 
+/**
+ * The address SMTP actually talks in (`MAIL FROM`, `RCPT TO`).
+ * Accepts a bare mailbox or `Name <mailbox@host>` — the form people paste
+ * from a mail client's "From" field.
+ */
+export function smtpEnvelopeAddress(value: string): string {
+  const trimmed = value.trim();
+  const angled = trimmed.match(/<([^<>]+)>/);
+  const extracted = angled?.[1];
+  const candidate = (extracted ?? trimmed).trim();
+  if (!/^[^<>@\s]+@[^<>@\s]+$/.test(candidate)) {
+    throw new EmailSendError(`not a mailbox address: ${trimmed.slice(0, 80)}`);
+  }
+  return candidate;
+}
+
+export function smtpFromHeader(from: string): string {
+  if (from.includes('<')) return from.trim();
+  return `LevelUp Store <${smtpEnvelopeAddress(from)}>`;
+}
+
 export class SmtpEmailSender implements EmailSender {
   constructor(private readonly config: SmtpConfig) {}
 
@@ -189,14 +210,16 @@ async function authenticateAndSend(
 ): Promise<void> {
   const token = Buffer.from(`\0${config.user}\0${config.pass}`, 'utf8').toString('base64');
   await session.command(`AUTH PLAIN ${token}`, 235);
-  await session.command(`MAIL FROM:<${config.from}>`, 250);
-  await session.command(`RCPT TO:<${mail.to}>`, 250);
+  const fromAddr = smtpEnvelopeAddress(config.from);
+  const toAddr = smtpEnvelopeAddress(mail.to);
+  await session.command(`MAIL FROM:<${fromAddr}>`, 250);
+  await session.command(`RCPT TO:<${toAddr}>`, 250);
   await session.command('DATA', 354);
 
   const date = new Date().toUTCString();
   const body =
-    `From: LevelUp Store <${config.from}>\r\n` +
-    `To: <${mail.to}>\r\n` +
+    `From: ${smtpFromHeader(config.from)}\r\n` +
+    `To: <${toAddr}>\r\n` +
     `Subject: ${mail.subject}\r\n` +
     `Date: ${date}\r\n` +
     `MIME-Version: 1.0\r\n` +
