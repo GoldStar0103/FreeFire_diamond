@@ -40,7 +40,7 @@ import { DrizzleCatalogSyncStore } from './catalog-sync-store.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
 import { saveFxRate } from './payment-settings.js';
 import { saveLevelPassCheckpoints, DEFAULT_LEVEL_PASS_CHECKPOINTS } from './level-pass-settings.js';
-import { syncCatalog } from '@levelup/engine';
+import { syncCatalog, syncLevelPass } from '@levelup/engine';
 import { DrizzleLevelPassStore } from './level-pass-store.js';
 import type { LevelPassDecision } from '@levelup/engine';
 
@@ -547,6 +547,94 @@ describe('findUnprocessedOrders', () => {
     const store = new DrizzleLevelPassStore(db);
     const pending = await store.findUnprocessedOrders({ completedAfter: new Date('2026-01-01'), limit: 10 });
     expect(pending[0]?.diamonds).toBe(0);
+  });
+
+  /**
+   * A terminal skip (`no_linked_account`/`no_active_season`) writes no
+   * `level_pass_lp_transactions` row, so the order stays a candidate for the
+   * whole lookback window. Candidates come back oldest-first, capped at
+   * `batchSize` — so once the window holds `batchSize` un-creditable orders
+   * they fill every batch and a genuinely creditable newer order behind them
+   * is never examined. The sweep reports "0 applied, N skipped" forever while
+   * real buyers earn nothing.
+   */
+  it('still reaches a newer creditable order when older un-creditable ones fill the batch', async () => {
+    const season = await seedActiveSeason();
+    const batchSize = 5; // production uses 50; starvation only needs batchSize <= candidates
+    const paid = {
+      costUsd: '1.0000',
+      method: 'transfer_manual' as const,
+      gateway: null,
+      amountReceivedCents: 10_000,
+    };
+
+    // Older orders topping up Free Fire IDs nobody has linked: terminal skips.
+    for (let i = 0; i < batchSize; i++) {
+      const stale = await placeOrder(`90000${i}`);
+      await completeOrder(stale.id, { completedAt: new Date(`2026-02-1${i}T00:00:00Z`), ...paid });
+    }
+
+    // Then a newer order from a player who *is* linked — this one must earn LP.
+    const profile = await seedProfile('100001');
+    const fresh = await placeOrder('100001');
+    await completeOrder(fresh.id, { completedAt: new Date('2026-02-20T00:00:00Z'), ...paid });
+
+    const store = new DrizzleLevelPassStore(db);
+    const deps = {
+      store,
+      lookbackMs: 14 * 24 * 60 * 60_000,
+      batchSize,
+      now: () => new Date('2026-02-21T00:00:00Z'),
+    };
+
+    // Several sweeps, as the worker runs them: the backlog must drain, not stall.
+    for (let i = 0; i < 3; i++) await syncLevelPass(deps);
+
+    expect(await store.hasProcessedOrder(fresh.id)).toBe(true);
+    const [stats] = await db
+      .select()
+      .from(seasonPlayerStats)
+      .where(eq(seasonPlayerStats.playerProfileId, profile.id));
+    expect(stats?.lp ?? 0).toBeGreaterThan(0);
+    expect(season.id).toBeTruthy();
+  });
+
+  /**
+   * The other side of that fix: "no active season" must NOT be marked, because
+   * those orders are exactly the ones that become creditable when the client
+   * opens their first season. Marking them to quieten the sweep would quietly
+   * cost real buyers their LP.
+   */
+  it('credits an order that swept with no season once a season opens', async () => {
+    const profile = await seedProfile('100001');
+    const order = await placeOrder('100001');
+    await completeOrder(order.id, {
+      completedAt: new Date('2026-02-20T00:00:00Z'),
+      costUsd: '1.0000',
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 10_000,
+    });
+
+    const store = new DrizzleLevelPassStore(db);
+    const deps = {
+      store,
+      lookbackMs: 14 * 24 * 60 * 60_000,
+      batchSize: 50,
+      now: () => new Date('2026-02-21T00:00:00Z'),
+    };
+
+    // Swept before any season exists: skipped, and still a candidate after.
+    expect(await syncLevelPass(deps)).toMatchObject({ examined: 1, applied: 0, skipped: 1 });
+
+    await seedActiveSeason();
+    expect(await syncLevelPass(deps)).toMatchObject({ examined: 1, applied: 1, skipped: 0 });
+
+    const [stats] = await db
+      .select()
+      .from(seasonPlayerStats)
+      .where(eq(seasonPlayerStats.playerProfileId, profile.id));
+    expect(stats?.lp ?? 0).toBeGreaterThan(0);
   });
 
   it('excludes a completed Level Pass reward order — it must never generate recursive LP', async () => {

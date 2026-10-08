@@ -241,17 +241,30 @@ export async function processOrderCompletion(
 /**
  * The sweep-loop entry point, same shape as `reportConversions`: find
  * candidate rows the store has not yet handled, process each one, survive
- * and log one failure instead of letting it block the batch. An order that
- * comes back `no_active_season`/`no_linked_account` is a terminal skip, not
- * a failure to retry — it will never become eligible on its own, so it is
- * not worth re-examining every sweep (the store's own `findUnprocessedOrders`
- * query excludes anything already in `level_pass_lp_transactions`, but a
- * skipped order has no such row, so without the `completedAfter` window this
- * would re-scan it forever).
+ * and log one failure instead of letting it block the batch.
+ *
+ * Applying an order writes a `level_pass_lp_transactions` row, which is what
+ * drops it out of `findUnprocessedOrders`. A skip writes no such row, so a
+ * skip needs its own way out of the candidate set or it is re-examined every
+ * 30 seconds for the whole lookback window — and because candidates come back
+ * oldest-first and capped at `batchSize`, a backlog of them fills every batch
+ * and newer creditable orders are never even looked at. The two skips differ:
+ *
+ *   - `no_linked_account` is terminal (nobody to credit, and linking later is
+ *     not retroactive), so it is marked and never reconsidered.
+ *   - `no_active_season` is not terminal at all — every one of those orders
+ *     becomes creditable the moment the client opens a season, so marking them
+ *     would quietly cost real buyers their LP. They stay candidates, which is
+ *     safe precisely because nothing is creditable while no season exists:
+ *     with nothing to credit there is nothing to starve, and once a season
+ *     opens each order either applies or is marked terminal, so the backlog
+ *     drains either way.
  */
 export interface LevelPassSweepStore extends LevelPassStore {
-  /** Completed orders, in the window, with no level_pass_lp_transactions row yet. */
+  /** Completed orders, in the window, not applied and not terminally skipped. */
   findUnprocessedOrders(input: { completedAfter: Date; limit: number }): Promise<LevelPassOrderFinancials[]>;
+  /** Remember that this order can never earn LP, so the sweep stops re-examining it. */
+  markNotCreditable(orderId: string): Promise<void>;
 }
 
 export interface LevelPassSweepDeps extends LevelPassDeps {
@@ -280,7 +293,13 @@ export async function syncLevelPass(deps: LevelPassSweepDeps): Promise<LevelPass
     try {
       const outcome = await processOrderCompletion(deps, order);
       if (outcome.status === 'applied') result.applied++;
-      else result.skipped++;
+      else {
+        result.skipped++;
+        // See the contract above for why only this one skip is marked.
+        if (outcome.status === 'no_linked_account') {
+          await deps.store.markNotCreditable(order.orderId);
+        }
+      }
     } catch (err) {
       result.failed++;
       console.error(`[level-pass] Could not process order ${order.orderId}: ${String(err)}`);

@@ -267,6 +267,11 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
           eq(orders.status, 'completed'),
           gte(orders.completedAt, input.completedAfter),
           isNull(levelPassLpTransactions.id),
+          // Already decided to be un-creditable. Without this the row would be
+          // re-examined every sweep for the whole window and, since this query
+          // is oldest-first and capped, crowd newer creditable orders out of
+          // the batch entirely — see `markNotCreditable`.
+          isNull(orders.levelPassSkippedAt),
           // A reward order is not a sale — awarding it LP would let a free
           // checkpoint reward generate another, recursive checkpoint reward.
           ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
@@ -325,6 +330,21 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
         diamonds: diamondsByOrder.get(row.orderId) ?? 0,
       };
     });
+  }
+
+  /**
+   * Terminal skip: this order has no account to credit and never will, so take
+   * it out of the candidate set for good. An applied order leaves by way of its
+   * `level_pass_lp_transactions` row; a skipped one has no such row, and this
+   * is its equivalent. Only the engine's genuinely terminal skip comes here —
+   * "no active season" deliberately does not, since those orders must still be
+   * creditable once a season opens.
+   */
+  async markNotCreditable(orderId: string): Promise<void> {
+    await this.db
+      .update(orders)
+      .set({ levelPassSkippedAt: new Date() })
+      .where(and(eq(orders.id, orderId), isNull(orders.levelPassSkippedAt)));
   }
 
   // ── reward delivery ─────────────────────────────────────────────────────────

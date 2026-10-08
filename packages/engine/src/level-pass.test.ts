@@ -213,6 +213,7 @@ function sweepHarness(
     getCheckpointConfig: vi.fn(async () => CHECKPOINTS),
     applyDecision: vi.fn(async () => undefined),
     findUnprocessedOrders: vi.fn(async () => orders),
+    markNotCreditable: vi.fn(async () => undefined),
     ...storeOverrides,
   };
   return { store };
@@ -241,6 +242,21 @@ describe('syncLevelPass', () => {
     const result = await syncLevelPass({ store, lookbackMs: 86_400_000, batchSize: 50 });
 
     expect(result).toEqual({ examined: 1, applied: 0, skipped: 1, failed: 0 });
+    // Marked, or it fills a batch slot every 30s for the whole lookback window
+    // and crowds out newer orders that *can* be credited.
+    expect(store.markNotCreditable).toHaveBeenCalledWith('a');
+  });
+
+  it('does not mark a skip caused only by there being no season yet', async () => {
+    const { store } = sweepHarness([order({ orderId: 'a' })], {
+      findActiveSeason: vi.fn(async () => null),
+    });
+    const result = await syncLevelPass({ store, lookbackMs: 86_400_000, batchSize: 50 });
+
+    expect(result).toEqual({ examined: 1, applied: 0, skipped: 1, failed: 0 });
+    // This order earns LP the moment the client opens a season — marking it
+    // would silently cost a real buyer their points.
+    expect(store.markNotCreditable).not.toHaveBeenCalled();
   });
 
   it('keeps going and reports the failure when one order throws', async () => {

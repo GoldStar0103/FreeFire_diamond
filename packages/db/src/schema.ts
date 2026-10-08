@@ -247,6 +247,18 @@ export const orders = pgTable(
     capiSentAt: timestamp('capi_sent_at', { withTimezone: true }),
     capiAttempts: integer('capi_attempts').notNull().default(0),
 
+    /**
+     * Set when the Level Pass sweep has decided this order can never earn LP —
+     * today only "nobody to credit": no signed-in buyer and `player_id` is not
+     * anyone's linked ID. A terminal skip writes no
+     * `level_pass_lp_transactions` row, so without this marker the order stays
+     * a candidate for the whole lookback window and, since candidates come back
+     * oldest-first and capped, a backlog of them starves newer creditable
+     * orders out of every batch. Deliberately NOT set for "no active season":
+     * that order becomes creditable the moment a season opens.
+     */
+    levelPassSkippedAt: timestamp('level_pass_skipped_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
