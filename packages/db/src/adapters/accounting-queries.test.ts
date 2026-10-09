@@ -18,7 +18,16 @@ import { eq, sql as raw } from 'drizzle-orm';
 import { createOrder, LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import { ProviderSimulator, type ProviderProduct, type UsdTenK } from '@levelup/provider';
 import { createDb, type Database } from '../index.js';
-import { campaigns, comboItems, combos, baseProducts, orderItems, orders, payments } from '../schema.js';
+import {
+  campaigns,
+  comboItems,
+  combos,
+  baseProducts,
+  financialLedgerEntries,
+  orderItems,
+  orders,
+  payments,
+} from '../schema.js';
 import { DrizzleCatalogSyncStore } from './catalog-sync-store.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
 import { saveFxRate } from './payment-settings.js';
@@ -174,7 +183,8 @@ async function seedCompletedRewardOrder(playerId: string, completedAt: Date, cos
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
   await db.execute(
-    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products RESTART IDENTITY CASCADE`,
+    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products,
+        financial_ledger_entries, seasons RESTART IDENTITY CASCADE`,
   );
   await seedOneCombo();
   await saveFxRate(db, 20); // round number for easy assertions
@@ -366,5 +376,102 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
     // createdAt, not completedAt.
     const summary = await getAccountingSummary(db, mexicoCityDayRange(inRange));
     expect(summary.orderCounts).toEqual({ completed: 1, pending: 1, cancelled: 1 });
+  });
+});
+
+/**
+ * The reward/adjustment half of the P&L. Sales profit is only "profit before
+ * rewards" — what the spec calls real net profit also subtracts what the
+ * Level Pass gave away, which lives in `financial_ledger_entries`.
+ */
+describe.skipIf(!PG_AVAILABLE)('getAccountingSummary — real net profit', () => {
+  const DAY = new Date('2026-09-14T18:00:00Z');
+
+  /** One sale: $100 paid by transfer (no gateway fee), $30 MXN of recharge cost. */
+  async function seedOneSale(completedAt = DAY) {
+    const order = await placeOrder('1111111111');
+    await completeOrder(order.id, {
+      completedAt,
+      costUsd: '1.5000',
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 10_000,
+    });
+    return 10_000 - 3_000; // gross - cost, no fee on a manual transfer
+  }
+
+  async function seedLedger(
+    entryType: 'level_pass_reward' | 'manual_expense' | 'manual_income',
+    amountCents: number,
+    occurredAt = DAY,
+  ) {
+    await db.insert(financialLedgerEntries).values({ entryType, amountCents, occurredAt });
+  }
+
+  it('subtracts a granted Level Pass reward from real net profit', async () => {
+    const profitBeforeRewards = await seedOneSale();
+    await seedLedger('level_pass_reward', -1_200); // the ledger stores expenses negative
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+
+    expect(summary.estimatedProfitCents).toBe(profitBeforeRewards);
+    // Reported as a positive cost, the same way round as recargaCostCents.
+    expect(summary.levelPassRewardCostCents).toBe(1_200);
+    expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 1_200);
+  });
+
+  it('applies manual expenses and manual income', async () => {
+    const profitBeforeRewards = await seedOneSale();
+    await seedLedger('manual_expense', -500);
+    await seedLedger('manual_income', 250);
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+
+    expect(summary.otherExpensesCents).toBe(500);
+    expect(summary.manualIncomeCents).toBe(250);
+    expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 500 + 250);
+  });
+
+  it('sums several rewards granted on the same day', async () => {
+    const profitBeforeRewards = await seedOneSale();
+    await seedLedger('level_pass_reward', -1_200);
+    await seedLedger('level_pass_reward', -4_000);
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+
+    expect(summary.levelPassRewardCostCents).toBe(5_200);
+    expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 5_200);
+  });
+
+  it('ignores ledger rows outside the range — a reward is dated when it was granted', async () => {
+    const profitBeforeRewards = await seedOneSale();
+    await seedLedger('level_pass_reward', -1_200, new Date('2026-09-13T18:00:00Z'));
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+
+    expect(summary.levelPassRewardCostCents).toBe(0);
+    expect(summary.realNetProfitCents).toBe(profitBeforeRewards);
+  });
+
+  it('reports net margin against gross sales, and null when nothing was sold', async () => {
+    const empty = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+    expect(empty.netMarginPct).toBeNull();
+
+    await seedOneSale();
+    await seedLedger('level_pass_reward', -1_000);
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+    // (7,000 − 1,000) / 10,000 = 60%
+    expect(summary.netMarginPct).toBeCloseTo(60, 5);
+  });
+
+  it('can go negative when the rewards granted outweigh the day’s profit', async () => {
+    const profitBeforeRewards = await seedOneSale();
+    await seedLedger('level_pass_reward', -20_000);
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+
+    expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 20_000);
+    expect(summary.realNetProfitCents).toBeLessThan(0);
   });
 });

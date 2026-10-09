@@ -27,6 +27,50 @@ export async function getCurrentSeason(db: Database): Promise<SeasonOverview | n
   return row ?? null;
 }
 
+/**
+ * The two most recent seasons as date ranges, for the Contabilidad
+ * "Temporada actual / anterior" filters.
+ *
+ * "Current" is the most recent season by number, which is the active one
+ * whenever a season is open; after a season closes and before the next
+ * starts, it is that just-closed season, which is what an admin looking at
+ * "this season's numbers" the morning after a close expects to see. Either
+ * side is null when that season does not exist yet.
+ *
+ * The end is clamped to now so an in-progress season does not report a range
+ * stretching weeks into the future — harmless for summing past rows, but it
+ * would make the on-screen date range read as if the period had already
+ * finished.
+ */
+export async function getSeasonRanges(
+  db: Database,
+  now: Date = new Date(),
+): Promise<{ current: SeasonDateRange | null; previous: SeasonDateRange | null }> {
+  const rows = await db
+    .select({ seasonNumber: seasons.seasonNumber, startsAt: seasons.startsAt, endsAt: seasons.endsAt })
+    .from(seasons)
+    .orderBy(desc(seasons.seasonNumber))
+    .limit(2);
+
+  const toRange = (row: (typeof rows)[number] | undefined): SeasonDateRange | null =>
+    row
+      ? {
+          seasonNumber: row.seasonNumber,
+          start: row.startsAt,
+          end: row.endsAt.getTime() > now.getTime() ? now : row.endsAt,
+        }
+      : null;
+
+  return { current: toRange(rows[0]), previous: toRange(rows[1]) };
+}
+
+export interface SeasonDateRange {
+  seasonNumber: number;
+  start: Date;
+  /** Exclusive, clamped to now for a season still running. */
+  end: Date;
+}
+
 export async function hasAnySeason(db: Database): Promise<boolean> {
   const [row] = await db.select({ id: seasons.id }).from(seasons).limit(1);
   return row !== undefined;

@@ -8,7 +8,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
 import { adminUsers, auditLog, hallOfFameEntries, playerProfiles, seasons } from '../schema.js';
-import { getCurrentSeason, hasAnySeason, listSeasonHistory, startFirstSeason } from './season-admin-queries.js';
+import { getCurrentSeason, getSeasonRanges, hasAnySeason, listSeasonHistory, startFirstSeason } from './season-admin-queries.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(HERE, '..', '..', 'migrations');
@@ -56,6 +56,57 @@ async function seedAdmin(): Promise<string> {
   const [admin] = await db.insert(adminUsers).values({ email: `admin-${Date.now()}-${Math.random()}@test.com`, passwordHash: 'x' }).returning();
   return admin!.id;
 }
+
+describe.skipIf(!PG_AVAILABLE)('getSeasonRanges', () => {
+  const NOW = new Date('2026-10-09T12:00:00Z');
+
+  async function seedSeason(seasonNumber: number, startsAt: string, endsAt: string, status: 'active' | 'closed') {
+    await db.insert(seasons).values({
+      seasonNumber,
+      startsAt: new Date(startsAt),
+      endsAt: new Date(endsAt),
+      status,
+      closedAt: status === 'closed' ? new Date(endsAt) : null,
+    });
+  }
+
+  it('is all null before any season exists', async () => {
+    expect(await getSeasonRanges(db, NOW)).toEqual({ current: null, previous: null });
+  });
+
+  it('returns the running season as current, with its end clamped to now', async () => {
+    await seedSeason(1, '2026-10-01T00:00:00Z', '2026-11-30T00:00:00Z', 'active');
+
+    const { current, previous } = await getSeasonRanges(db, NOW);
+
+    expect(current?.seasonNumber).toBe(1);
+    expect(current?.start.toISOString()).toBe('2026-10-01T00:00:00.000Z');
+    // Not the season's own end date, which is still weeks away.
+    expect(current?.end.toISOString()).toBe(NOW.toISOString());
+    expect(previous).toBeNull();
+  });
+
+  it('pairs the running season with the one before it', async () => {
+    await seedSeason(1, '2026-08-01T00:00:00Z', '2026-09-30T00:00:00Z', 'closed');
+    await seedSeason(2, '2026-10-01T00:00:00Z', '2026-11-30T00:00:00Z', 'active');
+
+    const { current, previous } = await getSeasonRanges(db, NOW);
+
+    expect(current?.seasonNumber).toBe(2);
+    expect(previous?.seasonNumber).toBe(1);
+    // A finished season keeps its real end date — nothing to clamp.
+    expect(previous?.end.toISOString()).toBe('2026-09-30T00:00:00.000Z');
+  });
+
+  it('still reports the just-closed season as current in the gap before the next one starts', async () => {
+    await seedSeason(1, '2026-08-01T00:00:00Z', '2026-09-30T00:00:00Z', 'closed');
+
+    const { current } = await getSeasonRanges(db, NOW);
+
+    expect(current?.seasonNumber).toBe(1);
+    expect(current?.end.toISOString()).toBe('2026-09-30T00:00:00.000Z');
+  });
+});
 
 describe('hasAnySeason / getCurrentSeason', () => {
   it('reports no season and no current season on a fresh database', async () => {

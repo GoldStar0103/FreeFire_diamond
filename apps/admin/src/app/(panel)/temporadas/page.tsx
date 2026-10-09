@@ -1,20 +1,28 @@
-import { DrizzleCatalogAdminStore, getCurrentSeason, getLevelPassCheckpoints, listSeasonHistory } from '@levelup/db';
+import {
+  DrizzleCatalogAdminStore,
+  getCurrentSeason,
+  getLevelPassCheckpoints,
+  listSeasonFunnels,
+  listSeasonHistory,
+} from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, diamonds } from '../../../lib/format';
 import { startSeason } from './actions';
 import { CheckpointsForm } from './checkpoints-form';
+import { SeasonFunnel } from './season-funnel';
 
 export const dynamic = 'force-dynamic';
 
 export default async function TemporadasPage() {
   await requireSession();
   const db = getDb();
-  const [season, checkpoints, history, available] = await Promise.all([
+  const [season, checkpoints, history, available, funnels] = await Promise.all([
     getCurrentSeason(db),
     getLevelPassCheckpoints(db),
     listSeasonHistory(db),
     new DrizzleCatalogAdminStore(db).listAvailableProducts(),
+    listSeasonFunnels(db),
   ]);
 
   const checkpointRows = checkpoints.map((cp) => ({
@@ -56,6 +64,10 @@ export default async function TemporadasPage() {
         </p>
         <CheckpointsForm initial={checkpointRows} available={available} />
       </div>
+
+      {funnels.map((funnel) => (
+        <SeasonFunnel key={funnel.seasonId} funnel={funnel} />
+      ))}
 
       {history.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>

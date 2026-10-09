@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccountingSummary, mexicoCityTodayYmd } from '@levelup/db';
+import { getAccountingSummary, getSeasonRanges, mexicoCityTodayYmd } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 import { methodLabel, parseRangeKey, resolveRange } from '../range';
@@ -35,7 +35,8 @@ export async function GET(request: Request) {
   const rango = parseRangeKey(url.searchParams.get('rango') ?? undefined);
   const desde = url.searchParams.get('desde') ?? undefined;
   const hasta = url.searchParams.get('hasta') ?? undefined;
-  const range = resolveRange(rango, desde, hasta);
+  const seasons = await getSeasonRanges(getDb());
+  const range = resolveRange(rango, desde, hasta, seasons);
 
   const summary = await getAccountingSummary(getDb(), range);
 
@@ -52,7 +53,14 @@ export async function GET(request: Request) {
   lines.push(`Ventas brutas,${centsToDecimal(summary.grossSalesCents)}`);
   lines.push(`Costo de recargas,${centsToDecimal(summary.recargaCostCents)}`);
   lines.push(`Comision estimada,${centsToDecimal(summary.estimatedFeeCents)}`);
-  lines.push(`Ganancia neta,${centsToDecimal(summary.estimatedProfitCents)}`);
+  lines.push(`Ganancia antes de recompensas,${centsToDecimal(summary.estimatedProfitCents)}`);
+  lines.push(`Recompensas Level Pass,-${centsToDecimal(summary.levelPassRewardCostCents)}`);
+  lines.push(`Otros gastos,-${centsToDecimal(summary.otherExpensesCents)}`);
+  lines.push(`Ingresos manuales,${centsToDecimal(summary.manualIncomeCents)}`);
+  lines.push(`Ganancia neta real,${centsToDecimal(summary.realNetProfitCents)}`);
+  lines.push(
+    `Margen neto,${summary.netMarginPct === null ? 'N/D' : `${summary.netMarginPct.toFixed(1)}%`}`,
+  );
   lines.push(`Pedidos completados,${summary.orderCounts.completed}`);
   lines.push(`Pedidos pendientes,${summary.orderCounts.pending}`);
   lines.push(`Pedidos cancelados,${summary.orderCounts.cancelled}`);

@@ -1,9 +1,15 @@
 import Link from 'next/link';
-import { getAccountingSummary, mexicoCityTodayYmd } from '@levelup/db';
+import { getAccountingSummary, getSeasonRanges, mexicoCityTodayYmd } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, mxn } from '../../../lib/format';
-import { methodLabel, RANGES, parseRangeKey, resolveRange } from './range';
+import {
+  methodLabel,
+  RANGES,
+  parseRangeKey,
+  resolveRange,
+  seasonFallbackNotice,
+} from './range';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +21,9 @@ export default async function ContabilidadPage({
   await requireSession();
   const params = await searchParams;
   const rango = parseRangeKey(params.rango);
-  const range = resolveRange(rango, params.desde, params.hasta);
+  const seasons = await getSeasonRanges(getDb());
+  const range = resolveRange(rango, params.desde, params.hasta, seasons);
+  const fallbackNotice = seasonFallbackNotice(rango, seasons);
 
   const summary = await getAccountingSummary(getDb(), range);
 
@@ -67,6 +75,8 @@ export default async function ContabilidadPage({
         </form>
       )}
 
+      {fallbackNotice && <div className="alert warn">{fallbackNotice}</div>}
+
       {summary.costDataIncomplete && (
         <div className="alert warn">
           A algunos pedidos de este rango les falta el costo de recarga registrado — el costo y la
@@ -88,9 +98,42 @@ export default async function ContabilidadPage({
           <div className="stat-value">{mxn(summary.estimatedFeeCents)}</div>
         </div>
         <div className="card">
-          <div className="stat-label">Ganancia neta</div>
+          <div className="stat-label">Ganancia antes de recompensas</div>
           <div className={`stat-value${summary.estimatedProfitCents < 0 ? ' bad' : ' ok'}`}>
             {mxn(summary.estimatedProfitCents)}
+          </div>
+        </div>
+      </div>
+
+      {/*
+        The Level Pass side of the P&L. Separated from the sales row above
+        because these are not sales figures: they are what the rewards and any
+        manual adjustments took back out, and the client needs to see the two
+        apart before they are combined into the real figure.
+      */}
+      <div className="stat-grid">
+        <div className="card">
+          <div className="stat-label">Recompensas Level Pass</div>
+          <div className={`stat-value${summary.levelPassRewardCostCents > 0 ? ' bad' : ''}`}>
+            −{mxn(summary.levelPassRewardCostCents)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="stat-label">Otros gastos</div>
+          <div className={`stat-value${summary.otherExpensesCents > 0 ? ' bad' : ''}`}>
+            −{mxn(summary.otherExpensesCents)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="stat-label">Ganancia neta real</div>
+          <div className={`stat-value${summary.realNetProfitCents < 0 ? ' bad' : ' ok'}`}>
+            {mxn(summary.realNetProfitCents)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="stat-label">Margen neto</div>
+          <div className={`stat-value${(summary.netMarginPct ?? 0) < 0 ? ' bad' : ''}`}>
+            {summary.netMarginPct === null ? '—' : `${summary.netMarginPct.toFixed(1)}%`}
           </div>
         </div>
       </div>

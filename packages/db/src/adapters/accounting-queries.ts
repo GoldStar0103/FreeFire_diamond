@@ -14,7 +14,7 @@
 import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
 import { LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { orderItems, orders, payments } from '../schema.js';
+import { financialLedgerEntries, orderItems, orders, payments } from '../schema.js';
 import { getFxRate } from './payment-settings.js';
 import type { DateRange } from './mexico-city-time.js';
 
@@ -236,9 +236,70 @@ export interface AccountingSummary {
   estimatedFeeCents: number;
   netSalesCents: number;
   estimatedProfitCents: number;
+  /**
+   * Level Pass reward expense granted in this range, as a POSITIVE cost.
+   * The ledger stores expenses signed negative; this is flipped once here so
+   * every caller reads it the same way round as `recargaCostCents`.
+   */
+  levelPassRewardCostCents: number;
+  /** Manual operating expenses recorded in this range, as a positive cost. */
+  otherExpensesCents: number;
+  /** Manual income recorded in this range. */
+  manualIncomeCents: number;
+  /**
+   * The spec's "real net profit": sales profit less Level Pass reward cost
+   * and other expenses, plus any manual income. Inherits the
+   * `costDataIncomplete` caveat from `netSalesCents`.
+   */
+  realNetProfitCents: number;
+  /** realNetProfit / grossSales as a percentage. Null when there were no sales. */
+  netMarginPct: number | null;
   orderCounts: { completed: number; pending: number; cancelled: number };
   totalsByMethod: Array<{ method: string; gateway: string | null; totalCents: number; count: number }>;
   movements: AccountingMovement[];
+}
+
+interface LedgerTotals {
+  levelPassRewardCostCents: number;
+  otherExpensesCents: number;
+  manualIncomeCents: number;
+}
+
+/**
+ * The reward/adjustment side of the P&L, which `orders` cannot express.
+ *
+ * Dated by `occurred_at` — the moment the reward was actually granted — so a
+ * reward crossed on Monday but delivered on Tuesday lands on Tuesday's
+ * statement, which is what the spec asks for ("reward costs are recorded on
+ * the date the reward is actually granted").
+ */
+async function getLedgerTotals(db: Database, range: DateRange): Promise<LedgerTotals> {
+  const rows = await db
+    .select({
+      entryType: financialLedgerEntries.entryType,
+      totalCents: sql<string>`COALESCE(SUM(${financialLedgerEntries.amountCents}), 0)::text`,
+    })
+    .from(financialLedgerEntries)
+    .where(
+      and(
+        gte(financialLedgerEntries.occurredAt, range.start),
+        lt(financialLedgerEntries.occurredAt, range.end),
+      ),
+    )
+    .groupBy(financialLedgerEntries.entryType);
+
+  const totals: LedgerTotals = {
+    levelPassRewardCostCents: 0,
+    otherExpensesCents: 0,
+    manualIncomeCents: 0,
+  };
+  for (const row of rows) {
+    const signed = Number(row.totalCents);
+    if (row.entryType === 'level_pass_reward') totals.levelPassRewardCostCents = -signed;
+    else if (row.entryType === 'manual_expense') totals.otherExpensesCents = -signed;
+    else if (row.entryType === 'manual_income') totals.manualIncomeCents = signed;
+  }
+  return totals;
 }
 
 /**
@@ -253,7 +314,7 @@ export async function getAccountingSummary(
   db: Database,
   range: DateRange,
 ): Promise<AccountingSummary> {
-  const totals = await getSalesTotals(db, range);
+  const [totals, ledger] = await Promise.all([getSalesTotals(db, range), getLedgerTotals(db, range)]);
 
   // Order-volume counts: by CREATED date, not completed — a pending order in
   // this range has no completedAt yet, so filtering all three buckets by
@@ -323,6 +384,12 @@ export async function getAccountingSummary(
     };
   });
 
+  const realNetProfitCents =
+    totals.netSalesCents -
+    ledger.levelPassRewardCostCents -
+    ledger.otherExpensesCents +
+    ledger.manualIncomeCents;
+
   return {
     grossSalesCents: totals.grossSalesCents,
     recargaCostCents: totals.recargaCostCents,
@@ -330,6 +397,12 @@ export async function getAccountingSummary(
     estimatedFeeCents: totals.estimatedFeeCents,
     netSalesCents: totals.netSalesCents,
     estimatedProfitCents: totals.netSalesCents,
+    levelPassRewardCostCents: ledger.levelPassRewardCostCents,
+    otherExpensesCents: ledger.otherExpensesCents,
+    manualIncomeCents: ledger.manualIncomeCents,
+    realNetProfitCents: realNetProfitCents,
+    netMarginPct:
+      totals.grossSalesCents > 0 ? (realNetProfitCents / totals.grossSalesCents) * 100 : null,
     orderCounts,
     totalsByMethod: totals.totalsByMethod,
     movements,

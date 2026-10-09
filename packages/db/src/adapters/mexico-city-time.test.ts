@@ -4,6 +4,7 @@ import {
   mexicoCityDayRange,
   mexicoCityMonthRange,
   mexicoCityWeekRange,
+  mexicoCityYesterdayRange,
 } from './mexico-city-time.js';
 
 describe('mexicoCityDayRange', () => {
@@ -32,6 +33,30 @@ describe('mexicoCityDayRange', () => {
 
   it('rolls over months and years correctly', () => {
     const range = mexicoCityDayRange(new Date('2027-01-01T03:00:00Z')); // 2026-12-31 21:00 MX
+    expect(range.start.toISOString()).toBe('2026-12-31T06:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2027-01-01T06:00:00.000Z');
+  });
+});
+
+describe('mexicoCityYesterdayRange', () => {
+  it('ends exactly where today starts', () => {
+    const now = new Date('2026-09-15T01:00:00Z'); // 2026-09-14 19:00 Mexico City
+    const yesterday = mexicoCityYesterdayRange(now);
+    const today = mexicoCityDayRange(now);
+
+    expect(yesterday.end.toISOString()).toBe(today.start.toISOString());
+    expect(yesterday.start.toISOString()).toBe('2026-09-13T06:00:00.000Z');
+  });
+
+  it('rolls back across a month boundary', () => {
+    // 2026-10-01 10:00 Mexico City — yesterday is September 30th.
+    const range = mexicoCityYesterdayRange(new Date('2026-10-01T16:00:00Z'));
+    expect(range.start.toISOString()).toBe('2026-09-30T06:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-10-01T06:00:00.000Z');
+  });
+
+  it('rolls back across a year boundary', () => {
+    const range = mexicoCityYesterdayRange(new Date('2027-01-01T16:00:00Z'));
     expect(range.start.toISOString()).toBe('2026-12-31T06:00:00.000Z');
     expect(range.end.toISOString()).toBe('2027-01-01T06:00:00.000Z');
   });

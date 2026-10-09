@@ -47,6 +47,16 @@ export function mexicoCityDayRange(instant: Date = new Date()): DateRange {
 }
 
 /**
+ * Yesterday's Mexico City civil day. `d - 1` is safe across month and year
+ * boundaries for the same reason `d + 1` is in `mexicoCityDayRange`:
+ * `utcMidnight` goes through `Date.UTC`, which normalises out-of-range days.
+ */
+export function mexicoCityYesterdayRange(instant: Date = new Date()): DateRange {
+  const { y, m, d } = civilDate(instant);
+  return { start: utcMidnight(y, m, d - 1), end: utcMidnight(y, m, d) };
+}
+
+/**
  * "YYYY-MM-DD" for the Mexico City civil date — for feeding `<input
  * type="date">` defaults. `new Date().toISOString()` is the UTC date, which
  * is already one day ahead of Mexico City for roughly a third of the day.
