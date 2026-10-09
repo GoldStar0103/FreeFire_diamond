@@ -15,7 +15,8 @@ export type OrderStatus =
   | 'payment_expired'
   | 'needs_review'
   | 'refund_required'
-  | 'cancelled';
+  | 'cancelled'
+  | 'refunded';
 
 export type OrderItemStatus =
   | 'queued'
@@ -30,6 +31,7 @@ export const TERMINAL_ORDER_STATUSES = new Set<OrderStatus>([
   'completed',
   'cancelled',
   'payment_expired',
+  'refunded',
 ]);
 
 const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
@@ -52,9 +54,15 @@ const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
     'cancelled',
   ],
   refund_required: ['cancelled', 'needs_review'],
-  completed: [],
+  // The one way out of `completed`: the diamonds were delivered and the money
+  // was then given back (refund or chargeback). Only an admin can do this, and
+  // it has to unwind the Level Pass effects the completion caused — it is not
+  // a fulfilment transition, so the worker never performs it. Everything else
+  // about a completed order stays immutable.
+  completed: ['refunded'],
   payment_expired: ['cancelled'],
   cancelled: [],
+  refunded: [],
 };
 
 export const canTransition = (from: OrderStatus, to: OrderStatus): boolean =>

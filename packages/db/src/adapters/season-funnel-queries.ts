@@ -9,7 +9,7 @@
  * run with a custom ladder reports its own stages.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import {
   levelPassCheckpointEvents,
@@ -78,7 +78,14 @@ export async function getSeasonFunnel(db: Database, seasonId: string): Promise<S
       profitCents: sql<string>`COALESCE(SUM(${levelPassLpTransactions.estimatedProfitCents}), 0)::text`,
     })
     .from(levelPassLpTransactions)
-    .where(eq(levelPassLpTransactions.seasonId, seasonId));
+    // A reversed order's LP no longer counts toward anything: not the player's
+    // progress, so not the cohort's profit or participation either.
+    .where(
+      and(
+        eq(levelPassLpTransactions.seasonId, seasonId),
+        isNull(levelPassLpTransactions.reversedAt),
+      ),
+    );
 
   const reachedRows = await db
     .select({

@@ -51,6 +51,11 @@ export const orderStatus = pgEnum('order_status', [
   'needs_review', // ambiguous outcome or retries exhausted — human required
   'refund_required',
   'cancelled',
+  // A delivered order reversed after the fact (customer refund, chargeback).
+  // Distinct from `refund_required`/`cancelled`, which is an order that was
+  // never delivered: this one WAS fulfilled, so its diamonds are gone and its
+  // Level Pass effects have to be unwound deliberately. See `reverseCompletedOrder`.
+  'refunded',
 ]);
 
 export const orderItemStatus = pgEnum('order_item_status', [
@@ -531,6 +536,13 @@ export const ledgerEntryType = pgEnum('ledger_entry_type', [
   'level_pass_reward',
   'manual_expense',
   'manual_income',
+  /**
+   * A completed sale reversed later. Posted on the refund date rather than
+   * restating the original day's statement — the revenue really was taken
+   * then, and the product cost and payment fee really were incurred and are
+   * NOT given back, so erasing the original sale would understate the loss.
+   */
+  'order_refund',
 ]);
 
 /**
@@ -675,9 +687,30 @@ export const levelPassLpTransactions = pgTable(
     calculatedLp: integer('calculated_lp').notNull(),
     awardedLp: integer('awarded_lp').notNull(),
 
+    /**
+     * What this order actually added to the two diamond counters, recorded
+     * rather than recomputed so a reversal subtracts exactly what was added.
+     * `rankingDiamonds` is 0 when the top-up went to a Free Fire ID other than
+     * the player's linked one — and since the linked ID can change later,
+     * recomputing it at reversal time could easily disagree with what was
+     * credited. Null on rows written before this column existed; the reversal
+     * falls back to deriving them, see `reverseCompletedOrder`.
+     */
+    diamonds: integer('diamonds'),
+    rankingDiamonds: integer('ranking_diamonds'),
+
     /** Both null unless an admin manually overrode the calculated LP. */
     overriddenByAdminId: uuid('overridden_by_admin_id'),
     overrideReason: text('override_reason'),
+
+    /**
+     * Set when the order behind this LP was reversed. The row is kept rather
+     * than deleted: it is the audit trail, and it is also what keeps the Level
+     * Pass sweep from cheerfully re-crediting the order on its next pass.
+     */
+    reversedAt: timestamp('reversed_at', { withTimezone: true }),
+    reversedByAdminId: uuid('reversed_by_admin_id'),
+    reversalReason: text('reversal_reason'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -693,6 +726,11 @@ export const levelPassLpTransactions = pgTable(
       columns: [t.overriddenByAdminId],
       foreignColumns: [adminUsers.id],
       name: 'lp_lp_tx_overridden_admin_fk',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [t.reversedByAdminId],
+      foreignColumns: [adminUsers.id],
+      name: 'lp_lp_tx_reversed_admin_fk',
     }).onDelete('set null'),
   ],
 );

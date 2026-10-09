@@ -126,6 +126,15 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
     decision: LevelPassDecision,
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
+      const [linked] = await tx
+        .select({ playerId: playerProfiles.playerId })
+        .from(playerProfiles)
+        .where(eq(playerProfiles.id, playerProfileId))
+        .limit(1);
+      // Season ranking is the one linked ID. Level Pass LP still always
+      // accrues — secondaries spend more, they just do not climb the board.
+      const rankingDiamonds = linked?.playerId === order.playerId ? order.diamonds : 0;
+
       // The real idempotency guard: if another process already recorded this
       // order between this call's own `hasProcessedOrder` check and now, the
       // unique index refuses the insert and we stop here rather than
@@ -142,21 +151,16 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
           estimatedProfitCents: decision.estimatedProfitCents,
           calculatedLp: decision.calculatedLp,
           awardedLp: decision.awardedLp,
+          // Recorded, not recomputed later: a reversal has to subtract exactly
+          // what went in, and the linked ID behind `rankingDiamonds` can change.
+          diamonds: order.diamonds,
+          rankingDiamonds,
           overriddenByAdminId: order.manualLpOverride?.adminId ?? null,
           overrideReason: order.manualLpOverride?.reason ?? null,
         })
         .onConflictDoNothing({ target: levelPassLpTransactions.orderId })
         .returning({ id: levelPassLpTransactions.id });
       if (inserted.length === 0) return;
-
-      const [linked] = await tx
-        .select({ playerId: playerProfiles.playerId })
-        .from(playerProfiles)
-        .where(eq(playerProfiles.id, playerProfileId))
-        .limit(1);
-      // Season ranking is the one linked ID. Level Pass LP still always
-      // accrues — secondaries spend more, they just do not climb the board.
-      const rankingDiamonds = linked?.playerId === order.playerId ? order.diamonds : 0;
 
       await tx
         .insert(seasonPlayerStats)

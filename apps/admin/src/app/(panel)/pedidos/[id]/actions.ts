@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { applyReviewAction, approvePayment, type ReviewAction, type ReviewFailureCode } from '@levelup/engine';
-import { DrizzlePaymentStore, DrizzleReviewStore } from '@levelup/db';
+import { DrizzlePaymentStore, DrizzleReviewStore, reverseCompletedOrder } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 
@@ -142,5 +142,71 @@ export async function releasePayment(_prev: ReleaseState, formData: FormData): P
     ok: result.alreadyApproved
       ? `${result.orderNumber} ya estaba confirmado.`
       : `${result.orderNumber} liberado — la recarga se está procesando.`,
+  };
+}
+
+export interface ReverseState {
+  ok?: string;
+  warning?: string;
+  error?: string;
+}
+
+/**
+ * Reverse a COMPLETED order: the customer was charged back or refunded after
+ * the diamonds had already gone out.
+ *
+ * Separate from the existing "Requiere reembolso" flow, which is for an order
+ * that was never delivered and therefore never earned anything. This one has
+ * to unwind the Level Pass progress the delivery created — see
+ * `reverseCompletedOrder` for the policy and what it deliberately cannot undo.
+ */
+export async function reverseOrder(_prev: ReverseState, formData: FormData): Promise<ReverseState> {
+  const session = await requireSession();
+
+  const orderId = String(formData.get('orderId') ?? '');
+  const reason = String(formData.get('reason') ?? '').trim();
+  if (!orderId) return { error: 'Falta el pedido.' };
+  if (reason.length < 3) {
+    return { error: 'Escribe el motivo: el cliente lo verá en su página de seguimiento.' };
+  }
+
+  const result = await reverseCompletedOrder(getDb(), {
+    orderId,
+    adminUserId: session.adminUserId,
+    reason,
+  });
+
+  if (!result.ok) {
+    return {
+      error:
+        result.reason === 'not_found'
+          ? 'Ese pedido ya no existe.'
+          : 'Ese pedido ya no está completado — quizá alguien más ya lo revirtió. Recarga la página.',
+    };
+  }
+
+  revalidatePath(`/pedidos/${orderId}`);
+  revalidatePath('/pedidos');
+  revalidatePath('/contabilidad');
+  revalidatePath('/temporadas');
+  revalidatePath('/');
+
+  const plan = result.plan;
+  const kept = plan?.checkpointsKept ?? [];
+  if (kept.length > 0) {
+    // Not an error — the reversal did everything it could. But the client is
+    // out this money and should hear it now, not discover it in the accounts.
+    const list = kept.map((c) => `${c.checkpointLp} LP`).join(', ');
+    return {
+      warning:
+        `Pedido revertido. No se pudo recuperar la recompensa de ${list}: ` +
+        `esos diamantes ya se entregaron y su costo queda registrado.`,
+    };
+  }
+
+  return {
+    ok: plan
+      ? `Pedido revertido — se quitaron ${plan.lpRemoved} LP y ${plan.rankingDiamondsRemoved} 💎 del ranking.`
+      : 'Pedido revertido. No tenía progreso de Level Pass que deshacer.',
   };
 }

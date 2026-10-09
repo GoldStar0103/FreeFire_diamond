@@ -585,6 +585,37 @@ the order changed and nothing is applied.
 
 Never guess. Diamonds cannot be recovered once delivered.
 
+### Reversing an order that was already delivered
+
+Separate from the refund flow above, which is for an order that never
+shipped. **Revertir pedido** on a `completed` order (the only transition out
+of `completed`) is for a chargeback, duplicate payment or fraud, where the
+diamonds went out and the money came back.
+
+`reverseCompletedOrder` does it in one transaction: order → `refunded` with
+the admin's reason in `cancel_reason` (so the customer's own tracking page
+shows it), the LP transaction marked `reversed_at` (kept, not deleted — it is
+the audit trail and it is what stops the sweep re-crediting the order),
+season LP and ranking diamonds and the lifetime counters decremented with a
+SQL `GREATEST(…, 0)` floor, pending checkpoints the reduced LP no longer
+covers set to `reversed`, the Vault closed if the checkpoint that unlocked it
+was one of them, and an `order_refund` ledger entry posted **today** for the
+amount returned.
+
+Two things it deliberately does not do, both because the diamonds are already
+in a real Free Fire account and the money for them really was spent:
+
+- An already-`granted` checkpoint is never reversed, and its ledger expense
+  stands. The panel names which ones, so the loss is visible rather than
+  silently absorbed.
+- Nor is a `pending` checkpoint whose reward order already exists — that
+  order is in ordinary fulfilment and may be mid-flight at the provider.
+
+The original sale stays booked on its own day: Contabilidad counts
+`refunded` orders in the period they completed, and the reversal lands on the
+refund date. Deleting the sale instead would restate a closed period and hide
+the recharge cost and payment fee, neither of which comes back.
+
 ### The provider changed its catalog
 
 RecargasAmérica can change product ids, names and prices without notice — and

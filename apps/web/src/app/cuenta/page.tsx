@@ -26,6 +26,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   needs_review: 'En revisión',
   refund_required: 'En revisión',
   cancelled: 'Cancelado',
+  refunded: 'Reembolsado',
 };
 
 function daysRemaining(endsAt: Date): number {

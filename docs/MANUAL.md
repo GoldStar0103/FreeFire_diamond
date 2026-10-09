@@ -246,6 +246,36 @@ motivo y confirma. Cuando le devuelvas el dinero, registra cómo lo hiciste con
 
 Todo lo que hagas aquí queda registrado con tu usuario.
 
+### Un pedido YA ENTREGADO que hay que devolver
+
+Esto es distinto de lo anterior. Aquí los diamantes **ya se entregaron** y
+después tuviste que devolver el dinero: un contracargo del banco, un pago
+duplicado, o un fraude.
+
+Abre el pedido y presiona **Revertir pedido (reembolso o contracargo)**.
+Escribe el motivo — *el cliente lo verá en su página de seguimiento* — y
+confirma.
+
+Qué hace el sistema al revertir:
+
+- Le quita al jugador los Level Points que ese pedido le había dado.
+- Le quita los diamantes que ese pedido había sumado a su posición en el
+  ranking de la temporada.
+- Si con eso ya no alcanza un checkpoint del Level Pass **que todavía no le
+  habías entregado**, se lo retira.
+- Registra la devolución en Contabilidad, con la fecha de hoy.
+
+Qué **no** puede hacer:
+
+- **No recupera diamantes ya entregados.** Ni los del pedido, ni los de una
+  recompensa del Level Pass que ya se haya enviado. Están en la cuenta del
+  jugador y no hay forma de sacarlos. Si el jugador ya había cobrado una
+  recompensa, el sistema te avisa cuál y ese costo se queda en tus números,
+  porque es dinero que realmente gastaste.
+
+Úsalo solo cuando el dinero ya salió de vuelta. No es para cancelar un pedido
+que todavía no entregaste — para eso es *"No se puede entregar"*.
+
 ### Los pedidos pagados no se están entregando
 
 Casi siempre es el saldo en RecargasAmérica.

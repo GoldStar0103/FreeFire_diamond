@@ -6,6 +6,7 @@ import { requireSession } from '../../../../lib/session';
 import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import { ReleasePaymentButton } from './release-payment-button';
+import { ReverseOrderForm } from './reverse-order-form';
 import {
   dateTime,
   diamonds,
@@ -271,6 +272,10 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         (order.payment?.method === 'spei' || order.payment?.method === 'oxxo') && (
           <ReleasePaymentButton orderId={order.orderId} orderNumber={order.orderNumber} />
         )}
+
+      {/* The only action available on a delivered order, and the only way out
+          of `completed` in the state machine. */}
+      {order.status === 'completed' && <ReverseOrderForm orderId={order.orderId} />}
 
       <h2>Recargas al proveedor ({order.items.length})</h2>
       <p className="subtitle">

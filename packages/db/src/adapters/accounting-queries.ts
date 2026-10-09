@@ -11,7 +11,7 @@
  * back from the gateway) that this deliberately does not attempt.
  */
 
-import { and, eq, gte, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
 import { LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import type { Database } from '../index.js';
 import { financialLedgerEntries, orderItems, orders, payments } from '../schema.js';
@@ -95,14 +95,21 @@ export interface SalesTotals {
 export async function getSalesTotals(db: Database, range: DateRange): Promise<SalesTotals> {
   const fxRate = await getFxRate(db);
 
-  // This is a sales/revenue report — completed is the FSM's terminal,
-  // irreversible recognition point (matches the existing Inicio dashboard tile).
+  // This is a sales/revenue report — completed is the FSM's recognition
+  // point (matches the existing Inicio dashboard tile).
   // A Level Pass reward order is not a sale — it carries a real recharge
   // cost but zero price, which would understate net sales if counted here.
   // Its cost is recorded separately as a `financial_ledger_entries` expense
   // once granted; see level-pass.ts's own note on why.
+  //
+  // `refunded` is included on purpose. A sale reversed weeks later really was
+  // made on its own day, and its recharge cost and payment fee were really
+  // incurred and never come back — dropping it from the original statement
+  // would silently restate a closed period AND hide the loss. The money going
+  // back out is posted instead as an `order_refund` ledger entry on the day it
+  // happens; see `reverseCompletedOrder`.
   const completedFilter = and(
-    eq(orders.status, 'completed'),
+    inArray(orders.status, ['completed', 'refunded']),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
     ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
@@ -204,7 +211,9 @@ const PENDING_STATUSES = [
   'partially_delivered',
   'needs_review',
 ];
-const CANCELLED_STATUSES = ['cancelled', 'payment_expired', 'refund_required'];
+// `refunded` sits here rather than under "completed": the order was delivered
+// and then undone, so for a volume count it did not end up as a sale.
+const CANCELLED_STATUSES = ['cancelled', 'payment_expired', 'refund_required', 'refunded'];
 
 export interface AccountingMovement {
   orderNumber: string;
@@ -247,8 +256,14 @@ export interface AccountingSummary {
   /** Manual income recorded in this range. */
   manualIncomeCents: number;
   /**
-   * The spec's "real net profit": sales profit less Level Pass reward cost
-   * and other expenses, plus any manual income. Inherits the
+   * Money returned for sales reversed in this range, as a positive cost. The
+   * original sale stays booked on its own day — see the `completedFilter`
+   * note — so this is the whole of the reversal's effect on the P&L.
+   */
+  orderRefundsCents: number;
+  /**
+   * The spec's "real net profit": sales profit less Level Pass reward cost,
+   * refunds and other expenses, plus any manual income. Inherits the
    * `costDataIncomplete` caveat from `netSalesCents`.
    */
   realNetProfitCents: number;
@@ -263,6 +278,7 @@ interface LedgerTotals {
   levelPassRewardCostCents: number;
   otherExpensesCents: number;
   manualIncomeCents: number;
+  orderRefundsCents: number;
 }
 
 /**
@@ -292,12 +308,14 @@ async function getLedgerTotals(db: Database, range: DateRange): Promise<LedgerTo
     levelPassRewardCostCents: 0,
     otherExpensesCents: 0,
     manualIncomeCents: 0,
+    orderRefundsCents: 0,
   };
   for (const row of rows) {
     const signed = Number(row.totalCents);
     if (row.entryType === 'level_pass_reward') totals.levelPassRewardCostCents = -signed;
     else if (row.entryType === 'manual_expense') totals.otherExpensesCents = -signed;
     else if (row.entryType === 'manual_income') totals.manualIncomeCents = signed;
+    else if (row.entryType === 'order_refund') totals.orderRefundsCents = -signed;
   }
   return totals;
 }
@@ -387,7 +405,8 @@ export async function getAccountingSummary(
   const realNetProfitCents =
     totals.netSalesCents -
     ledger.levelPassRewardCostCents -
-    ledger.otherExpensesCents +
+    ledger.otherExpensesCents -
+    ledger.orderRefundsCents +
     ledger.manualIncomeCents;
 
   return {
@@ -400,6 +419,7 @@ export async function getAccountingSummary(
     levelPassRewardCostCents: ledger.levelPassRewardCostCents,
     otherExpensesCents: ledger.otherExpensesCents,
     manualIncomeCents: ledger.manualIncomeCents,
+    orderRefundsCents: ledger.orderRefundsCents,
     realNetProfitCents: realNetProfitCents,
     netMarginPct:
       totals.grossSalesCents > 0 ? (realNetProfitCents / totals.grossSalesCents) * 100 : null,

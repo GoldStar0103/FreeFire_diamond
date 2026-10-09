@@ -45,6 +45,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   needs_review: 'Requiere revisión',
   refund_required: 'Requiere reembolso',
   cancelled: 'Cancelado',
+  refunded: 'Revertido',
 };
 
 const ITEM_STATUS_LABELS: Record<string, string> = {
@@ -96,6 +97,6 @@ export function statusTone(status: string): 'ok' | 'warn' | 'bad' | 'muted' {
   if (status === 'failed' || status === 'partially_delivered' || status === 'payment_expired') {
     return 'warn';
   }
-  if (status === 'cancelled') return 'muted';
+  if (status === 'cancelled' || status === 'refunded') return 'muted';
   return 'warn';
 }

@@ -45,6 +45,7 @@ export * from './adapters/season-store.js';
 export * from './adapters/customer-auth-store.js';
 export * from './adapters/season-admin-queries.js';
 export * from './adapters/season-funnel-queries.js';
+export * from './adapters/order-reversal-store.js';
 export * from './adapters/badge-admin-store.js';
 export * from './adapters/vault-admin-store.js';
 export * from './adapters/customer-profile-store.js';

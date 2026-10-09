@@ -255,6 +255,13 @@ function toCustomerStatus(orderStatus: string, paymentUnderReview: boolean): Cus
     case 'needs_review':
     case 'refund_required':
       return 'con_problema';
+    // A delivered order reversed afterwards. Shown as cancelled rather than
+    // given a status of its own: from the customer's side the purchase is
+    // undone and their money is back, and the admin's reason is rendered
+    // underneath, which is the part that actually explains it. Listed
+    // explicitly rather than left to the default so this is a decision.
+    case 'refunded':
+      return 'cancelado';
     default:
       return 'cancelado';
   }
