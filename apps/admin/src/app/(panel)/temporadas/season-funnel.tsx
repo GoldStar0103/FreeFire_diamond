@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { SeasonFunnel as SeasonFunnelData } from '@levelup/db';
 import { diamonds, mxn } from '../../../lib/format';
 
@@ -57,7 +58,19 @@ export function SeasonFunnel({ funnel }: { funnel: SeasonFunnelData }) {
                   <tr key={stage.checkpointLp}>
                     <td>{stage.checkpointLp.toLocaleString('es-MX')} LP</td>
                     <td>{diamonds(stage.rewardDiamonds)} 💎</td>
-                    <td className="num">{stage.reached}</td>
+                    <td className="num">
+                      {/* The spec's drill-down: who, exactly, is at this stage. */}
+                      {stage.reached > 0 ? (
+                        <Link
+                          href={`/clientes?checkpoint=${stage.checkpointLp}`}
+                          style={{ textDecoration: 'underline' }}
+                        >
+                          {stage.reached}
+                        </Link>
+                      ) : (
+                        stage.reached
+                      )}
+                    </td>
                     <td className="num">{pct(stage.pctOfParticipants)}</td>
                     <td className="num">{pct(stage.pctOfPrevious)}</td>
                   </tr>

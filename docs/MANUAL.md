@@ -155,6 +155,28 @@ Los códigos los manda el sistema por correo. Si alguien te dice que no le
 llegó el código, avísale a tu desarrollador — casi siempre es el buzón de
 envío.
 
+### Ver a un cliente por dentro
+
+En **Clientes** está la lista de las cuentas Mi LevelUp, ordenada por quién
+más ha recargado esta temporada. Puedes buscar por nombre, por ID de Free
+Fire o por correo.
+
+Al abrir una cuenta ves, de ese jugador:
+
+- Sus Level Points, sus diamantes de la temporada y su posición en el ranking.
+- Cada checkpoint al que llegó, cuándo llegó, y si ya le entregaste la
+  recompensa o sigue pendiente.
+- Si tiene La Bóveda abierta y hasta cuándo.
+- Todos sus pedidos, con los LP que le dio cada uno.
+
+Y un recuadro que dice **"solo interno"**: cuánta ganancia te ha generado ese
+cliente, cuánto te costaron sus recompensas y cuánto te queda. **Eso nunca lo
+ve el cliente** — es solo para ti, para saber si un jugador te deja dinero o
+te cuesta.
+
+Desde **Temporadas** también puedes picarle al número de jugadores de un
+checkpoint y te lleva directo a la lista de quiénes llegaron ahí.
+
 ---
 
 ## Cada mes
