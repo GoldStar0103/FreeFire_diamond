@@ -11,6 +11,7 @@ import {
 } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
+import { storeBadgeArtwork } from '../../../lib/badge-artwork';
 
 export interface BadgeFormState {
   error?: string;
@@ -47,6 +48,16 @@ export async function saveBadge(_prev: BadgeFormState, formData: FormData): Prom
     return { error: 'La clave debe usar solo minúsculas, números y guión bajo.' };
   }
   if (!draft.title) return { error: 'Escribe un título.' };
+
+  // An uploaded file wins over the URL box. Keeping both means the client can
+  // upload art here or point at a CDN later without a code change — the same
+  // arrangement campaign flyers already have.
+  const file = formData.get('artworkFile');
+  if (file instanceof File && file.size > 0) {
+    const stored = await storeBadgeArtwork(draft.badgeKey, new Uint8Array(await file.arrayBuffer()));
+    if (!stored.ok) return { error: stored.rejection.message };
+    draft.artworkAssetUrl = stored.key;
+  }
 
   await saveBadgeDefinition(getDb(), draft, session.adminUserId);
   revalidatePath('/insignias');

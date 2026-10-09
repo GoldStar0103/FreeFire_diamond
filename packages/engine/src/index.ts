@@ -11,5 +11,6 @@ export * from './catalog-admin.js';
 export * from './conversions.js';
 export * from './review.js';
 export * from './level-pass.js';
+export * from './lp-override.js';
 export * from './order-reversal.js';
 export * from './seasons.js';

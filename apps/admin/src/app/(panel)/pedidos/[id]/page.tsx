@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getOrderDetail } from '@levelup/db';
+import { getOrderDetail, getOrderLpSummary } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import { ReleasePaymentButton } from './release-payment-button';
 import { ReverseOrderForm } from './reverse-order-form';
+import { LpOverrideForm } from './lp-override-form';
 import {
   dateTime,
   diamonds,
@@ -73,7 +74,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   await requireSession();
   const { id } = await params;
 
-  const order = await getOrderDetail(getDb(), id);
+  const db = getDb();
+  const [order, lp] = await Promise.all([getOrderDetail(db, id), getOrderLpSummary(db, id)]);
   if (!order) notFound();
 
   const snapshot = order.comboSnapshot as { name?: string; advertisedDiamonds?: number };
@@ -272,6 +274,19 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         (order.payment?.method === 'spei' || order.payment?.method === 'oxxo') && (
           <ReleasePaymentButton orderId={order.orderId} orderNumber={order.orderNumber} />
         )}
+
+      {/* Only for an order that actually earned Level Pass progress, and not
+          one already reversed — its LP is gone and editing it would put
+          progress back on a purchase that no longer stands. */}
+      {lp && lp.reversedAt === null && (
+        <LpOverrideForm
+          orderId={order.orderId}
+          calculatedLp={lp.calculatedLp}
+          awardedLp={lp.awardedLp}
+          overridden={lp.overridden}
+          overrideReason={lp.overrideReason}
+        />
+      )}
 
       {/* The only action available on a delivered order, and the only way out
           of `completed` in the state machine. */}

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getPublicProfile } from '@levelup/db';
 import { getDb } from '../../../lib/server.js';
-import { avatarUrl } from '../../../lib/assets.js';
+import { avatarUrl, badgeArtworkUrl } from '../../../lib/assets.js';
 import { diamonds, initials } from '../../../lib/format.js';
 
 export const dynamic = 'force-dynamic';
@@ -42,11 +42,20 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
 
       {profile.featuredBadges.length > 0 && (
         <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
-          {profile.featuredBadges.map((b) => (
-            <span key={b.ownershipId} className="badge-pill" title={b.title}>
-              🏅 {b.title}
-            </span>
-          ))}
+          {profile.featuredBadges.map((b) => {
+            const art = badgeArtworkUrl(b.artworkAssetUrl);
+            return (
+              <span key={b.ownershipId} className="badge-pill" title={b.title}>
+                {art ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={art} alt="" width={18} height={18} style={{ verticalAlign: 'text-bottom' }} />
+                ) : (
+                  '🏅'
+                )}{' '}
+                {b.title}
+              </span>
+            );
+          })}
         </div>
       )}
 

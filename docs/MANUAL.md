@@ -145,6 +145,10 @@ Hasta 6 activas a la vez.
 Level Pass se otorgan solas; las demás (por ejemplo "Fundador") se otorgan a
 mano desde la página de cada una.
 
+Al crear o editar una insignia puedes **subir su imagen** desde tu
+computadora (JPG, PNG o WEBP). También queda la casilla de URL por si algún
+día las guardas en otro lado; si subes un archivo, se usa ese.
+
 ### Cuentas de cliente (Mi LevelUp)
 
 Los jugadores entran a **Mi LevelUp** en la tienda con su **correo**: piden
@@ -154,6 +158,32 @@ Fire. El WhatsApp del checkout sigue siendo solo para contactarlos.
 Los códigos los manda el sistema por correo. Si alguien te dice que no le
 llegó el código, avísale a tu desarrollador — casi siempre es el buzón de
 envío.
+
+### Cambiar a mano los LP de un pedido
+
+A veces un pedido merece más Level Points de los que le tocaron: una disculpa
+por una entrega lenta, una promoción especial, un caso raro.
+
+Abre el pedido y, en el recuadro **Level Points**, presiona *"Ajustar LP a
+mano"*. Verás dos números: el **calculado** (lo que salió de la fórmula, que
+nunca se borra) y el **otorgado** (lo que el jugador realmente tiene). Cambia
+el otorgado, escribe el motivo y guarda.
+
+Si con el nuevo valor el jugador alcanza un checkpoint, el sistema se lo
+agrega solo; si lo pierde, se lo quita — salvo que ya le hubieras entregado
+esa recompensa, porque esos diamantes ya no se recuperan. El sistema te avisa
+cuando pasa eso.
+
+### Gastos e ingresos que no vienen de un pedido
+
+En **Contabilidad**, abajo, está **Gastos e ingresos manuales**: la renta, una
+comisión, un reembolso que te hizo tu proveedor. Pones el monto, la fecha y
+una nota corta.
+
+Eso es lo que hace que la **Ganancia neta real** sea de verdad la tuya y no
+solo las ventas menos los costos. Solo se pueden borrar los que escribiste tú
+a mano; los gastos que genera el sistema (las recompensas del Level Pass, las
+devoluciones) no se tocan, porque son el registro de algo que ya pasó.
 
 ### Ver a un cliente por dentro
 

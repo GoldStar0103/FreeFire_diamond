@@ -141,6 +141,18 @@ export function validateImageUpload(bytes: Uint8Array, maxBytes = MAX_UPLOAD_BYT
   return result;
 }
 
+/**
+ * Storage path for a badge's artwork. Keyed by the badge's own key so the
+ * files are browsable by a human, with a random id per upload so replacing
+ * the art is a new URL — the media route marks these immutable.
+ */
+export function badgeArtworkPath(badgeKey: string, extension: string, randomId: string): string {
+  const safeBadge = badgeKey.replace(/[^a-z0-9_-]/gi, '').slice(0, 64) || 'insignia';
+  const safeId = randomId.replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+  const safeExt = extension.replace(/[^a-z0-9]/g, '').slice(0, 5);
+  return `badges/${safeBadge}/${safeId}.${safeExt}`;
+}
+
 /** Storage path for a profile picture — built from the profile id and a random id, never from client input. */
 export function avatarPath(playerProfileId: string, extension: string, randomId: string): string {
   const safeProfile = playerProfileId.replace(/[^A-Za-z0-9-]/g, '').slice(0, 64) || 'sin-perfil';

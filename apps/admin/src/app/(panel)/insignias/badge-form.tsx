@@ -61,8 +61,13 @@ export function BadgeForm({ initial, locked }: { initial?: BadgeFormInitial; loc
       </div>
 
       <label className="field">
-        <span>Imagen (URL)</span>
+        <span>Subir imagen</span>
+        <input type="file" name="artworkFile" accept="image/jpeg,image/png,image/webp" />
+      </label>
+      <label className="field">
+        <span>…o pegar una URL</span>
         <input name="artworkAssetUrl" defaultValue={initial?.artworkAssetUrl ?? ''} />
+        <span className="hint">Si subes un archivo, se usa ese y se ignora la URL.</span>
       </label>
 
       <label className="field row" style={{ alignItems: 'center', gap: 8 }}>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avatarUrl, flyerUrl } from './assets.js';
+import { avatarUrl, badgeArtworkUrl, flyerUrl } from './assets.js';
 
 describe('flyerUrl', () => {
   it('turns a stored key into a URL the browser can actually fetch', () => {
@@ -83,5 +83,33 @@ describe('avatarUrl', () => {
 
   it('refuses a bare prefix with nothing after it', () => {
     expect(avatarUrl('avatars/')).toBeNull();
+  });
+});
+
+describe('badgeArtworkUrl', () => {
+  it('turns a stored key into a URL', () => {
+    expect(badgeArtworkUrl('badges/top_10/9f8e7d6c.png')).toBe('/media/badges/top_10/9f8e7d6c.png');
+  });
+
+  it('passes an absolute https URL through, so artwork can live on a CDN', () => {
+    expect(badgeArtworkUrl('https://cdn.example.mx/top10.png')).toBe(
+      'https://cdn.example.mx/top10.png',
+    );
+  });
+
+  it('refuses a key outside badges/ — this column is admin-editable', () => {
+    expect(badgeArtworkUrl('comprobantes/LU-1/abc.jpg')).toBeNull();
+    expect(badgeArtworkUrl('avatars/abc/def.jpg')).toBeNull();
+  });
+
+  it('refuses traversal, absolute paths and non-http protocols', () => {
+    expect(badgeArtworkUrl('badges/../../etc/passwd')).toBeNull();
+    expect(badgeArtworkUrl('/etc/passwd')).toBeNull();
+    expect(badgeArtworkUrl('javascript:alert(1)')).toBeNull();
+  });
+
+  it('refuses a bare prefix and empty input', () => {
+    expect(badgeArtworkUrl('badges/')).toBeNull();
+    expect(badgeArtworkUrl(null)).toBeNull();
   });
 });

@@ -2,7 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { applyReviewAction, approvePayment, type ReviewAction, type ReviewFailureCode } from '@levelup/engine';
-import { DrizzlePaymentStore, DrizzleReviewStore, reverseCompletedOrder } from '@levelup/db';
+import {
+  DrizzlePaymentStore,
+  DrizzleReviewStore,
+  overrideOrderLp,
+  reverseCompletedOrder,
+} from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 
@@ -143,6 +148,81 @@ export async function releasePayment(_prev: ReleaseState, formData: FormData): P
       ? `${result.orderNumber} ya estaba confirmado.`
       : `${result.orderNumber} liberado — la recarga se está procesando.`,
   };
+}
+
+export interface LpOverrideState {
+  ok?: string;
+  warning?: string;
+  error?: string;
+}
+
+/**
+ * Manually set the Level Points an order awarded — the spec's authorised
+ * override. The calculated figure is kept alongside the new one, and the
+ * change is audited with the admin and their reason.
+ */
+export async function overrideLp(
+  _prev: LpOverrideState,
+  formData: FormData,
+): Promise<LpOverrideState> {
+  const session = await requireSession();
+
+  const orderId = String(formData.get('orderId') ?? '');
+  const raw = String(formData.get('lp') ?? '').trim();
+  const reason = String(formData.get('reason') ?? '').trim();
+  if (!orderId) return { error: 'Falta el pedido.' };
+
+  const lp = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isInteger(lp)) {
+    return { error: 'Escribe los LP como un número entero (0 o más).' };
+  }
+  if (reason.length < 3) {
+    return { error: 'Escribe el motivo: queda en el registro de auditoría.' };
+  }
+
+  const result = await overrideOrderLp(getDb(), {
+    orderId,
+    adminUserId: session.adminUserId,
+    newAwardedLp: lp,
+    reason,
+  });
+
+  if (!result.ok) {
+    const explain: Record<typeof result.reason, string> = {
+      no_lp_transaction:
+        'Este pedido no generó Level Points, así que no hay nada que ajustar.',
+      reversed: 'Este pedido fue revertido — sus LP ya se quitaron.',
+      invalid_lp: 'Ese valor de LP no es válido.',
+    };
+    return { error: explain[result.reason] };
+  }
+
+  revalidatePath(`/pedidos/${orderId}`);
+  revalidatePath('/clientes');
+  revalidatePath('/temporadas');
+
+  const { plan } = result;
+  const kept = plan.checkpointsKept;
+  const parts: string[] = [`LP ajustados a ${plan.newAwardedLp}`];
+  if (plan.checkpointsToCreate.length > 0) {
+    parts.push(`${plan.checkpointsToCreate.length} checkpoint(s) alcanzado(s)`);
+  }
+  if (plan.checkpointEventIdsToReverse.length > 0) {
+    parts.push(`${plan.checkpointEventIdsToReverse.length} retirado(s)`);
+  }
+  if (plan.unlockVault) parts.push('Bóveda abierta');
+  if (plan.closeVault) parts.push('Bóveda cerrada');
+
+  if (kept.length > 0) {
+    const list = kept.map((c) => `${c.checkpointLp} LP`).join(', ');
+    return {
+      warning:
+        `${parts.join(' · ')}. La recompensa de ${list} ya se había entregado, ` +
+        `así que se queda — esos diamantes no se recuperan.`,
+    };
+  }
+
+  return { ok: `${parts.join(' · ')}.` };
 }
 
 export interface ReverseState {

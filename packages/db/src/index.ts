@@ -18,7 +18,7 @@ export * from './adapters/mapping.js';
  */
 export function createDb(connectionString: string, options?: { max?: number }) {
   // postgres.js already returns NUMERIC as a string rather than coercing it to
-  // a float, which is exactly what money needs — no custom type override.
+  // a float, which is exactly what money needs â€” no custom type override.
   const client = postgres(connectionString, { max: options?.max ?? 10 });
   return { db: drizzle(client, { schema }), client };
 }
@@ -47,6 +47,8 @@ export * from './adapters/season-admin-queries.js';
 export * from './adapters/season-funnel-queries.js';
 export * from './adapters/order-reversal-store.js';
 export * from './adapters/customer-admin-queries.js';
+export * from './adapters/lp-override-store.js';
+export * from './adapters/manual-ledger-store.js';
 export * from './adapters/badge-admin-store.js';
 export * from './adapters/vault-admin-store.js';
 export * from './adapters/customer-profile-store.js';

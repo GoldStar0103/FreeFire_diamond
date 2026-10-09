@@ -1,5 +1,11 @@
 import Link from 'next/link';
-import { getAccountingSummary, getSeasonRanges, mexicoCityTodayYmd } from '@levelup/db';
+import {
+  getAccountingSummary,
+  getSeasonRanges,
+  listManualLedgerEntries,
+  mexicoCityTodayYmd,
+} from '@levelup/db';
+import { ManualEntries } from './manual-entries';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime, mxn } from '../../../lib/format';
@@ -26,6 +32,7 @@ export default async function ContabilidadPage({
   const fallbackNotice = seasonFallbackNotice(rango, seasons);
 
   const summary = await getAccountingSummary(getDb(), range);
+  const manualEntries = await listManualLedgerEntries(getDb(), range);
 
   const reportQuery = new URLSearchParams({ rango });
   if (params.desde) reportQuery.set('desde', params.desde);
@@ -178,6 +185,18 @@ export default async function ContabilidadPage({
           </div>
         </div>
       )}
+
+      <ManualEntries
+        defaultDate={mexicoCityTodayYmd()}
+        entries={manualEntries.map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          amountLabel: mxn(entry.amountCents),
+          dateLabel: dateTime(entry.occurredAt),
+          note: entry.note,
+          createdByEmail: entry.createdByEmail,
+        }))}
+      />
 
       <h2 className="section-title">Historial de movimientos</h2>
       {summary.movements.length === 0 ? (

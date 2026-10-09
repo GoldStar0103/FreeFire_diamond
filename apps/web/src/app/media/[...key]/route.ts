@@ -15,7 +15,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { contentTypeForKey, safeStorageKey, uploadRoot } from '@levelup/shared';
-import { AVATAR_PREFIX, FLYER_PREFIX } from '../../../lib/assets';
+import { AVATAR_PREFIX, BADGE_PREFIX, FLYER_PREFIX } from '../../../lib/assets';
 
 /** Images only. A PDF is a valid stored type but not something to inline here. */
 const SERVEABLE = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -28,7 +28,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ key
 
   // The prefix check is the whole security boundary: without it this route
   // serves `comprobantes/...` to anyone who asks.
-  if (!safe.relative.startsWith(FLYER_PREFIX) && !safe.relative.startsWith(AVATAR_PREFIX)) {
+  const PUBLIC_PREFIXES = [FLYER_PREFIX, AVATAR_PREFIX, BADGE_PREFIX];
+  if (!PUBLIC_PREFIXES.some((prefix) => safe.relative.startsWith(prefix))) {
     return new Response('No encontrado', { status: 404 });
   }
 

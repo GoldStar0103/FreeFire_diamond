@@ -15,6 +15,8 @@
 export const FLYER_PREFIX = 'flyers/';
 /** Customer profile pictures — public for the same reason flyers are: shown on pages anyone can open. */
 export const AVATAR_PREFIX = 'avatars/';
+/** Badge artwork — shown on public profiles and the leaderboard, so equally public. */
+export const BADGE_PREFIX = 'badges/';
 
 /** Where the storefront serves public assets from. */
 export const MEDIA_ROUTE = '/media/';
@@ -60,6 +62,19 @@ export function flyerUrl(stored: string | null | undefined): string | null {
  * applies: a stray value in that column must not become an arbitrary fetch.
  */
 export function avatarUrl(stored: string | null | undefined): string | null {
+  return publicAssetUrl(stored, AVATAR_PREFIX);
+}
+
+/**
+ * Badge artwork, same rule again. The column is admin-editable (the badge
+ * form accepts either an upload or a pasted https URL), so the prefix check
+ * is doing real work here, not just belt and braces.
+ */
+export function badgeArtworkUrl(stored: string | null | undefined): string | null {
+  return publicAssetUrl(stored, BADGE_PREFIX);
+}
+
+function publicAssetUrl(stored: string | null | undefined, prefix: string): string | null {
   const value = stored?.trim();
   if (!value) return null;
 
@@ -68,7 +83,7 @@ export function avatarUrl(stored: string | null | undefined): string | null {
   }
 
   if (value.startsWith('/')) return null;
-  if (!value.startsWith(AVATAR_PREFIX)) return null;
+  if (!value.startsWith(prefix)) return null;
   if (value.includes('..')) return null;
 
   const segments = value.split('/').filter(Boolean);
