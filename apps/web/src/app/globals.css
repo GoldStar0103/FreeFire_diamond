@@ -118,7 +118,7 @@ img { max-width: 100%; display: block; }
 .mega-name { font-size: 13px; color: var(--muted); margin-top: 12px; letter-spacing: 0.08em; }
 .mega-diamonds { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; margin: 2px 0; }
 .mega-price { font-size: 26px; font-weight: 800; color: var(--accent-2); }
-.mega-cta { margin-top: 14px; font-weight: 700; color: var(--accent); }
+.mega-cta { margin-top: 14px; font-weight: 700; color: var(--accent-2); }
 
 .trust-line { text-align: center; color: var(--muted); font-size: 14px; margin: 4px 0 24px; }
 
@@ -180,7 +180,7 @@ img { max-width: 100%; display: block; }
 
 .combo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .combo { text-align: center; padding: 16px 12px; margin: 0; transition: border-color 0.15s; }
-.combo:active, .combo:hover { border-color: var(--accent); }
+.combo:active, .combo:hover { border-color: var(--accent-2); }
 .combo-diamonds { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
 .combo-name { font-size: 12px; color: var(--muted); margin: 3px 0 8px; }
 .combo-price { font-size: 18px; font-weight: 800; color: var(--accent-2); }
@@ -197,8 +197,8 @@ img { max-width: 100%; display: block; }
 .step-num {
   width: 24px; height: 24px; flex: none;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-2);
+  color: var(--bg);
   display: grid; place-items: center;
   font-size: 13px; font-weight: 800;
 }
@@ -228,7 +228,7 @@ img { max-width: 100%; display: block; }
   z-index: 1;
 }
 .checkout-step-item.done .checkout-step-dot { background: var(--ok); border-color: var(--ok); color: #0b0d18; }
-.checkout-step-item.active .checkout-step-dot { border-color: var(--accent); color: var(--accent); }
+.checkout-step-item.active .checkout-step-dot { border-color: var(--accent-2); color: var(--accent-2); }
 .checkout-step-label { font-size: 11px; color: var(--muted); }
 .checkout-step-item.active .checkout-step-label { color: var(--text); font-weight: 700; }
 
@@ -320,7 +320,7 @@ img { max-width: 100%; display: block; }
   padding: 2px;
   line-height: 1;
 }
-.copy-btn:hover { color: var(--accent); }
+.copy-btn:hover { color: var(--accent-2); }
 .pay-instructions { list-style: none; margin: 0 0 16px; padding: 0; font-size: 13px; color: var(--muted); }
 .pay-instructions li { padding: 6px 0; }
 
@@ -336,7 +336,7 @@ input[type="text"], input[type="tel"], input[type="file"], input:not([type]) {
   background: var(--bg);
   color: var(--text);
 }
-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 
 .btn {
   font: inherit;
@@ -348,7 +348,11 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   color: var(--text);
   cursor: pointer;
 }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Buttons read as the "blue" half of the brand (2026-10 client brief: purple
+   panels, blue buttons/details) — var(--accent-2), not var(--accent). It's
+   a light cyan, so white text on it fails contrast badly (~1.8:1); --bg
+   (near-black) on top of it instead clears AAA (~11:1). */
+.btn.primary { background: var(--accent-2); border-color: var(--accent-2); color: var(--bg); }
 .btn.ghost { background: transparent; color: var(--muted); }
 .btn.wide { width: 100%; display: block; text-align: center; }
 .btn.sm { padding: 7px 12px; font-size: 14px; }
@@ -400,7 +404,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   z-index: 1;
 }
 .tracker-step.done .tracker-dot { background: var(--ok); border-color: var(--ok); color: #0b0d18; }
-.tracker-step.active .tracker-dot { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25); }
+.tracker-step.active .tracker-dot { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.25); }
 .tracker-step.error .tracker-dot { background: var(--bad); border-color: var(--bad); color: #fff; }
 .tracker-label { font-size: 14px; font-weight: 700; }
 .tracker-step.pending .tracker-label { color: var(--muted); font-weight: 500; }
@@ -446,7 +450,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   color: var(--muted);
   border-radius: 10px;
 }
-.bottom-nav-item.active { color: var(--text); background: rgba(139, 92, 246, 0.12); }
+.bottom-nav-item.active { color: var(--text); background: rgba(34, 211, 238, 0.12); }
 .bottom-nav-icon { font-size: 20px; line-height: 1; }
 .bottom-nav-icon .icon { width: 20px; height: 20px; vertical-align: 0; }
 
@@ -593,7 +597,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700;
 }
-.badge-pill.selected { border-color: var(--accent); background: rgba(139, 92, 246, 0.14); }
+.badge-pill.selected { border-color: var(--accent-2); background: rgba(34, 211, 238, 0.14); }
 
 /* --- support page --- */
 .support-cta {
@@ -641,7 +645,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
    Soporte, not confined to one section. Kept subtle enough not to fight
    readability: a soft border/shadow, not a full glow-everything treatment. */
 .card { box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.05), 0 6px 22px rgba(0, 0, 0, 0.28); }
-.btn.primary { box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); }
+.btn.primary { box-shadow: 0 0 20px rgba(34, 211, 238, 0.4); }
 .mega { box-shadow: 0 0 30px rgba(139, 92, 246, 0.25); }
 .section-title-lg {
   font-size: 22px;
@@ -708,8 +712,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .btn.ghost-neon {
   background: transparent;
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-2);
+  color: var(--accent-2);
   border-radius: 999px;
 }
 
@@ -841,8 +845,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   cursor: pointer;
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  color: var(--accent-2);
+  border: 1px solid var(--accent-2);
   border-radius: 999px;
   padding: 5px 12px;
   white-space: nowrap;
@@ -1064,9 +1068,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   color: var(--muted);
 }
 .rk-tab.active {
-  color: #fff;
-  background: var(--accent);
-  box-shadow: 0 0 16px rgba(139, 92, 246, 0.4);
+  color: var(--bg);
+  background: var(--accent-2);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.4);
 }
 
 .rk-podium-card { justify-content: flex-start; }
