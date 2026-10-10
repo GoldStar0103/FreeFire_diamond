@@ -817,7 +817,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   margin-bottom: 0;
   text-shadow: 0 0 18px rgba(139, 92, 246, 0.45);
 }
-.lp-season-pill {
+/* Shared by any hero card showing a season countdown (Level Pass, La Bóveda) —
+   one chip style rather than a near-duplicate per page. */
+.season-pill {
   display: inline-block;
   margin-top: 10px;
   padding: 5px 12px;
@@ -828,6 +830,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   background: rgba(34, 211, 238, 0.12);
   border: 1px solid rgba(34, 211, 238, 0.4);
 }
+.season-pill.locked { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
+.season-pill.unlocked-gold { color: #fcd34d; background: rgba(252, 211, 77, 0.12); border-color: rgba(252, 211, 77, 0.4); }
 
 /* A native <details>/<summary> rather than client JS — the explanation is
    static copy, so there is nothing here that needs a re-render to show. */
@@ -959,6 +963,86 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .lp-node-current .lp-node-icon {
     animation: none !important;
   }
+}
+
+/* ── La Bóveda (/cuenta/boveda) ────────────────────────────────────────────
+   Same hero treatment as Level Pass (shared motif, same purple/cyan tokens),
+   with its own gold accent once unlocked — gold reads as "the prize", not as
+   a third brand color, since it already means exactly that on the Level
+   Pass checkpoint track and the Vault teaser card on /cuenta/level-pass. */
+
+.vlt-hero {
+  position: relative;
+  padding: 18px;
+  margin-bottom: 18px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  background:
+    radial-gradient(circle at 85% 0%, rgba(34, 211, 238, 0.16), transparent 55%),
+    radial-gradient(circle at 10% 100%, rgba(139, 92, 246, 0.22), transparent 55%),
+    linear-gradient(160deg, var(--surface) 0%, var(--surface-2) 100%),
+    repeating-linear-gradient(60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(-60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 26px);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.2);
+}
+.vlt-hero.unlocked {
+  border-color: #fcd34d;
+  box-shadow: 0 0 30px rgba(252, 211, 77, 0.25);
+}
+.vlt-hero-title { text-shadow: 0 0 18px rgba(139, 92, 246, 0.45); }
+.vlt-hero.unlocked .vlt-hero-title { text-shadow: 0 0 18px rgba(252, 211, 77, 0.4); }
+
+.vlt-status {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.vlt-status.unlocked { color: #fcd34d; background: rgba(252, 211, 77, 0.14); border-color: #fcd34d; }
+
+.vlt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.vlt-offer {
+  text-align: center;
+  border-color: rgba(252, 211, 77, 0.3);
+  /* A one-shot arrival, same spirit as the Level Pass checkpoint pop — these
+     cards only exist because the Pass was just completed, so the whole grid
+     earns a small "unveiled" moment instead of appearing inert. */
+  animation: vltOfferIn 0.4s ease-out backwards;
+}
+.vlt-offer:nth-child(2) { animation-delay: 0.05s; }
+.vlt-offer:nth-child(3) { animation-delay: 0.1s; }
+.vlt-offer:nth-child(4) { animation-delay: 0.15s; }
+.vlt-offer:nth-child(5) { animation-delay: 0.2s; }
+.vlt-offer:nth-child(6) { animation-delay: 0.25s; }
+@keyframes vltOfferIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.vlt-offer-diamonds { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
+.vlt-offer-name { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+.vlt-offer-prices { display: flex; flex-direction: column; gap: 2px; }
+.vlt-offer-price { font-size: 19px; font-weight: 800; color: var(--accent-2); }
+.vlt-savings {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fcd34d;
+  background: rgba(252, 211, 77, 0.12);
+}
+.vlt-offer-cta { display: block; margin-top: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vlt-offer { animation: none !important; }
 }
 
 /* The 3 support boxes: .trust-icon is a fixed-size block, so the parent's

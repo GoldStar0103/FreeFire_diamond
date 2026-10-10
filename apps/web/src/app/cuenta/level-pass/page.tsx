@@ -91,7 +91,7 @@ export default async function LevelPassPage() {
           </details>
         </div>
         <p className="hint" style={{ marginTop: 2 }}>Temporada {season.seasonNumber}</p>
-        <span className="lp-season-pill">⏱ {days} día{days === 1 ? '' : 's'} restantes</span>
+        <span className="season-pill">⏱ {days} día{days === 1 ? '' : 's'} restantes</span>
       </div>
 
       <div className="card lp-progress-card">
@@ -170,7 +170,7 @@ export default async function LevelPassPage() {
         </div>
       </div>
 
-      <Link href="/cuenta" className={`card lp-vault-teaser${overview.vault.unlocked ? ' unlocked' : ''}`}>
+      <Link href="/cuenta/boveda" className={`card lp-vault-teaser${overview.vault.unlocked ? ' unlocked' : ''}`}>
         <span className="lp-vault-icon" aria-hidden="true">{overview.vault.unlocked ? '🔓' : '🔒'}</span>
         <span>
           <strong>La Bóveda</strong>

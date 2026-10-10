@@ -179,7 +179,14 @@ describe('getMyLevelUpOverview', () => {
     const withEntitlement = await getMyLevelUpOverview(db, p.id);
     expect(withEntitlement.vault.unlocked).toBe(true);
     expect(withEntitlement.vault.offers).toEqual([
-      { vaultOfferId: offer!.id, comboKey: 'combo1', comboName: 'Combo Uno', publicPriceMxnCents: 10_000, vaultPriceMxnCents: 7_000 },
+      {
+        vaultOfferId: offer!.id,
+        comboKey: 'combo1',
+        comboName: 'Combo Uno',
+        advertisedDiamonds: 100,
+        publicPriceMxnCents: 10_000,
+        vaultPriceMxnCents: 7_000,
+      },
     ]);
   });
 

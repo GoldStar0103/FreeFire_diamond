@@ -60,6 +60,7 @@ export interface MyVaultOffer {
   vaultOfferId: string;
   comboKey: string;
   comboName: string;
+  advertisedDiamonds: number;
   publicPriceMxnCents: number;
   vaultPriceMxnCents: number;
 }
@@ -149,6 +150,7 @@ export async function getMyLevelUpOverview(db: Database, playerProfileId: string
           vaultOfferId: vaultOffers.id,
           comboKey: combos.key,
           comboName: combos.name,
+          advertisedDiamonds: combos.advertisedDiamonds,
           publicPriceMxnCents: combos.priceMxnCents,
           vaultPriceMxnCents: vaultOffers.vaultPriceMxnCents,
         })

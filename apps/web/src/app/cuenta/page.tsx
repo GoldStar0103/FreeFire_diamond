@@ -183,24 +183,13 @@ export default async function CuentaPage() {
             <>
               <p className="hint">Desbloqueada — {overview.vault.offers.length} ofertas disponibles</p>
               {overview.vault.expiresAt && <p className="hint">Cierra en {daysRemaining(overview.vault.expiresAt)} días</p>}
-              {overview.vault.offers.map((o) => (
-                <div key={o.vaultOfferId} className="row" style={{ marginTop: 6, alignItems: 'center' }}>
-                  <span className="hint">
-                    {o.comboName}: <s>{mxn(o.publicPriceMxnCents)}</s> → <strong>{mxn(o.vaultPriceMxnCents)}</strong>
-                  </span>
-                  <div className="spacer" />
-                  <Link
-                    href={`/comprar/${o.comboKey}?oferta=${o.vaultOfferId}`}
-                    className="btn sm primary"
-                  >
-                    Comprar
-                  </Link>
-                </div>
-              ))}
             </>
           ) : (
             <p className="hint">Completa el Level Pass para desbloquear la Bóveda.</p>
           )}
+          <Link href="/cuenta/boveda" className="hint" style={{ display: 'inline-block', marginTop: 8 }}>
+            {overview.vault.unlocked ? 'Ver mis ofertas →' : 'Ver qué se desbloquea →'}
+          </Link>
         </div>
       </div>
 
