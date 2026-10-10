@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { getMyLevelUpOverview } from '@levelup/db';
 import { getCustomerSession } from '../../../lib/customer-session.js';
 import { getDb } from '../../../lib/server.js';
-import { diamonds } from '../../../lib/format.js';
+import { dateLabel, diamonds } from '../../../lib/format.js';
 import { CuentaForm } from '../cuenta-form';
 
 export const metadata: Metadata = {
@@ -13,8 +13,6 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = 'force-dynamic';
-
-const dateLabel = (d: Date) => new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(d);
 
 function daysRemaining(endsAt: Date): number {
   return Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000));

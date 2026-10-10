@@ -187,6 +187,14 @@ describe('listSeasonHistory', () => {
 
     const history = await listSeasonHistory(db);
     expect(history.map((h) => h.seasonNumber)).toEqual([2, 1]);
-    expect(history[0]?.podium).toEqual([{ position: 1, displayName: 'Champ2', seasonalDiamonds: 20_000 }]);
+    expect(history[0]?.podium).toEqual([
+      {
+        position: 1,
+        playerProfileId: profile!.id,
+        displayName: 'Champ2',
+        avatarAssetUrlSnapshot: null,
+        seasonalDiamonds: 20_000,
+      },
+    ]);
   });
 });

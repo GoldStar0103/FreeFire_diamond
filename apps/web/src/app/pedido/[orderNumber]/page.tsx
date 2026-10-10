@@ -97,11 +97,16 @@ function trackerStates(status: CustomerOrderStatus, completedAt: Date | null): T
   }
 }
 
+// Explicit timeZone: production runs with no TZ pin (confirmed UTC), so
+// without this a customer checking their own order at, say, 3pm their time
+// would see "9pm" on the one page built for a worried customer staring at
+// a clock. See lib/format.ts's dateLabel for the same fix elsewhere.
 const WHEN = new Intl.DateTimeFormat('es-MX', {
   day: 'numeric',
   month: 'short',
   hour: 'numeric',
   minute: '2-digit',
+  timeZone: 'America/Mexico_City',
 });
 
 /** What "waiting for payment" means depends on how they chose to pay. */

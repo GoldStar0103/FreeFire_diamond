@@ -3,6 +3,7 @@ import { listMyBadges } from '@levelup/db';
 import { requireCustomerSession } from '../../../lib/customer-session.js';
 import { getDb } from '../../../lib/server.js';
 import { saveFeaturedBadges } from '../profile-actions';
+import { dateLabel } from '../../../lib/format.js';
 
 export const metadata: Metadata = {
   title: 'Mis insignias',
@@ -51,7 +52,7 @@ export default async function InsigniasPage() {
                   <span className={`badge-pill${b.featured ? ' selected' : ''}`}>🏅 {b.title}</span>
                   <span className="hint">
                     {b.seasonNumber ? `Temporada ${b.seasonNumber} · ` : ''}
-                    {new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(b.earnedAt)}
+                    {dateLabel(b.earnedAt)}
                   </span>
                   {b.description && <span className="hint">{b.description}</span>}
                 </label>

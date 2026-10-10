@@ -117,7 +117,13 @@ export interface SeasonHistoryEntry {
   startsAt: Date;
   endsAt: Date;
   closedAt: Date | null;
-  podium: Array<{ position: number; displayName: string | null; seasonalDiamonds: number }>;
+  podium: Array<{
+    position: number;
+    playerProfileId: string;
+    displayName: string | null;
+    avatarAssetUrlSnapshot: string | null;
+    seasonalDiamonds: number;
+  }>;
 }
 
 export async function listSeasonHistory(db: Database, limit = 20): Promise<SeasonHistoryEntry[]> {
@@ -134,7 +140,9 @@ export async function listSeasonHistory(db: Database, limit = 20): Promise<Seaso
     .select({
       seasonId: hallOfFameEntries.seasonId,
       position: hallOfFameEntries.position,
+      playerProfileId: hallOfFameEntries.playerProfileId,
       displayName: hallOfFameEntries.displayNameSnapshot,
+      avatarAssetUrlSnapshot: hallOfFameEntries.avatarAssetUrlSnapshot,
       seasonalDiamonds: hallOfFameEntries.seasonalDiamonds,
     })
     .from(hallOfFameEntries)
@@ -145,6 +153,12 @@ export async function listSeasonHistory(db: Database, limit = 20): Promise<Seaso
     ...season,
     podium: podiumRows
       .filter((p) => p.seasonId === season.id)
-      .map((p) => ({ position: p.position, displayName: p.displayName, seasonalDiamonds: p.seasonalDiamonds })),
+      .map((p) => ({
+        position: p.position,
+        playerProfileId: p.playerProfileId,
+        displayName: p.displayName,
+        avatarAssetUrlSnapshot: p.avatarAssetUrlSnapshot,
+        seasonalDiamonds: p.seasonalDiamonds,
+      })),
   }));
 }

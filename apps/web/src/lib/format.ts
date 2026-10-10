@@ -7,6 +7,23 @@ const MXN = new Intl.NumberFormat('es-MX', {
 const NUM = new Intl.NumberFormat('es-MX');
 
 /**
+ * A real-world date, formatted the way a customer in Mexico would read a
+ * calendar — "19 sep 2026", not a UTC day that disagrees with their own clock.
+ *
+ * Production runs with no `TZ` pin (confirmed: the container's own `date`
+ * reads UTC), so `Intl.DateTimeFormat` with no explicit `timeZone` formats in
+ * UTC there. Mexico City is UTC-6 with no DST, so anything that happened
+ * between midnight and 6am UTC is still the PREVIOUS evening on a Mexico City
+ * calendar — a badge earned or a season closed at, say, 2am UTC on the 30th
+ * actually happened on the 29th locally, and would otherwise render the wrong
+ * day. Same risk this codebase already guards against in
+ * `mexico-city-time.ts`'s day-range helpers; this is that same guard for a
+ * human-readable label instead of a query boundary.
+ */
+const DATE_LABEL = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZone: 'America/Mexico_City' });
+export const dateLabel = (d: Date): string => DATE_LABEL.format(d);
+
+/**
  * Storefront prices are whole pesos — no combo has centavos.
  *
  * `Intl`'s `es-MX` currency format renders MXN as a bare "$", indistinguishable

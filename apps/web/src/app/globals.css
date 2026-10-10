@@ -1045,6 +1045,53 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .vlt-offer { animation: none !important; }
 }
 
+/* ── /ranking: Top 50 tabs, podium, pagination, Salón de la Fama ─────────── */
+
+.rk-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 4px;
+  padding: 4px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  width: fit-content;
+}
+.rk-tab {
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.rk-tab.active {
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.4);
+}
+
+.rk-podium-card { justify-content: flex-start; }
+/* 1st place reads as the one that matters most: gold border/glow and a
+   slightly taller card, same restraint as the rest of this brand's glow
+   usage — one accent color doing the work, not a rainbow of medal colors. */
+.rk-podium-1 {
+  border-color: #fcd34d;
+  box-shadow: 0 0 22px rgba(252, 211, 77, 0.3);
+  padding-top: 18px;
+}
+.rk-podium-2 { border-color: rgba(203, 213, 225, 0.5); }
+.rk-podium-3 { border-color: rgba(217, 119, 6, 0.5); }
+
+.rk-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.rk-pagination .btn.disabled { opacity: 0.35; pointer-events: none; }
+
+.rk-fama-season { border-color: rgba(252, 211, 77, 0.25); }
+
 /* The 3 support boxes: .trust-icon is a fixed-size block, so the parent's
    text-align: center never centered it — only the text below it. */
 .support-stat .trust-icon { margin-left: auto; margin-right: auto; }

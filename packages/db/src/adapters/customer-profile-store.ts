@@ -363,15 +363,21 @@ export interface PublicRankingRow {
   rank: number;
 }
 
+export interface PublicTop50 {
+  /** Null when no season is active — the only time `rows` is also empty. */
+  season: { seasonNumber: number; endsAt: Date } | null;
+  rows: PublicRankingRow[];
+}
+
 /** Top 50 for the current season — the public leaderboard. No spend figures, ever. */
-export async function getPublicTop50(db: Database): Promise<PublicRankingRow[]> {
+export async function getPublicTop50(db: Database): Promise<PublicTop50> {
   const [season] = await db
-    .select({ id: seasons.id })
+    .select({ id: seasons.id, seasonNumber: seasons.seasonNumber, endsAt: seasons.endsAt })
     .from(seasons)
     .where(eq(seasons.status, 'active'))
     .orderBy(desc(seasons.seasonNumber))
     .limit(1);
-  if (!season) return [];
+  if (!season) return { season: null, rows: [] };
 
   const rows = await db
     .select({
@@ -386,7 +392,10 @@ export async function getPublicTop50(db: Database): Promise<PublicRankingRow[]> 
     .orderBy(desc(seasonPlayerStats.seasonalDiamonds))
     .limit(50);
 
-  return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+  return {
+    season: { seasonNumber: season.seasonNumber, endsAt: season.endsAt },
+    rows: rows.map((r, i) => ({ ...r, rank: i + 1 })),
+  };
 }
 
 export interface PublicProfile {

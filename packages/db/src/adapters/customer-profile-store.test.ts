@@ -313,7 +313,13 @@ describe('updateAvatar', () => {
 
 describe('getPublicTop50', () => {
   it('is empty with no active season', async () => {
-    expect(await getPublicTop50(db)).toEqual([]);
+    expect(await getPublicTop50(db)).toEqual({ season: null, rows: [] });
+  });
+
+  it('includes the season number and end date alongside the rows', async () => {
+    const season = await seedActiveSeason();
+    const { season: returned } = await getPublicTop50(db);
+    expect(returned).toEqual({ seasonNumber: season.seasonNumber, endsAt: season.endsAt });
   });
 
   it('ranks by seasonal diamonds descending', async () => {
@@ -325,9 +331,9 @@ describe('getPublicTop50', () => {
       { seasonId: season.id, playerProfileId: high.id, seasonalDiamonds: 9_999 },
     ]);
 
-    const top = await getPublicTop50(db);
-    expect(top.map((r) => r.playerProfileId)).toEqual([high.id, low.id]);
-    expect(top[0]).toMatchObject({ rank: 1, seasonalDiamonds: 9_999 });
+    const { rows } = await getPublicTop50(db);
+    expect(rows.map((r) => r.playerProfileId)).toEqual([high.id, low.id]);
+    expect(rows[0]).toMatchObject({ rank: 1, seasonalDiamonds: 9_999 });
   });
 });
 
