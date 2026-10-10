@@ -1141,3 +1141,37 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 @media (prefers-reduced-motion: reduce) {
   .hm-live-dot { animation: none !important; }
 }
+
+/* ── /cuenta header (2026-10, hexzrecargas.com reference) ─────────────────
+   Level Pass, La Bóveda and the home page all got the hex-grid hero-panel
+   treatment; the logged-in /cuenta header was the one screen in this pass
+   still a plain row. Same background recipe as .lp-hero/.vlt-hero — not
+   reused via a shared class, matching how those two were already written
+   independently of each other. The quick-fact row (rank / days left / Vault
+   status) mirrors hexzrecargas.com's own hero — a row of small pill badges
+   under the headline — reusing the existing .season-pill rather than a new
+   component, since it is already exactly that: a small rounded status chip. */
+
+.me-hero {
+  position: relative;
+  padding: 18px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  background:
+    radial-gradient(circle at 85% 0%, rgba(34, 211, 238, 0.16), transparent 55%),
+    radial-gradient(circle at 10% 100%, rgba(139, 92, 246, 0.22), transparent 55%),
+    linear-gradient(160deg, var(--surface) 0%, var(--surface-2) 100%),
+    repeating-linear-gradient(60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(-60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 26px);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.2);
+}
+.me-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.me-kicker { margin: 0; font-size: 13px; font-weight: 700; }
+.me-avatar-ring {
+  flex: none;
+  padding: 3px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, var(--accent-2));
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.35);
+}
+.me-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }

@@ -71,30 +71,46 @@ export default async function CuentaPage() {
   const avatar = avatarUrl(profile.avatarAssetUrl);
   const name = profile.displayName ?? `Jugador ${profile.playerId}`;
   const nextCheckpoint = overview.checkpoints.find((c) => !c.reached);
+  const seasonDays = overview.season ? daysRemaining(overview.season.endsAt) : null;
 
   return (
     <main className="page narrow">
-      <div className="row" style={{ alignItems: 'center', gap: 12 }}>
-        {avatar ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatar} alt="" width={56} height={56} style={{ borderRadius: '50%', objectFit: 'cover' }} />
-        ) : (
-          <div className="avatar" aria-hidden="true" style={{ width: 56, height: 56, fontSize: 20 }}>
-            {initials(name)}
+      <div className="card me-hero">
+        <div className="me-hero-top">
+          <div className="row" style={{ alignItems: 'center', gap: 14 }}>
+            <div className="me-avatar-ring">
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatar} alt="" width={72} height={72} style={{ borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+              ) : (
+                <div className="avatar" aria-hidden="true" style={{ width: 72, height: 72, fontSize: 26 }}>
+                  {initials(name)}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="me-kicker grad">¡Hola de nuevo!</p>
+              <h1 className="page-title" style={{ marginBottom: 0 }}>
+                {name}
+              </h1>
+              <p className="hint mono">ID de temporada {profile.playerId}</p>
+            </div>
           </div>
-        )}
-        <div>
-          <h1 className="page-title" style={{ marginBottom: 0 }}>
-            {name}
-          </h1>
-          <p className="hint mono">ID de temporada {profile.playerId}</p>
-          <p className="hint">Recargas a otros IDs también suman LP y La Bóveda.</p>
-          {overview.season && overview.rank && <p className="hint">Posición #{overview.rank} esta temporada</p>}
+          <Link href="/cuenta/perfil" className="btn ghost sm">
+            Editar perfil
+          </Link>
         </div>
-        <div className="spacer" />
-        <Link href="/cuenta/perfil" className="btn ghost">
-          Editar perfil
-        </Link>
+
+        <div className="me-pills">
+          {overview.season && overview.rank && <span className="season-pill">🏆 Posición #{overview.rank}</span>}
+          {seasonDays !== null && (
+            <span className="season-pill">⏱ {seasonDays} día{seasonDays === 1 ? '' : 's'} restantes</span>
+          )}
+          <span className={`season-pill${overview.vault.unlocked ? ' unlocked-gold' : ' locked'}`}>
+            {overview.vault.unlocked ? '🔓 Bóveda desbloqueada' : '🔒 Bóveda bloqueada'}
+          </span>
+        </div>
+        <p className="hint" style={{ marginTop: 10 }}>Recargas a otros IDs también suman LP y La Bóveda.</p>
       </div>
 
       <div className="stats-row" style={{ marginTop: 16 }}>
