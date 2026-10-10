@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Outfit } from 'next/font/google';
 import { facebookDomainVerification, googleSiteVerification } from '../lib/google-verification';
 import { siteOrigin } from '../lib/site';
 import { metaPixelId, tiktokPixelId } from '../lib/pixel-ids';
@@ -10,6 +11,8 @@ import { whatsappChannelUrl } from '../lib/whatsapp-channel';
 import { legalIdentity, pending } from '../lib/legal';
 import logo from '../assets/logo.webp';
 import './globals.css';
+
+const outfit = Outfit({ subsets: ['latin'], display: 'swap' });
 
 const DESCRIPTION =
   'Recargas de diamantes para Free Fire directo a tu cuenta. Entrega automática, pago seguro.';
@@ -91,7 +94,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const channelUrl = whatsappChannelUrl();
 
   return (
-    <html lang="es-MX">
+    <html lang="es-MX" className={outfit.className}>
       <body>
         {metaId && <MetaPixel pixelId={metaId} />}
         {tiktokId && <TikTokPixel pixelId={tiktokId} />}
@@ -114,7 +117,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <div className="footer-links">
             <a href="/">Inicio</a>
-            <a href="/cuenta">Mi LevelUp</a>
+            <a href="/cuenta">Mi cuenta</a>
             <a href="/ranking">Ranking</a>
             <a href="/pedidos">Mis pedidos</a>
             <a href="/confianza">Confianza</a>

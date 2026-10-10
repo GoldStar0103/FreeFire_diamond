@@ -4,6 +4,8 @@ import { getMyLevelUpOverview } from '@levelup/db';
 import { getCustomerSession } from '../../../lib/customer-session.js';
 import { getDb } from '../../../lib/server.js';
 import { dateLabel, diamonds } from '../../../lib/format.js';
+import mascot from '../../../assets/mascot.webp';
+import { ChestMark, GemMark } from '../../icons';
 import { CuentaForm } from '../cuenta-form';
 
 export const metadata: Metadata = {
@@ -24,8 +26,19 @@ export default async function LevelPassPage() {
   if (!session) {
     return (
       <main className="page narrow">
-        <h1 className="page-title">Level Pass</h1>
-        <p className="page-sub">Entra con tu correo para ver tu progreso.</p>
+        <section className="hx-hero" style={{ minHeight: 240, marginLeft: 0, marginRight: 0 }}>
+          <div className="hx-hero-copy hx-rise">
+            <p className="hx-kicker">Level Pass</p>
+            <h1>
+              Recarga diamantes, <span className="grad">gana recompensas</span>
+            </h1>
+            <p className="hx-hero-lead">Entra con tu correo para ver tu progreso.</p>
+          </div>
+          <div className="hx-mascot hx-rise-2" aria-hidden="true">
+            <div className="hx-mascot-glow" />
+            <img src={mascot.src} alt="" decoding="async" />
+          </div>
+        </section>
         <CuentaForm />
       </main>
     );
@@ -46,15 +59,10 @@ export default async function LevelPassPage() {
   }
 
   const { season } = overview;
-  const sorted = overview.checkpoints; // already ascending by lp
+  const sorted = overview.checkpoints;
   const finalCheckpoint = sorted.at(-1);
   const nextCheckpoint = sorted.find((c) => !c.reached);
-  const passCompleted = !nextCheckpoint && sorted.length > 0;
   const days = daysRemaining(season.endsAt);
-
-  // Progress toward the NEXT checkpoint specifically, not the whole Pass — the
-  // bar's own ends are "where you were" and "where you're going", not 0 and
-  // the final checkpoint, so it stays meaningful at every stage.
   const prevThreshold = (() => {
     const idx = sorted.findIndex((c) => c.lp === nextCheckpoint?.lp);
     return idx > 0 ? sorted[idx - 1]!.lp : 0;
@@ -69,30 +77,28 @@ export default async function LevelPassPage() {
         <Link href="/cuenta">← Mi cuenta</Link>
       </p>
 
-      {/*
-        No illustrated key art yet — that's a content asset for the client to
-        supply later through the same upload pipeline campaign flyers already
-        use (see mega-flyer-link), not something to hardcode here. This panel
-        is built to take that image as a background without any further
-        restructuring once it exists; until then the hex/diamond motif reads
-        as deliberate on its own.
-      */}
-      <div className="lp-hero">
-        <div className="lp-hero-top">
-          <h1 className="page-title lp-hero-title">Level Pass</h1>
-          <details className="lp-how">
-            <summary>¿Cómo funciona?</summary>
-            <p>
-              Compra diamantes y gana Level Points automáticamente. Progresa durante la temporada,
-              desbloquea recompensas en cada checkpoint y completa el Pass para abrir La Bóveda.
-            </p>
-          </details>
+      <section className="hx-hero" style={{ minHeight: 260, marginLeft: 0, marginRight: 0, paddingTop: 8 }}>
+        <div className="hx-hero-copy hx-rise">
+          <p className="hx-kicker">
+            Level Pass · Temporada {season.seasonNumber}
+          </p>
+          <h1>
+            Recarga diamantes, <span className="grad">gana recompensas</span>
+          </h1>
+          <p className="hx-hero-lead">
+            Cada recarga suma Level Points. Completa el Pass y se abre La Bóveda.
+          </p>
+          <span className="season-pill">{days} día{days === 1 ? '' : 's'} restantes</span>
         </div>
-        <p className="hint" style={{ marginTop: 2 }}>Temporada {season.seasonNumber}</p>
-        <span className="season-pill">⏱ {days} día{days === 1 ? '' : 's'} restantes</span>
-      </div>
+        <div className="hx-mascot hx-rise-2" aria-hidden="true">
+          <div className="hx-mascot-glow" />
+          <span className="hx-orb a" />
+          <span className="hx-orb b" />
+          <img src={mascot.src} alt="" decoding="async" />
+        </div>
+      </section>
 
-      <div className="card lp-progress-card">
+      <div className="card hx-pass hx-rise-3">
         <div className="row" style={{ alignItems: 'baseline' }}>
           <span className="hint">Tu progreso</span>
           <div className="spacer" />
@@ -103,7 +109,7 @@ export default async function LevelPassPage() {
           {nextCheckpoint && <span className="hint"> / {nextCheckpoint.lp} LP</span>}
         </div>
         <div className="progress-track">
-          <div className="progress-fill lp-progress-fill" style={{ width: `${pct}%` }} />
+          <div className="progress-fill" style={{ width: `${pct}%` }} />
         </div>
         {nextCheckpoint ? (
           <p className="hint" style={{ marginTop: 8 }}>
@@ -111,37 +117,35 @@ export default async function LevelPassPage() {
             {nextCheckpoint.lp - overview.lp} LP restantes
           </p>
         ) : (
-          <p className="hint" style={{ marginTop: 8 }}>¡Completaste el Level Pass de esta temporada! 🎉</p>
+          <p className="hint" style={{ marginTop: 8 }}>
+            Completaste el Level Pass de esta temporada.
+          </p>
         )}
       </div>
 
       <h2 className="section-title">Checkpoints</h2>
-      <div className="lp-track">
+      <div className="hx-track">
         {sorted.map((cp) => {
           const isCurrent = !cp.reached && cp.lp === nextCheckpoint?.lp;
           const isFinal = finalCheckpoint?.lp === cp.lp;
           let state: 'granted' | 'current' | 'pending' | 'locked' | 'reversed';
           if (cp.status === 'granted') state = 'granted';
           else if (cp.status === 'reversed') state = 'reversed';
-          else if (cp.reached) state = 'pending'; // reached, auto-delivery in progress
+          else if (cp.reached) state = 'pending';
           else if (isCurrent) state = 'current';
           else state = 'locked';
 
           return (
-            <div key={cp.lp} className={`lp-node lp-node-${state}`}>
-              <div className="lp-node-icon" aria-hidden="true">
-                {state === 'granted' && '✓'}
-                {state === 'current' && '★'}
-                {state === 'pending' && '⏳'}
-                {state === 'locked' && '🔒'}
-                {state === 'reversed' && '–'}
+            <div key={cp.lp} className={`hx-node ${state}`}>
+              <div className="hx-node-icon" aria-hidden="true">
+                {isFinal ? <ChestMark className="icon" /> : <GemMark className="icon" />}
               </div>
-              <div className="lp-node-lp">{cp.lp.toLocaleString('es-MX')} LP</div>
-              <div className="lp-node-reward">
+              <div className="hx-node-lp">{cp.lp.toLocaleString('es-MX')} LP</div>
+              <div className="hx-node-reward">
                 {diamonds(cp.rewardDiamonds)} 💎
-                {isFinal && <div className="hint">+ Acceso a La Bóveda</div>}
+                {isFinal && <div className="hint">+ La Bóveda</div>}
               </div>
-              <div className={`lp-node-status lp-node-status-${state}`}>
+              <div className="hx-node-status">
                 {state === 'granted' && 'Reclamada'}
                 {state === 'current' && 'Siguiente'}
                 {state === 'pending' && 'En camino'}
@@ -153,28 +157,30 @@ export default async function LevelPassPage() {
         })}
       </div>
 
-      <div className="stats-row" style={{ marginTop: 18 }}>
-        <div className="card counter">
+      <div className="card hx-statbar" style={{ marginTop: 18 }}>
+        <div className="counter">
           <div className="counter-value">{overview.lp}</div>
           <div className="counter-label">LP esta temporada</div>
         </div>
-        <div className="card counter">
+        <div className="counter">
           <div className="counter-value">{diamonds(overview.seasonalDiamonds)}</div>
-          <div className="counter-label">💎 recargados</div>
+          <div className="counter-label">diamantes recargados</div>
         </div>
-        <div className="card counter">
+        <div className="counter">
           <div className="counter-value">{days}</div>
           <div className="counter-label">días restantes</div>
         </div>
       </div>
 
-      <Link href="/cuenta/boveda" className={`card lp-vault-teaser${overview.vault.unlocked ? ' unlocked' : ''}`}>
-        <span className="lp-vault-icon" aria-hidden="true">{overview.vault.unlocked ? '🔓' : '🔒'}</span>
+      <Link href="/cuenta/boveda" className="hx-vault-banner" style={{ marginBottom: 16 }}>
+        <span className="hx-node-icon" aria-hidden="true">
+          <ChestMark className="icon" />
+        </span>
         <span>
           <strong>La Bóveda</strong>
           <p className="hint" style={{ margin: '2px 0 0' }}>
             {overview.vault.unlocked
-              ? `Desbloqueada — ${overview.vault.offers.length} oferta${overview.vault.offers.length === 1 ? '' : 's'} disponible${overview.vault.offers.length === 1 ? '' : 's'}`
+              ? `${overview.vault.offers.length} oferta${overview.vault.offers.length === 1 ? '' : 's'} disponible${overview.vault.offers.length === 1 ? '' : 's'}`
               : 'Completa el Level Pass para desbloquear precios exclusivos.'}
           </p>
         </span>

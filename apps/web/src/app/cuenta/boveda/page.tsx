@@ -24,8 +24,15 @@ export default async function BovedaPage() {
   if (!session) {
     return (
       <main className="page narrow">
-        <h1 className="page-title">La Bóveda</h1>
-        <p className="page-sub">Entra con tu correo para ver si ya la desbloqueaste.</p>
+        <section className="hx-hero" style={{ minHeight: 240, marginLeft: 0, marginRight: 0 }}>
+          <div className="hx-hero-copy hx-rise">
+            <p className="hx-kicker">La Bóveda</p>
+            <h1>
+              Precios de temporada, <span className="grad">solo si completas el Pass</span>
+            </h1>
+            <p className="hx-hero-lead">Entra con tu correo para ver si ya la desbloqueaste.</p>
+          </div>
+        </section>
         <CuentaForm />
       </main>
     );

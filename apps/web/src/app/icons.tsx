@@ -88,6 +88,28 @@ export function GiftIcon({ className }: IconProps) {
   );
 }
 
+export function GemMark({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} viewBox="0 0 24 24">
+      <path d="M6.2 4.5h11.6L21 9.2 12 20.5 3 9.2 6.2 4.5Z" fill="currentColor" stroke="none" opacity="0.95" />
+      <path d="M6.2 4.5 12 20.5 17.8 4.5" />
+      <path d="M3 9.2h18" />
+    </svg>
+  );
+}
+
+export function ChestMark({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} viewBox="0 0 24 24">
+      <rect x="3.5" y="9" width="17" height="11" rx="2" />
+      <path d="M3.5 13h17" />
+      <path d="M12 13v4" />
+      <rect x="10.2" y="15.2" width="3.6" height="2.4" rx="0.6" />
+      <path d="M7 9V7.2A5 5 0 0 1 17 7.2V9" />
+    </svg>
+  );
+}
+
 export function DiamondIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

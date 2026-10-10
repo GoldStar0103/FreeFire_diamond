@@ -14,11 +14,6 @@ import { diamonds, initials, mxn, roundDownSignificant } from '../lib/format';
 import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
 import mascot from '../assets/mascot.webp';
-// Imported through the bundler rather than served from `public/`: the build
-// emits it under /_next/static with a content hash, which the Docker image
-// copies and browsers may cache forever. `public/` is not copied into the
-// standalone image, so a logo there would boot fine locally and 404 in
-// production.
 import logo from '../assets/logo.webp';
 import banner1 from '../assets/banner/banner-1.webp';
 import banner2 from '../assets/banner/banner-2.webp';
@@ -76,24 +71,21 @@ export default async function HomePage() {
     getCustomerSession(),
   ]);
 
-  // Same "needs at least a few ratings to mean anything" rule as /confianza —
-  // one 5-star review is not an average.
   const rated = testimonials.filter((t) => t.rating);
   const avgRating =
-    rated.length >= 3 ? rated.reduce((sum, t) => sum + (t.rating ?? 0), 0) / rated.length : null;
+    rated.length >= 3 ? rated.reduce((sum, t) => t.rating! + sum, 0) / rated.length : null;
 
-  // Permanent campaigns sort first, so the $10 entry offer leads. It is the
-  // trust-breaker for first-time buyers, not just another promo.
   const [hero, ...rest] = campaigns;
   const heroCombo = hero?.permanent ? hero.combos[0] : null;
   const heroFlyer = flyerUrl(hero?.flyerAssetUrl);
   const social = socialLinks();
   const hasSocial = social.facebook || social.instagram || social.tiktok;
 
-  // Podium order for a 3-wide strip: 2nd, 1st, 3rd, same visual convention as
-  // /ranking's own podium — 1st reads as the tallest/center card.
   const top3 = top50.rows.slice(0, 3);
   const podiumOrder = top3.length === 3 ? [1, 0, 2] : top3.map((_, i) => i);
+  const seasonDays = top50.season
+    ? Math.max(0, Math.ceil((top50.season.endsAt.getTime() - Date.now()) / 86_400_000))
+    : null;
 
   return (
     <main className="page">
@@ -126,31 +118,77 @@ export default async function HomePage() {
         )}
       </div>
 
+      <section className="hx-hero">
+        <div className="hx-hero-copy hx-rise">
+          {top50.season && (
+            <p className="hx-kicker">
+              Temporada {top50.season.seasonNumber}
+              {seasonDays !== null ? ` · ${seasonDays} días` : ''}
+            </p>
+          )}
+          <h1>
+            Recarga. <span className="grad">Sube.</span> Gana.
+          </h1>
+          <p className="hx-hero-lead">
+            Pon tu ID, elige tu pack y los diamantes llegan solos. Con Mi cuenta, cada recarga —
+            en cualquier ID — suma al Level Pass y La Bóveda.
+          </p>
+          <div className="hx-cta-row">
+            <Link href="/promociones" className="btn primary">
+              Recargar ahora
+            </Link>
+            <Link href={session ? '/cuenta' : '/cuenta'} className="btn ghost">
+              {session ? 'Ver mi progreso' : 'Crear mi cuenta'}
+            </Link>
+          </div>
+          {(today > 0 || avgRating || customers >= 10) && (
+            <div className="hx-live">
+              <span className="hx-live-dot" aria-hidden="true" />
+              {today > 0 && (
+                <span>
+                  <strong>{today}</strong> recarga{today === 1 ? '' : 's'} hoy
+                </span>
+              )}
+              {avgRating && <span>★ {avgRating.toFixed(1)}</span>}
+              {customers >= 10 && <span>+{roundDownSignificant(customers).toLocaleString('es-MX')} clientes</span>}
+            </div>
+          )}
+        </div>
+        <div className="hx-mascot hx-rise-2" aria-hidden="true">
+          <div className="hx-mascot-glow" />
+          <span className="hx-orb a" />
+          <span className="hx-orb b" />
+          <span className="hx-orb c" />
+          <img src={mascot.src} alt="" decoding="async" />
+        </div>
+      </section>
+
       {top3.length > 0 && (
-        <Link href="/ranking" className="card hm-top3">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span className="hm-top3-label">
-              🏆 Top de temporada{top50.season ? ` ${top50.season.seasonNumber}` : ''}
+        <Link href="/ranking" className="hx-rise-3" style={{ display: 'block', marginBottom: 8 }}>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <span className="hx-kicker" style={{ margin: 0 }}>
+              Top de temporada{top50.season ? ` ${top50.season.seasonNumber}` : ''}
             </span>
+            <div className="spacer" />
             <span className="hint">Ver ranking →</span>
           </div>
-          <div className="hm-top3-row">
+          <div className="hx-podium">
             {podiumOrder.map((i) => {
               const player = top3[i]!;
               const name = player.displayName ?? 'Jugador';
               const url = avatarUrl(player.avatarAssetUrl);
               return (
-                <div key={player.playerProfileId} className={`hm-top3-slot hm-top3-${player.rank}`}>
+                <div key={player.playerProfileId} className={`hx-podium-slot rank-${player.rank}`}>
                   {url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt="" width={40} height={40} style={{ borderRadius: '50%', objectFit: 'cover' }} />
+                    <img src={url} alt="" width={48} height={48} style={{ borderRadius: '50%', objectFit: 'cover', margin: '0 auto' }} />
                   ) : (
-                    <div className="avatar" aria-hidden="true" style={{ width: 40, height: 40, fontSize: 15 }}>
+                    <div className="avatar" aria-hidden="true" style={{ width: 48, height: 48, fontSize: 16, margin: '0 auto' }}>
                       {initials(name)}
                     </div>
                   )}
-                  <span className="hm-top3-name">{name}</span>
-                  <span className="hm-top3-diamonds">{diamonds(player.seasonalDiamonds)} 💎</span>
+                  <span className="hx-podium-name">{name}</span>
+                  <span className="hx-podium-diamonds">{diamonds(player.seasonalDiamonds)} 💎</span>
                 </div>
               );
             })}
@@ -175,35 +213,6 @@ export default async function HomePage() {
 
       <BannerSlider slides={BANNER_SLIDES} />
 
-      {(today > 0 || avgRating) && (
-        <div className="row card hm-live">
-          <span className="hm-live-dot" aria-hidden="true" />
-          {today > 0 && (
-            <span>
-              <strong>{today}</strong> <span className="hint">recarga{today === 1 ? '' : 's'} hoy</span>
-            </span>
-          )}
-          <div className="spacer" />
-          {avgRating && (
-            <span className="hm-live-rating">
-              ⭐ {avgRating.toFixed(1)}
-            </span>
-          )}
-          {customers >= 10 && (
-            <span className="hint">+{roundDownSignificant(customers).toLocaleString('es-MX')} clientes</span>
-          )}
-          <img src={mascot.src} className="hm-live-mascot" alt="" aria-hidden="true" decoding="async" />
-        </div>
-      )}
-
-      {/*
-        The homepage used to embed every campaign's full flyer plus its whole
-        combo grid inline — everything, all at once, before anyone had chosen
-        what they were interested in. This is the flyer-first view instead:
-        one tap on a campaign's own art is the only thing asked of a visitor
-        here. The detail (every combo, every price) lives one tap away at
-        /promocion/[key] — see that page for what used to be right here.
-      */}
       {(hero?.permanent ? rest : campaigns).length > 0 && (
         <>
           <div className="row section-head-row">
@@ -215,24 +224,12 @@ export default async function HomePage() {
           </div>
           <div className="promo-rail">
             {(hero?.permanent ? rest : campaigns).map((campaign) => {
-              // What the database holds is a storage key, not a URL. Rendering it
-              // straight into `src` is what made every uploaded flyer a broken image.
               const flyer = flyerUrl(campaign.flyerAssetUrl);
-
               return (
                 <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="promo-card">
                   {flyer ? (
-                    <img
-                      className="promo-flyer"
-                      src={flyer}
-                      alt={campaign.name}
-                      loading="lazy"
-                      decoding="async"
-                    />
+                    <img className="promo-flyer" src={flyer} alt={campaign.name} loading="lazy" decoding="async" />
                   ) : (
-                    // A campaign the owner has not uploaded art for yet still has
-                    // to be reachable — a silent gap in the rail reads as broken,
-                    // not as "coming soon".
                     <div className="promo-flyer promo-flyer-empty">{campaign.name}</div>
                   )}
                   <div className="promo-name">{campaign.name}</div>
@@ -302,22 +299,6 @@ export default async function HomePage() {
       )}
 
       <HowItWorks />
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <h2 className="mini-title">Mi LevelUp</h2>
-        <p className="hint">
-          Un ID para el ranking (se cambia una vez por temporada). Cualquier recarga con tu
-          cuenta — aunque sea otro ID — suma al Level Pass y La Bóveda.
-        </p>
-        <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
-          <Link href="/cuenta" className="btn primary">
-            {session ? 'Ver mi progreso' : 'Crear mi cuenta'}
-          </Link>
-          <Link href="/ranking" className="btn ghost">
-            Ver ranking
-          </Link>
-        </div>
-      </div>
     </main>
   );
 }

@@ -45,15 +45,17 @@ export default async function RankingPage({
 
   return (
     <main className="page narrow">
-      <h1 className="page-title">Ranking</h1>
-      {season ? (
-        <>
-          <p className="hint">Temporada {season.seasonNumber}</p>
-          {days !== null && <span className="season-pill">⏱ {days} día{days === 1 ? '' : 's'} restantes</span>}
-        </>
-      ) : (
-        <p className="page-sub">Todavía no hay una temporada activa.</p>
-      )}
+      <div className="hx-rise">
+        <p className="hx-kicker">Temporada {season?.seasonNumber ?? '—'}</p>
+        <h1 className="page-title" style={{ fontSize: 40, letterSpacing: '-0.04em' }}>
+          Ranking
+        </h1>
+        {season ? (
+          days !== null && <span className="season-pill">{days} día{days === 1 ? '' : 's'} restantes</span>
+        ) : (
+          <p className="page-sub">Todavía no hay una temporada activa.</p>
+        )}
+      </div>
 
       <div className="rk-tabs">
         <Link href="/ranking?tab=top50" className={`rk-tab${tab === 'top50' ? ' active' : ''}`}>
