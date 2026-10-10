@@ -1099,3 +1099,45 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 /* The 3 support boxes: .trust-icon is a fixed-size block, so the parent's
    text-align: center never centered it — only the text below it. */
 .support-stat .trust-icon { margin-left: auto; margin-right: auto; }
+
+/* ── home page: top-3 strip + live-activity strip (2026-10 mockup/sketch) ──
+   The client's own hand-sketched layout and its polished mockup both put a
+   season leaderboard teaser and a slim "live" bar above the offer rail —
+   neither existed on the built home page before this. Same podium gold/
+   silver/bronze convention as /ranking's own podium, same purple-panel/
+   cyan-detail split as the rest of the site. */
+
+.hm-top3 { display: block; border-color: rgba(139, 92, 246, 0.35); }
+.hm-top3-label { font-weight: 700; font-size: 13.5px; }
+.hm-top3-row { display: flex; justify-content: center; gap: 10px; margin-top: 12px; text-align: center; }
+.hm-top3-slot { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.hm-top3-slot img, .hm-top3-slot .avatar { margin-bottom: 2px; }
+.hm-top3-name { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.hm-top3-diamonds { font-size: 11px; color: var(--accent-2); }
+.hm-top3-1 { order: 2; }
+.hm-top3-1 img, .hm-top3-1 .avatar { outline: 2px solid #fcd34d; outline-offset: 2px; border-radius: 50%; }
+.hm-top3-2 { order: 1; }
+.hm-top3-2 img, .hm-top3-2 .avatar { outline: 2px solid rgba(203, 213, 225, 0.7); outline-offset: 2px; border-radius: 50%; }
+.hm-top3-3 { order: 3; }
+.hm-top3-3 img, .hm-top3-3 .avatar { outline: 2px solid rgba(217, 119, 6, 0.7); outline-offset: 2px; border-radius: 50%; }
+
+.hm-live { align-items: center; gap: 10px; border-color: rgba(34, 211, 238, 0.3); }
+.hm-live-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  animation: hmLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes hmLivePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+}
+.hm-live-rating { color: #fcd34d; font-weight: 700; font-size: 13.5px; }
+.hm-live-mascot { width: 34px; height: 34px; flex: none; border-radius: 50%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-live-dot { animation: none !important; }
+}

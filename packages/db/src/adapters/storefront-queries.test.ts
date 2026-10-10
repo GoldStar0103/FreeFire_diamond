@@ -17,6 +17,7 @@ import { baseProducts, campaigns, comboItems, combos, orderItems, orders, paymen
 import { DrizzleOrderingStore } from './ordering-store.js';
 import {
   countCompletedOrders,
+  countCompletedOrdersToday,
   countUniqueCustomers,
   findCustomerOrder,
   getStorefrontCampaign,
@@ -462,5 +463,39 @@ describe.skipIf(!PG_AVAILABLE)('countUniqueCustomers', () => {
       .where(raw`${orders.playerId} IN ('1111111111', '2222222222')`);
 
     expect(await countUniqueCustomers(db)).toBe(2);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('countCompletedOrdersToday', () => {
+  it('counts completions from today, not the all-time total', async () => {
+    await seedCampaign({
+      key: 'super_packs',
+      name: 'SUPER PACKS',
+      combos: [
+        { key: 'pack_insano', name: 'Pack Insano', price: 86_000, advertised: 7200, recipe: [5600, 1060] },
+      ],
+    });
+
+    for (const playerId of ['1111111111', '2222222222', '3333333333']) {
+      await createOrder(
+        { store: new DrizzleOrderingStore(db) },
+        { comboKey: 'pack_insano', playerId, paymentMethod: 'transfer_manual', source: 'storefront' },
+      );
+    }
+
+    // completedAt isn't set by flipping status alone — it's only ever written
+    // by the real fulfilment flow — so each case sets it explicitly.
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
+    await db
+      .update(orders)
+      .set({ status: 'completed', completedAt: new Date() })
+      .where(eq(orders.playerId, '1111111111'));
+    await db
+      .update(orders)
+      .set({ status: 'completed', completedAt: eightDaysAgo })
+      .where(eq(orders.playerId, '2222222222'));
+    // Third player's order stays unpaid — never completed at all.
+
+    expect(await countCompletedOrdersToday(db)).toBe(1);
   });
 });

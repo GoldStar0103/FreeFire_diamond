@@ -1,11 +1,19 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { countCompletedOrders, countUniqueCustomers, listStorefront, listTestimonials } from '@levelup/db';
+import {
+  countCompletedOrders,
+  countCompletedOrdersToday,
+  countUniqueCustomers,
+  getPublicTop50,
+  listStorefront,
+  listTestimonials,
+} from '@levelup/db';
 import { getCustomerSession } from '../lib/customer-session';
 import { getDb } from '../lib/server';
-import { diamonds, mxn } from '../lib/format';
-import { flyerUrl } from '../lib/assets';
+import { diamonds, initials, mxn, roundDownSignificant } from '../lib/format';
+import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
+import mascot from '../assets/mascot.webp';
 // Imported through the bundler rather than served from `public/`: the build
 // emits it under /_next/static with a content hash, which the Docker image
 // copies and browsers may cache forever. `public/` is not copied into the
@@ -58,10 +66,12 @@ const BANNER_SLIDES = [
 ];
 
 export default async function HomePage() {
-  const [campaigns, delivered, customers, testimonials, session] = await Promise.all([
+  const [campaigns, delivered, customers, today, top50, testimonials, session] = await Promise.all([
     listStorefront(getDb()),
     countCompletedOrders(getDb()),
     countUniqueCustomers(getDb()),
+    countCompletedOrdersToday(getDb()),
+    getPublicTop50(getDb()),
     listTestimonials(getDb()),
     getCustomerSession(),
   ]);
@@ -79,6 +89,11 @@ export default async function HomePage() {
   const heroFlyer = flyerUrl(hero?.flyerAssetUrl);
   const social = socialLinks();
   const hasSocial = social.facebook || social.instagram || social.tiktok;
+
+  // Podium order for a 3-wide strip: 2nd, 1st, 3rd, same visual convention as
+  // /ranking's own podium — 1st reads as the tallest/center card.
+  const top3 = top50.rows.slice(0, 3);
+  const podiumOrder = top3.length === 3 ? [1, 0, 2] : top3.map((_, i) => i);
 
   return (
     <main className="page">
@@ -111,7 +126,37 @@ export default async function HomePage() {
         )}
       </div>
 
-      <BannerSlider slides={BANNER_SLIDES} />
+      {top3.length > 0 && (
+        <Link href="/ranking" className="card hm-top3">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="hm-top3-label">
+              🏆 Top de temporada{top50.season ? ` ${top50.season.seasonNumber}` : ''}
+            </span>
+            <span className="hint">Ver ranking →</span>
+          </div>
+          <div className="hm-top3-row">
+            {podiumOrder.map((i) => {
+              const player = top3[i]!;
+              const name = player.displayName ?? 'Jugador';
+              const url = avatarUrl(player.avatarAssetUrl);
+              return (
+                <div key={player.playerProfileId} className={`hm-top3-slot hm-top3-${player.rank}`}>
+                  {url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={url} alt="" width={40} height={40} style={{ borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div className="avatar" aria-hidden="true" style={{ width: 40, height: 40, fontSize: 15 }}>
+                      {initials(name)}
+                    </div>
+                  )}
+                  <span className="hm-top3-name">{name}</span>
+                  <span className="hm-top3-diamonds">{diamonds(player.seasonalDiamonds)} 💎</span>
+                </div>
+              );
+            })}
+          </div>
+        </Link>
+      )}
 
       {heroCombo &&
         (heroFlyer ? (
@@ -127,6 +172,29 @@ export default async function HomePage() {
             <div className="mega-cta">Probar ahora →</div>
           </Link>
         ))}
+
+      <BannerSlider slides={BANNER_SLIDES} />
+
+      {(today > 0 || avgRating) && (
+        <div className="row card hm-live">
+          <span className="hm-live-dot" aria-hidden="true" />
+          {today > 0 && (
+            <span>
+              <strong>{today}</strong> <span className="hint">recarga{today === 1 ? '' : 's'} hoy</span>
+            </span>
+          )}
+          <div className="spacer" />
+          {avgRating && (
+            <span className="hm-live-rating">
+              ⭐ {avgRating.toFixed(1)}
+            </span>
+          )}
+          {customers >= 10 && (
+            <span className="hint">+{roundDownSignificant(customers).toLocaleString('es-MX')} clientes</span>
+          )}
+          <img src={mascot.src} className="hm-live-mascot" alt="" aria-hidden="true" decoding="async" />
+        </div>
+      )}
 
       {/*
         The homepage used to embed every campaign's full flyer plus its whole

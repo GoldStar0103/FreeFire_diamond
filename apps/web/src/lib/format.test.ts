@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateLabel, diamonds, initials, mxn } from './format.js';
+import { dateLabel, diamonds, initials, mxn, roundDownSignificant } from './format.js';
 
 describe('mxn', () => {
   it('formats whole pesos with an explicit currency label', () => {
@@ -31,6 +31,23 @@ describe('dateLabel', () => {
 describe('diamonds', () => {
   it('groups thousands', () => {
     expect(diamonds(48800)).toBe('48,800');
+  });
+});
+
+describe('roundDownSignificant', () => {
+  it('rounds down to the leading digit', () => {
+    expect(roundDownSignificant(5312)).toBe(5000);
+    expect(roundDownSignificant(320)).toBe(300);
+    expect(roundDownSignificant(42)).toBe(40);
+  });
+
+  it('never rounds up — the claim must stay true between checks', () => {
+    expect(roundDownSignificant(5999)).toBe(5000);
+  });
+
+  it('leaves single digits alone', () => {
+    expect(roundDownSignificant(7)).toBe(7);
+    expect(roundDownSignificant(0)).toBe(0);
   });
 });
 

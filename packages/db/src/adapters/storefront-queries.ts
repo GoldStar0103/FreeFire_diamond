@@ -16,9 +16,10 @@
  * Everything here returns a shape a page renders directly.
  */
 
-import { and, asc, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { campaigns, combos, orderItems, orders, payments } from '../schema.js';
+import { mexicoCityDayRange } from './mexico-city-time.js';
 
 // ── catalog ───────────────────────────────────────────────────────────────────
 
@@ -378,5 +379,21 @@ export async function countUniqueCustomers(db: Database): Promise<number> {
     .select({ n: sql<string>`COUNT(DISTINCT ${orders.playerId})::text` })
     .from(orders)
     .where(eq(orders.status, 'completed'));
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Recharges completed today — the home page's "live" urgency strip, as
+ * opposed to `countCompletedOrders`'s all-time total. "Today" is the Mexico
+ * City civil day (see mexico-city-time.ts): completedAt is the instant that
+ * matters, not createdAt, since an order placed late one day can complete
+ * the next.
+ */
+export async function countCompletedOrdersToday(db: Database): Promise<number> {
+  const { start, end } = mexicoCityDayRange();
+  const [row] = await db
+    .select({ n: sql<string>`COUNT(*)::text` })
+    .from(orders)
+    .where(and(eq(orders.status, 'completed'), gte(orders.completedAt, start), lt(orders.completedAt, end)));
   return Number(row?.n ?? 0);
 }

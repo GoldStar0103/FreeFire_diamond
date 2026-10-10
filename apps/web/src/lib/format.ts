@@ -54,3 +54,15 @@ export function initials(name: string): string {
     .join('');
   return letters.slice(0, 2) || '?';
 }
+
+/**
+ * Rounds a real count down to its leading significant digit — 5,312 -> 5,000,
+ * 320 -> 300, 42 -> 40 — for a "+ de 5,000 clientes" marketing figure. Rounds
+ * DOWN specifically so the claim is always true, never a precise headcount
+ * that would go stale the next time someone checks the real page.
+ */
+export function roundDownSignificant(n: number): number {
+  if (n < 10) return n;
+  const magnitude = 10 ** Math.floor(Math.log10(n));
+  return Math.floor(n / magnitude) * magnitude;
+}
