@@ -155,6 +155,11 @@ export default async function CuentaPage() {
           ) : (
             <p className="hint">Todavía no hay una temporada activa.</p>
           )}
+          {overview.season && (
+            <Link href="/cuenta/level-pass" className="hint" style={{ display: 'inline-block', marginTop: 8 }}>
+              Ver checkpoints y recompensas →
+            </Link>
+          )}
         </div>
 
         <div className="card">

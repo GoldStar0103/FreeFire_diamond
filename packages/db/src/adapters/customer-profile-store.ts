@@ -49,6 +49,10 @@ export interface MyCheckpointProgress {
   rewardDiamonds: number;
   reached: boolean;
   status: 'pending' | 'granted' | 'reversed' | null;
+  /** When the player crossed this checkpoint. Null until `reached`. */
+  reachedAt: Date | null;
+  /** When the reward was actually delivered. Null until `status` is `granted`. */
+  grantedAt: Date | null;
 }
 
 export interface MyVaultOffer {
@@ -108,19 +112,29 @@ export async function getMyLevelUpOverview(db: Database, playerProfileId: string
 
   const checkpointConfig = await getLevelPassCheckpoints(db);
   const reachedRows = await db
-    .select({ checkpointLp: levelPassCheckpointEvents.checkpointLp, status: levelPassCheckpointEvents.status })
+    .select({
+      checkpointLp: levelPassCheckpointEvents.checkpointLp,
+      status: levelPassCheckpointEvents.status,
+      reachedAt: levelPassCheckpointEvents.reachedAt,
+      grantedAt: levelPassCheckpointEvents.grantedAt,
+    })
     .from(levelPassCheckpointEvents)
     .where(and(eq(levelPassCheckpointEvents.seasonId, season.id), eq(levelPassCheckpointEvents.playerProfileId, playerProfileId)));
-  const reachedByLp = new Map(reachedRows.map((r) => [r.checkpointLp, r.status]));
+  const reachedByLp = new Map(reachedRows.map((r) => [r.checkpointLp, r]));
 
   const checkpoints: MyCheckpointProgress[] = [...checkpointConfig]
     .sort((a, b) => a.lp - b.lp)
-    .map((cp) => ({
-      lp: cp.lp,
-      rewardDiamonds: cp.rewardDiamonds,
-      reached: reachedByLp.has(cp.lp),
-      status: reachedByLp.get(cp.lp) ?? null,
-    }));
+    .map((cp) => {
+      const event = reachedByLp.get(cp.lp);
+      return {
+        lp: cp.lp,
+        rewardDiamonds: cp.rewardDiamonds,
+        reached: event !== undefined,
+        status: event?.status ?? null,
+        reachedAt: event?.reachedAt ?? null,
+        grantedAt: event?.grantedAt ?? null,
+      };
+    });
 
   const [vaultEntitlement] = await db
     .select({ expiresAt: vaultEntitlements.expiresAt, status: vaultEntitlements.status })

@@ -778,6 +778,189 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
    alignment reads as uneven next to a much larger price figure. */
 .summary { align-items: center; }
 
+/* ── Level Pass detail page (/cuenta/level-pass) ──────────────────────────
+   First hand-rolled keyframe animation in this stylesheet. Kept to the same
+   discipline the rest of the brand-bar/banner work already follows: plain
+   CSS, no library, and nothing loops forever — everything here plays once,
+   on mount, then holds still. `prefers-reduced-motion` turns all of it off,
+   not just slows it down. */
+
+.lp-hero {
+  position: relative;
+  padding: 18px 18px 22px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  background:
+    radial-gradient(circle at 85% 0%, rgba(34, 211, 238, 0.16), transparent 55%),
+    radial-gradient(circle at 10% 100%, rgba(139, 92, 246, 0.22), transparent 55%),
+    linear-gradient(160deg, var(--surface) 0%, var(--surface-2) 100%);
+  /* The hex-grid motif, same idea as the hero's diamond/hexagon pattern
+     elsewhere in this brand — a subtle textured backdrop that costs nothing
+     to render and needs no art to look intentional. */
+  background-image:
+    radial-gradient(circle at 85% 0%, rgba(34, 211, 238, 0.16), transparent 55%),
+    radial-gradient(circle at 10% 100%, rgba(139, 92, 246, 0.22), transparent 55%),
+    linear-gradient(160deg, var(--surface) 0%, var(--surface-2) 100%),
+    repeating-linear-gradient(60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(-60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 26px);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.2);
+  /* No overflow:hidden here on purpose: a background-image already clips to
+     the border-radius on its own, and `.lp-how`'s popover beneath it is a
+     descendant that needs to float OUTSIDE this box — an ancestor
+     overflow:hidden would silently clip it the moment its copy ran past this
+     card's own height, which it did (confirmed: 55px cut off) before this
+     was removed. */
+}
+.lp-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.lp-hero-title {
+  margin-bottom: 0;
+  text-shadow: 0 0 18px rgba(139, 92, 246, 0.45);
+}
+.lp-season-pill {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent-2);
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.4);
+}
+
+/* A native <details>/<summary> rather than client JS — the explanation is
+   static copy, so there is nothing here that needs a re-render to show. */
+.lp-how { position: relative; }
+.lp-how summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+.lp-how summary::-webkit-details-marker { display: none; }
+.lp-how p {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 240px;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 5;
+}
+
+.lp-progress-card { border-color: rgba(139, 92, 246, 0.4); }
+.lp-progress-value { font-size: 32px; font-weight: 900; letter-spacing: -0.02em; margin-top: 4px; }
+.lp-progress-value .hint { font-size: 16px; font-weight: 700; }
+
+/* The bar's own `width` transition (see `.progress-fill` above) already
+   animates a CHANGE after mount — this adds the fill-in-from-empty moment
+   on first paint, which a plain width transition does not give you for free
+   since SSR renders the final width directly. */
+.lp-progress-fill { animation: lpFillIn 0.9s ease-out; }
+@keyframes lpFillIn {
+  from { transform: scaleX(0); transform-origin: left; }
+  to { transform: scaleX(1); transform-origin: left; }
+}
+
+.lp-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.lp-node {
+  padding: 14px 10px;
+  text-align: center;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.lp-node-icon {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 16px;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+}
+.lp-node-lp { font-size: 12px; color: var(--muted); font-weight: 700; }
+.lp-node-reward { font-weight: 800; margin: 4px 0; }
+.lp-node-status { font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; }
+
+.lp-node-granted { border-color: rgba(34, 197, 94, 0.45); }
+.lp-node-granted .lp-node-icon { color: var(--ok); border-color: var(--ok); background: rgba(34, 197, 94, 0.14); }
+.lp-node-status-granted { color: var(--ok); }
+
+.lp-node-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 22px rgba(139, 92, 246, 0.35);
+}
+/* The pop plays once on arrival; the pulse then loops softly so the current
+   checkpoint keeps reading as "the one to go for" without competing for
+   attention forever — delayed past the pop so the two don't visually fight. */
+.lp-node-current .lp-node-icon {
+  color: #fcd34d;
+  border-color: #fcd34d;
+  background: rgba(252, 211, 77, 0.14);
+  animation: lpPop 0.5s ease-out, lpPulse 2.2s ease-in-out 0.5s infinite;
+}
+.lp-node-status-current { color: #fcd34d; }
+
+.lp-node-pending .lp-node-icon { color: var(--accent-2); border-color: var(--accent-2); background: rgba(34, 211, 238, 0.14); }
+.lp-node-status-pending { color: var(--accent-2); }
+
+.lp-node-locked { opacity: 0.55; }
+.lp-node-status-locked, .lp-node-status-reversed { color: var(--muted); }
+
+@keyframes lpPop {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes lpPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(252, 211, 77, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(252, 211, 77, 0); }
+}
+
+.lp-vault-teaser {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+.lp-vault-teaser.unlocked {
+  border-color: #fcd34d;
+  box-shadow: 0 0 20px rgba(252, 211, 77, 0.2);
+}
+.lp-vault-icon { font-size: 22px; }
+
+.lp-history-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.lp-history-status-granted { color: var(--ok); }
+.lp-history-status-pending { color: var(--accent-2); }
+.lp-history-status-reversed { color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-progress-fill,
+  .lp-node-current .lp-node-icon {
+    animation: none !important;
+  }
+}
+
 /* The 3 support boxes: .trust-icon is a fixed-size block, so the parent's
    text-align: center never centered it — only the text below it. */
 .support-stat .trust-icon { margin-left: auto; margin-right: auto; }

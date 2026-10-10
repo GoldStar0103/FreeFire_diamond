@@ -137,7 +137,32 @@ describe('getMyLevelUpOverview', () => {
     expect(overview.seasonalDiamonds).toBe(100);
     expect(overview.rank).toBe(2); // behind `high`
     expect(overview.checkpoints[0]).toMatchObject({ lp: 60, reached: true, status: 'pending' });
-    expect(overview.checkpoints[1]).toMatchObject({ lp: 260, reached: false, status: null });
+    expect(overview.checkpoints[0]?.reachedAt).not.toBeNull();
+    expect(overview.checkpoints[0]?.grantedAt).toBeNull(); // not delivered yet
+    expect(overview.checkpoints[1]).toMatchObject({ lp: 260, reached: false, status: null, reachedAt: null, grantedAt: null });
+  });
+
+  it('records when a reward was actually delivered, separately from when it was reached', async () => {
+    const p = await seedProfile();
+    const season = await seedActiveSeason();
+    await db.insert(seasonPlayerStats).values({ seasonId: season.id, playerProfileId: p.id, lp: 60, seasonalDiamonds: 100 });
+    await db.insert(levelPassCheckpointEvents).values({
+      seasonId: season.id,
+      playerProfileId: p.id,
+      checkpointLp: 60,
+      rewardDiamonds: 110,
+      internalCostCents: 1_200,
+      status: 'granted',
+      reachedAt: new Date('2026-01-12T00:00:00Z'),
+      grantedAt: new Date('2026-01-12T02:00:00Z'),
+    });
+
+    const overview = await getMyLevelUpOverview(db, p.id);
+    expect(overview.checkpoints[0]).toMatchObject({
+      status: 'granted',
+      reachedAt: new Date('2026-01-12T00:00:00Z'),
+      grantedAt: new Date('2026-01-12T02:00:00Z'),
+    });
   });
 
   it('includes Vault offers only when the entitlement is active', async () => {
