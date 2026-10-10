@@ -694,6 +694,14 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .banner-dot { width: 6px; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.35); }
 .banner-dot.active { background: #fff; width: 16px; transition: width 0.25s; }
 
+/* banner-slider.tsx already stops the auto-advance timer itself under
+   reduced motion, so `index` never changes there — this is the same
+   belt-and-braces the other @keyframes animations get, in case anything
+   else ever flips `index` without going through that guard. */
+@media (prefers-reduced-motion: reduce) {
+  .banner-slide, .banner-dot.active { transition: none !important; }
+}
+
 /* The "oferta de confianza" as the client's own art, once uploaded via the
    campaign flyer field — same asset pipeline /promocion already uses. */
 .mega-flyer-link {

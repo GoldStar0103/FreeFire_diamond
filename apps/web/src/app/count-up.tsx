@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { usePrefersReducedMotion } from './use-reduced-motion';
 
 const DURATION_MS = 1200;
 
@@ -16,10 +17,15 @@ interface Props {
  * The real number is always what settles on; this never fetches anything.
  */
 export function CountUp({ value, decimals = 0, suffix = '' }: Props) {
+  const reducedMotion = usePrefersReducedMotion();
   const [display, setDisplay] = useState(0);
   const start = useRef<number | null>(null);
 
   useEffect(() => {
+    if (reducedMotion) {
+      setDisplay(value);
+      return;
+    }
     let frame: number;
     const step = (t: number) => {
       if (start.current === null) start.current = t;
@@ -30,7 +36,7 @@ export function CountUp({ value, decimals = 0, suffix = '' }: Props) {
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [value]);
+  }, [value, reducedMotion]);
 
   return (
     <>
