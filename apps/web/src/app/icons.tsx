@@ -88,6 +88,16 @@ export function GiftIcon({ className }: IconProps) {
   );
 }
 
+export function DiamondIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M6.5 3h11L21 8.5 12 21 3 8.5 6.5 3Z" />
+      <path d="M3 8.5h18" />
+      <path d="m8.5 3 3.5 18 3.5-18" />
+    </svg>
+  );
+}
+
 export function ClipboardIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
