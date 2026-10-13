@@ -353,7 +353,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
    panels, blue buttons/details) — var(--accent-2), not var(--accent). It's
    a light cyan, so white text on it fails contrast badly (~1.8:1); --bg
    (near-black) on top of it instead clears AAA (~11:1). */
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary { background: var(--accent-2); border-color: var(--accent-2); color: var(--bg); }
 .btn.ghost { background: transparent; color: var(--muted); }
 .btn.wide { width: 100%; display: block; text-align: center; }
 .btn.sm { padding: 7px 12px; font-size: 14px; }
@@ -451,7 +451,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   color: var(--muted);
   border-radius: 10px;
 }
-.bottom-nav-item.active { color: var(--text); background: rgba(139, 92, 246, 0.2); }
+.bottom-nav-item.active { color: var(--text); background: rgba(34, 211, 238, 0.2); }
 .bottom-nav-icon { font-size: 20px; line-height: 1; }
 .bottom-nav-icon .icon { width: 20px; height: 20px; vertical-align: 0; }
 
@@ -646,7 +646,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
    Soporte, not confined to one section. Kept subtle enough not to fight
    readability: a soft border/shadow, not a full glow-everything treatment. */
 .card { box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.05), 0 6px 22px rgba(0, 0, 0, 0.28); }
-.btn.primary { box-shadow: 0 0 22px rgba(139, 92, 246, 0.45); }
+.btn.primary { box-shadow: 0 0 22px rgba(34, 211, 238, 0.45); }
 .mega { box-shadow: 0 0 30px rgba(139, 92, 246, 0.25); }
 .section-title-lg {
   font-size: 22px;
@@ -667,6 +667,514 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .social-links a { color: var(--text); opacity: 0.85; }
 .social-links a:hover { opacity: 1; color: var(--accent-2); }
 .social-links .icon { width: 22px; height: 22px; }
+
+/* Painted homepage (Jose): socials | crest | account, then season ticker,
+   110 hero with luchador, promo strip, live row, 2×2 flyers. */
+.hm-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 14px;
+}
+.hm-bar-side { display: flex; align-items: center; min-width: 0; }
+.hm-bar-social { justify-content: flex-start; }
+.hm-bar-social .social-links { gap: 10px; flex-wrap: nowrap; }
+.hm-bar-social .icon { width: 20px; height: 20px; }
+.hm-bar-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+}
+.hm-bar-brand img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0b0d18;
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.4);
+}
+.hm-bar-wordmark { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.hm-bar-name {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+.hm-bar-place {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+.hm-bar-account { justify-content: flex-end; gap: 8px; }
+.hm-bar-user {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.hm-bar-user .icon { width: 20px; height: 20px; }
+.hm-bar-bell { position: relative; pointer-events: none; }
+.hm-bar-bell-dot {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bad);
+  border: 1.5px solid var(--surface);
+}
+
+.hm-season {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  box-shadow: 0 0 18px rgba(139, 92, 246, 0.12);
+  overflow-x: auto;
+}
+.hm-season-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gold);
+  min-width: max-content;
+}
+.hm-season-label .icon { width: 16px; height: 16px; color: var(--gold); }
+.hm-season-label span { display: flex; flex-direction: column; line-height: 1.15; }
+.hm-season-label em { font-style: normal; color: var(--muted); font-weight: 700; }
+.hm-season-players {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.hm-season-player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+  padding: 4px 8px 4px 4px;
+  border-radius: 999px;
+  background: rgba(11, 13, 24, 0.55);
+}
+.hm-season-rank {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--surface-2);
+}
+.hm-season-r1 .hm-season-rank { background: #f5c84c; color: #1a1404; }
+.hm-season-r2 .hm-season-rank { background: #c7d0dc; color: #1a1d24; }
+.hm-season-r3 .hm-season-rank { background: #d97706; color: #1a1004; }
+.hm-season-player img,
+.hm-season-player .avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  font-size: 11px;
+}
+.hm-season-r1 img,
+.hm-season-r1 .avatar { outline: 2px solid #f5c84c; outline-offset: 1px; }
+.hm-season-name { font-size: 12.5px; font-weight: 700; }
+.hm-season-diamonds {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent-2);
+}
+.hm-season-diamonds .icon { width: 12px; height: 12px; }
+.hm-season-more {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-2);
+  white-space: nowrap;
+}
+
+.hm-hero {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  container-type: inline-size;
+  min-height: 340px;
+  margin-bottom: 14px;
+  padding: 26px 20px 20px 24px;
+  border-radius: 20px;
+  border: 1.5px solid rgba(167, 139, 250, 0.85);
+  background:
+    radial-gradient(70% 90% at 92% 18%, rgba(34, 211, 238, 0.28), transparent 55%),
+    radial-gradient(80% 80% at 8% 88%, rgba(245, 200, 76, 0.2), transparent 50%),
+    radial-gradient(60% 60% at 40% 0%, rgba(139, 92, 246, 0.45), transparent 58%),
+    linear-gradient(160deg, #2a1768 0%, #14132e 52%, #0c0e1c 100%);
+  box-shadow:
+    0 0 0 1px rgba(245, 200, 76, 0.16),
+    0 0 42px rgba(139, 92, 246, 0.5);
+}
+.hm-hero-copy {
+  position: relative;
+  z-index: 2;
+  max-width: 62%;
+}
+.hm-hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hm-hero-kicker .icon { width: 15px; height: 15px; color: var(--gold); }
+.hm-hero-pack {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 6px 0 2px;
+  line-height: 0.95;
+  white-space: nowrap;
+}
+.hm-hero-num {
+  display: inline-block;
+  font-size: clamp(52px, 16cqi, 104px);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  padding: 0 0.04em 0 0.12em;
+  text-shadow: 0 0 20px rgba(167, 139, 250, 0.35);
+}
+.hm-hero-unit {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.hm-hero-price {
+  color: var(--gold);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+  text-shadow: 0 0 16px rgba(245, 200, 76, 0.35);
+  white-space: nowrap;
+}
+.hm-hero-chips {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+}
+.hm-hero-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(11, 13, 24, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+  flex: none;
+  max-width: 7.4em;
+}
+.hm-hero-chips .icon { width: 13px; height: 13px; color: var(--accent-2); }
+.hm-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--accent-2);
+  color: var(--bg);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.55);
+}
+.hm-hero-cta .icon { width: 18px; height: 18px; }
+.hm-hero-art {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.hm-hero-mascot {
+  position: absolute;
+  right: -6px;
+  bottom: -10px;
+  height: 108%;
+  width: auto;
+  max-width: 54%;
+  object-fit: contain;
+  object-position: bottom right;
+  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.5));
+}
+.hm-hero-aside {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  margin: 0;
+  max-width: 9.5em;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.45);
+}
+
+.hm-promo {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 8px 16px;
+  position: relative;
+  z-index: 2;
+  min-height: 148px;
+  margin-bottom: 14px;
+  padding: 10px 18px 12px 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  background:
+    radial-gradient(70% 140% at 8% 50%, rgba(139, 92, 246, 0.4), transparent 58%),
+    radial-gradient(50% 80% at 100% 50%, rgba(34, 211, 238, 0.16), transparent 55%),
+    linear-gradient(90deg, #1a1650, #101428);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.16);
+}
+.hm-promo-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 150px;
+  height: 150px;
+}
+.hm-promo-art .hx-mascot-glow { inset: 14% 2% 0; }
+.hm-promo-mascot {
+  position: relative;
+  z-index: 1;
+  width: 150px;
+  height: 150px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.4));
+  -webkit-mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
+}
+.hm-promo-copy h2 {
+  margin: 0 0 12px;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  text-transform: uppercase;
+}
+.hm-promo-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--accent-2);
+  color: var(--bg);
+  font-size: inherit;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.55);
+}
+
+.hm-live {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 10px 12px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+}
+.hm-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fecaca;
+  min-width: max-content;
+}
+.hm-live-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  animation: hmLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes hmLivePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+}
+.hm-live-stat { min-width: max-content; }
+.hm-live-stat strong { display: block; line-height: 1; }
+.hm-live-digits { display: inline-flex; align-items: center; gap: 3px; }
+.hm-live-digit {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35em;
+  height: 1.55em;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.hm-live-sep { font-weight: 800; color: var(--muted); padding: 0 1px; }
+.hm-live-stat span { color: var(--muted); font-size: 11px; }
+.hm-live-rating strong { color: var(--gold); font-size: 22px; }
+.hm-live-mascot {
+  width: 42px;
+  height: 42px;
+  margin-left: auto;
+  object-fit: contain;
+  flex: none;
+}
+
+.hm-ofertas-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+.hm-ofertas-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+.hm-ofertas-more {
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-2);
+  color: var(--accent-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.hm-ofertas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.hm-offer {
+  display: block;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.12);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.hm-offer:hover {
+  transform: translateY(-2px);
+  border-color: rgba(139, 92, 246, 0.65);
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.28);
+}
+.hm-offer-flyer {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  background: var(--surface-2);
+  display: block;
+}
+.hm-offer-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 16px;
+  color: var(--muted);
+  font-weight: 700;
+}
+@media (max-width: 560px) {
+  .hm-bar { gap: 6px; padding-bottom: 10px; }
+  .hm-bar-name { font-size: 15px; letter-spacing: 0.03em; }
+  .hm-bar-place { font-size: 9px; }
+  .hm-bar-brand img { width: 34px; height: 34px; }
+  .hm-bar-social .icon { width: 16px; height: 16px; }
+  .hm-bar-user { width: 34px; height: 34px; }
+  .hm-bar-user .icon { width: 16px; height: 16px; }
+  .hm-season {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 6px 10px;
+    overflow: visible;
+  }
+  .hm-season-label { grid-column: 1; }
+  .hm-season-more { grid-column: 2; margin: 0; }
+  .hm-season-players { grid-column: 1 / -1; overflow: visible; }
+  .hm-hero { min-height: 292px; padding: 18px 12px 16px 18px; }
+  .hm-hero-copy { max-width: 72%; }
+  .hm-hero-num { font-size: clamp(34px, 11vw, 46px); }
+  .hm-hero-unit { font-size: 13px; }
+  .hm-hero-price { font-size: 20px; }
+  .hm-hero-mascot { max-width: 50%; height: 102%; bottom: -6px; }
+  .hm-hero-aside { font-size: 10px; max-width: 8em; top: 8px; right: 8px; }
+  .hm-promo { grid-template-columns: 108px 1fr; min-height: 120px; padding: 8px 12px 10px 4px; }
+  .hm-promo-art { width: 108px; height: 108px; }
+  .hm-promo-mascot { width: 108px; height: 108px; }
+  .hm-promo-copy h2 { font-size: 17px; }
+  .hm-live-digit { min-width: 1.15em; height: 1.4em; font-size: 15px; }
+  .hm-ofertas { gap: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-live-dot { animation: none !important; }
+  .hm-offer { transition: none; }
+  .hm-offer:hover { transform: none; }
+}
 
 /* ── auto-sliding banner ───────────────────────────────────────────────────
    Plain stacked <img>s cross-fading via opacity rather than a carousel
@@ -1077,9 +1585,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   color: var(--muted);
 }
 .rk-tab.active {
-  color: #fff;
-  background: var(--accent);
-  box-shadow: 0 0 16px rgba(139, 92, 246, 0.4);
+  color: var(--bg);
+  background: var(--accent-2);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.4);
 }
 
 .rk-podium-card { justify-content: flex-start; }
@@ -1108,48 +1616,6 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 /* The 3 support boxes: .trust-icon is a fixed-size block, so the parent's
    text-align: center never centered it — only the text below it. */
 .support-stat .trust-icon { margin-left: auto; margin-right: auto; }
-
-/* ── home page: top-3 strip + live-activity strip (2026-10 mockup/sketch) ──
-   The client's own hand-sketched layout and its polished mockup both put a
-   season leaderboard teaser and a slim "live" bar above the offer rail —
-   neither existed on the built home page before this. Same podium gold/
-   silver/bronze convention as /ranking's own podium, same purple-panel/
-   cyan-detail split as the rest of the site. */
-
-.hm-top3 { display: block; border-color: rgba(139, 92, 246, 0.35); }
-.hm-top3-label { font-weight: 700; font-size: 13.5px; }
-.hm-top3-row { display: flex; justify-content: center; gap: 10px; margin-top: 12px; text-align: center; }
-.hm-top3-slot { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
-.hm-top3-slot img, .hm-top3-slot .avatar { margin-bottom: 2px; }
-.hm-top3-name { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.hm-top3-diamonds { font-size: 11px; color: var(--accent-2); }
-.hm-top3-1 { order: 2; }
-.hm-top3-1 img, .hm-top3-1 .avatar { outline: 2px solid #fcd34d; outline-offset: 2px; border-radius: 50%; }
-.hm-top3-2 { order: 1; }
-.hm-top3-2 img, .hm-top3-2 .avatar { outline: 2px solid rgba(203, 213, 225, 0.7); outline-offset: 2px; border-radius: 50%; }
-.hm-top3-3 { order: 3; }
-.hm-top3-3 img, .hm-top3-3 .avatar { outline: 2px solid rgba(217, 119, 6, 0.7); outline-offset: 2px; border-radius: 50%; }
-
-.hm-live { align-items: center; gap: 10px; border-color: rgba(34, 211, 238, 0.3); }
-.hm-live-dot {
-  width: 9px;
-  height: 9px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--bad);
-  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
-  animation: hmLivePulse 1.8s ease-in-out infinite;
-}
-@keyframes hmLivePulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
-  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
-}
-.hm-live-rating { color: #fcd34d; font-weight: 700; font-size: 13.5px; }
-.hm-live-mascot { width: 34px; height: 34px; flex: none; border-radius: 50%; }
-
-@media (prefers-reduced-motion: reduce) {
-  .hm-live-dot { animation: none !important; }
-}
 
 /* ── /cuenta header (2026-10, hexzrecargas.com reference) ─────────────────
    Level Pass, La Bóveda and the home page all got the hex-grid hero-panel
@@ -1190,12 +1656,33 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
    hero with the luchador as a character, motion by default, and the mockup's
    Level Pass density. prefers-reduced-motion still kills the loops. */
 
+/* Jose's first-page canvas is a dark arena, not a flat void: a purple
+   stage-light from above, cooler falloff at the sides, and a vignette.
+   CSS only — we do not paint a Free Fire character into this layer. */
+html { background: #05060d; }
 body {
-  background:
-    radial-gradient(900px 480px at 85% -10%, rgba(139, 92, 246, 0.22), transparent 55%),
-    radial-gradient(700px 400px at 0% 20%, rgba(34, 211, 238, 0.08), transparent 50%),
-    var(--bg);
+  background-color: #05060d;
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -8%, rgba(124, 58, 237, 0.55), transparent 58%),
+    radial-gradient(ellipse 70% 40% at 50% 12%, rgba(139, 92, 246, 0.22), transparent 52%),
+    radial-gradient(ellipse 50% 35% at 100% 40%, rgba(34, 211, 238, 0.07), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 0% 55%, rgba(88, 28, 160, 0.16), transparent 50%),
+    radial-gradient(ellipse 80% 45% at 50% 110%, rgba(0, 0, 0, 0.75), transparent 55%),
+    linear-gradient(180deg, #1a0f32 0%, #0a0818 38%, #05060d 100%);
+  background-attachment: fixed;
 }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background:
+    repeating-linear-gradient(60deg, rgba(139, 92, 246, 0.07) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(-60deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 28px);
+}
+body > * { position: relative; z-index: 1; }
 
 .hx-rise { animation: hxRise 0.7s ease both; }
 .hx-rise-2 { animation: hxRise 0.7s ease 0.12s both; }

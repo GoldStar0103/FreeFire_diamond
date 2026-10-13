@@ -250,3 +250,31 @@ export function TikTokIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function CartIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 5h2.2l1.6 10h10.4l1.8-7H7.2" />
+      <circle cx="10" cy="18.5" r="1.3" />
+      <circle cx="16.5" cy="18.5" r="1.3" />
+    </svg>
+  );
+}
+
+export function CrownIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M3.5 16.5h17l-1.6-9.2-4.6 3.8L12 5.2 9.7 11.1 5.1 7.3 3.5 16.5Z" />
+      <path d="M5 19.2h14" />
+    </svg>
+  );
+}
+
+export function BellIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M6 16.5h12l-1.2-2.2V10a4.8 4.8 0 0 0-9.6 0v4.3L6 16.5Z" />
+      <path d="M10 16.5a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}

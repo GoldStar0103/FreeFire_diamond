@@ -13,15 +13,26 @@ import { getDb } from '../lib/server';
 import { diamonds, initials, mxn, roundDownSignificant } from '../lib/format';
 import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
-import mascot from '../assets/mascot.webp';
 import logo from '../assets/logo.webp';
-import banner1 from '../assets/banner/banner-1.webp';
-import banner2 from '../assets/banner/banner-2.webp';
-import banner3 from '../assets/banner/banner-3.webp';
-import { BoltIcon, FacebookIcon, HeadsetIcon, InfinityIcon, InstagramIcon, ShieldIcon, TikTokIcon } from './icons';
-import { BannerSlider } from './banner-slider';
+import mascotThumbs from '../assets/mascot/thumbs.webp';
+import mascotPresent from '../assets/mascot/present.webp';
+import mascotIdle from '../assets/mascot/idle.webp';
+import {
+  BellIcon,
+  BoltIcon,
+  CartIcon,
+  CrownIcon,
+  DiamondIcon,
+  FacebookIcon,
+  HeadsetIcon,
+  InfinityIcon,
+  InstagramIcon,
+  ShieldIcon,
+  TikTokIcon,
+  UserIcon,
+} from './icons';
 import { HowItWorks } from './how-it-works';
-import { CountUp } from './count-up';
+import { CountUp, DigitTiles } from './count-up';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,12 +65,6 @@ const WHY_US = [
   },
 ] as const;
 
-const BANNER_SLIDES = [
-  { src: banner1.src, alt: 'Recargas al instante — diamantes directo a tu cuenta' },
-  { src: banner2.src, alt: 'Promociones nuevas todos los meses' },
-  { src: banner3.src, alt: 'Desde 2024, la mejor página para tus diamantes' },
-];
-
 export default async function HomePage() {
   const [campaigns, delivered, customers, today, top50, testimonials, session] = await Promise.all([
     listStorefront(getDb()),
@@ -75,164 +80,204 @@ export default async function HomePage() {
   const avgRating =
     rated.length >= 3 ? rated.reduce((sum, t) => t.rating! + sum, 0) / rated.length : null;
 
-  const [hero, ...rest] = campaigns;
-  const heroCombo = hero?.permanent ? hero.combos[0] : null;
-  const heroFlyer = flyerUrl(hero?.flyerAssetUrl);
+  const packs = campaigns.flatMap((campaign) => campaign.combos.map((combo) => ({ campaign, combo })));
+  const featured =
+    packs.find((p) => p.combo.advertisedDiamonds === 110) ??
+    packs.find((p) => p.campaign.permanent) ??
+    packs[0] ??
+    null;
+
   const social = socialLinks();
   const hasSocial = social.facebook || social.instagram || social.tiktok;
 
   const top3 = top50.rows.slice(0, 3);
-  const podiumOrder = top3.length === 3 ? [1, 0, 2] : top3.map((_, i) => i);
-  const seasonDays = top50.season
-    ? Math.max(0, Math.ceil((top50.season.endsAt.getTime() - Date.now()) / 86_400_000))
-    : null;
+  const rail = campaigns.filter((c) => !featured || c.key !== featured.campaign.key);
+  const liveCount = today > 0 ? today : delivered;
+  const liveCountIsToday = today > 0;
+  const showLive = liveCount > 0 || customers > 0 || avgRating;
 
   return (
-    <main className="page">
-      <div className="brand-bar">
-        <div className="brand-bar-id">
-          <img src={logo.src} width={40} height={40} alt="" decoding="async" />
-          <span className="brand-bar-sep" aria-hidden="true">
-            |
-          </span>
-          <span>LevelUp Store México</span>
-        </div>
-        {hasSocial && (
-          <div className="social-links">
-            {social.facebook && (
-              <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
-                <FacebookIcon className="icon" />
-              </a>
-            )}
-            {social.instagram && (
-              <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
-                <InstagramIcon className="icon" />
-              </a>
-            )}
-            {social.tiktok && (
-              <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
-                <TikTokIcon className="icon" />
-              </a>
-            )}
-          </div>
-        )}
-      </div>
-
-      <section className="hx-hero">
-        <div className="hx-hero-copy hx-rise">
-          {top50.season && (
-            <p className="hx-kicker">
-              Temporada {top50.season.seasonNumber}
-              {seasonDays !== null ? ` · ${seasonDays} días` : ''}
-            </p>
-          )}
-          <h1>
-            Recarga. <span className="grad">Sube.</span> Gana.
-          </h1>
-          <p className="hx-hero-lead">
-            Pon tu ID, elige tu pack y los diamantes llegan solos. Con Mi cuenta, cada recarga —
-            en cualquier ID — suma al Level Pass y La Bóveda.
-          </p>
-          <div className="hx-cta-row">
-            <Link href="/promociones" className="btn primary">
-              Recargar ahora
-            </Link>
-            <Link href={session ? '/cuenta' : '/cuenta'} className="btn ghost">
-              {session ? 'Ver mi progreso' : 'Crear mi cuenta'}
-            </Link>
-          </div>
-          {(today > 0 || avgRating || customers >= 10) && (
-            <div className="hx-live">
-              <span className="hx-live-dot" aria-hidden="true" />
-              {today > 0 && (
-                <span>
-                  <strong>{today}</strong> recarga{today === 1 ? '' : 's'} hoy
-                </span>
+    <main className="page hm">
+      <header className="hm-bar">
+        <div className="hm-bar-side hm-bar-social">
+          {hasSocial && (
+            <div className="social-links">
+              {social.facebook && (
+                <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
+                  <FacebookIcon className="icon" />
+                </a>
               )}
-              {avgRating && <span>★ {avgRating.toFixed(1)}</span>}
-              {customers >= 10 && <span>+{roundDownSignificant(customers).toLocaleString('es-MX')} clientes</span>}
+              {social.instagram && (
+                <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
+                  <InstagramIcon className="icon" />
+                </a>
+              )}
+              {social.tiktok && (
+                <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
+                  <TikTokIcon className="icon" />
+                </a>
+              )}
             </div>
           )}
         </div>
-        <div className="hx-mascot hx-rise-2" aria-hidden="true">
-          <div className="hx-mascot-glow" />
-          <span className="hx-orb a" />
-          <span className="hx-orb b" />
-          <span className="hx-orb c" />
-          <img src={mascot.src} alt="" decoding="async" />
+        <div className="hm-bar-brand">
+          <img src={logo.src} width={44} height={44} alt="" decoding="async" />
+          <div className="hm-bar-wordmark">
+            <span className="hm-bar-name">
+              LEVELUP <span className="grad">STORE</span>
+            </span>
+            <span className="hm-bar-place">MÉXICO</span>
+          </div>
         </div>
-      </section>
+        <div className="hm-bar-side hm-bar-account">
+          <span className="hm-bar-user hm-bar-bell" aria-hidden="true">
+            <BellIcon className="icon" />
+            <span className="hm-bar-bell-dot" />
+          </span>
+          <Link href="/cuenta" className="hm-bar-user" aria-label={session ? 'Mi cuenta' : 'Crear mi cuenta'}>
+            <UserIcon className="icon" />
+          </Link>
+        </div>
+      </header>
 
       {top3.length > 0 && (
-        <Link href="/ranking" className="hx-rise-3" style={{ display: 'block', marginBottom: 8 }}>
-          <div className="row" style={{ marginBottom: 8 }}>
-            <span className="hx-kicker" style={{ margin: 0 }}>
-              Top de temporada{top50.season ? ` ${top50.season.seasonNumber}` : ''}
+        <Link href="/ranking" className="hm-season">
+          <div className="hm-season-label">
+            <CrownIcon className="icon" />
+            <span>
+              Temporada {top50.season?.seasonNumber ?? 1}
+              <em>Top de jugadores</em>
             </span>
-            <div className="spacer" />
-            <span className="hint">Ver ranking →</span>
           </div>
-          <div className="hx-podium">
-            {podiumOrder.map((i) => {
-              const player = top3[i]!;
+          <div className="hm-season-players">
+            {top3.map((player) => {
               const name = player.displayName ?? 'Jugador';
               const url = avatarUrl(player.avatarAssetUrl);
               return (
-                <div key={player.playerProfileId} className={`hx-podium-slot rank-${player.rank}`}>
+                <div key={player.playerProfileId} className={`hm-season-player hm-season-r${player.rank}`}>
+                  <span className="hm-season-rank" aria-hidden="true">
+                    {player.rank}
+                  </span>
                   {url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt="" width={48} height={48} style={{ borderRadius: '50%', objectFit: 'cover', margin: '0 auto' }} />
+                    <img src={url} alt="" width={28} height={28} />
                   ) : (
-                    <div className="avatar" aria-hidden="true" style={{ width: 48, height: 48, fontSize: 16, margin: '0 auto' }}>
+                    <div className="avatar" aria-hidden="true">
                       {initials(name)}
                     </div>
                   )}
-                  <span className="hx-podium-name">{name}</span>
-                  <span className="hx-podium-diamonds">{diamonds(player.seasonalDiamonds)} 💎</span>
+                  <span className="hm-season-name">{name}</span>
+                  <span className="hm-season-diamonds">
+                    <DiamondIcon className="icon" />
+                    {diamonds(player.seasonalDiamonds)}
+                  </span>
                 </div>
               );
             })}
           </div>
+          <span className="hm-season-more">Ver tabla completa</span>
         </Link>
       )}
 
-      {heroCombo &&
-        (heroFlyer ? (
-          <Link href={`/comprar/${heroCombo.key}`} className="mega-flyer-link">
-            <img className="mega-flyer" src={heroFlyer} alt={hero!.name} decoding="async" />
-          </Link>
-        ) : (
-          <Link href={`/comprar/${heroCombo.key}`} className="card mega">
-            <div className="mega-tag">{hero!.badge ?? 'Solo clientes nuevos'}</div>
-            <div className="mega-name">{hero!.name}</div>
-            <div className="mega-diamonds">{diamonds(heroCombo.advertisedDiamonds)} 💎</div>
-            <div className="mega-price">{mxn(heroCombo.priceMxnCents)}</div>
-            <div className="mega-cta">Probar ahora →</div>
-          </Link>
-        ))}
+      {featured && (
+        <Link href={`/comprar/${featured.combo.key}`} className="hm-hero">
+          <div className="hm-hero-copy">
+            <div className="hm-hero-kicker">
+              <BoltIcon className="icon" />
+              Oferta especial
+            </div>
+            <div className="hm-hero-pack">
+              <span className="hm-hero-num grad">{diamonds(featured.combo.advertisedDiamonds)}</span>
+              <span className="hm-hero-unit">diamantes</span>
+            </div>
+            <div className="hm-hero-price">× {mxn(featured.combo.priceMxnCents)}</div>
+            <ul className="hm-hero-chips">
+              <li>
+                <BoltIcon className="icon" />
+                Entrega inmediata
+              </li>
+              <li>
+                <ShieldIcon className="icon" />
+                Pago seguro
+              </li>
+              <li>
+                <DiamondIcon className="icon" />
+                Mejor precio
+              </li>
+            </ul>
+            <span className="hm-hero-cta">
+              <CartIcon className="icon" />
+              Comprar ahora →
+            </span>
+          </div>
+          <div className="hm-hero-art" aria-hidden="true">
+            <img className="hm-hero-mascot" src={mascotThumbs.src} alt="" decoding="async" />
+            <p className="hm-hero-aside">Más diamantes, más victorias</p>
+          </div>
+        </Link>
+      )}
 
-      <BannerSlider slides={BANNER_SLIDES} />
+      <Link href="/promociones" className="hm-promo">
+        <div className="hm-promo-art" aria-hidden="true">
+          <div className="hx-mascot-glow" />
+          <img className="hm-promo-mascot" src={mascotPresent.src} alt="" decoding="async" />
+        </div>
+        <div className="hm-promo-copy">
+          <h2>Promociones nuevas todos los meses</h2>
+          <span className="hm-promo-cta">Ver ofertas →→</span>
+        </div>
+      </Link>
 
-      {(hero?.permanent ? rest : campaigns).length > 0 && (
+      {showLive && (
+        <section className="hm-live" aria-label="Actividad en vivo">
+          <span className="hm-live-pill">
+            <span className="hm-live-dot" aria-hidden="true" />
+            En vivo
+          </span>
+          {liveCount > 0 && (
+            <div className="hm-live-stat">
+              <strong>
+                <CountUp value={liveCount} tiles padDigits={4} />
+              </strong>
+              <span>{liveCountIsToday ? 'recargas hoy' : 'recargas'}</span>
+            </div>
+          )}
+          {avgRating && (
+            <div className="hm-live-stat hm-live-rating">
+              <strong>★ {avgRating.toFixed(1)}</strong>
+              <span>valoración</span>
+            </div>
+          )}
+          {customers > 0 && (
+            <div className="hm-live-stat">
+              <strong>
+                <DigitTiles text={`+${roundDownSignificant(customers).toLocaleString('es-MX')}`} />
+              </strong>
+              <span>clientes satisfechos</span>
+            </div>
+          )}
+          <img className="hm-live-mascot" src={mascotIdle.src} alt="" decoding="async" />
+        </section>
+      )}
+
+      {rail.length > 0 && (
         <>
-          <div className="row section-head-row">
-            <h2 className="section-title-lg">Ofertas disponibles</h2>
-            <div className="spacer" />
-            <Link href="/promociones" className="btn sm ghost-neon">
-              Ver más →
+          <div className="hm-ofertas-head">
+            <h2>Ofertas disponibles</h2>
+            <Link href="/promociones" className="hm-ofertas-more">
+              Ver más
             </Link>
           </div>
-          <div className="promo-rail">
-            {(hero?.permanent ? rest : campaigns).map((campaign) => {
+          <div className="hm-ofertas">
+            {rail.map((campaign) => {
               const flyer = flyerUrl(campaign.flyerAssetUrl);
               return (
-                <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="promo-card">
+                <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="hm-offer">
                   {flyer ? (
-                    <img className="promo-flyer" src={flyer} alt={campaign.name} loading="lazy" decoding="async" />
+                    <img className="hm-offer-flyer" src={flyer} alt={campaign.name} decoding="async" />
                   ) : (
-                    <div className="promo-flyer promo-flyer-empty">{campaign.name}</div>
+                    <div className="hm-offer-flyer hm-offer-empty">{campaign.name}</div>
                   )}
-                  <div className="promo-name">{campaign.name}</div>
                 </Link>
               );
             })}
@@ -260,43 +305,6 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
-
-      {(delivered > 0 || customers > 0 || avgRating) && (
-        <section className="card community">
-          <h2 className="section-title-lg center">
-            Comunidad <span className="grad">en tiempo real</span>
-          </h2>
-          <p className="page-sub center" style={{ marginBottom: 18 }}>
-            Miles de jugadores ya confían en nosotros
-          </p>
-          <div className="stats-row">
-            {customers > 0 && (
-              <div className="counter">
-                <div className="counter-value">
-                  <CountUp value={customers} />
-                </div>
-                <div className="counter-label">clientes satisfechos</div>
-              </div>
-            )}
-            {delivered > 0 && (
-              <div className="counter">
-                <div className="counter-value">
-                  <CountUp value={delivered} />
-                </div>
-                <div className="counter-label">recargas realizadas</div>
-              </div>
-            )}
-            {avgRating && (
-              <div className="counter">
-                <div className="counter-value">
-                  <CountUp value={avgRating} decimals={1} suffix="/5" />
-                </div>
-                <div className="counter-label">valoración promedio</div>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
 
       <HowItWorks />
     </main>

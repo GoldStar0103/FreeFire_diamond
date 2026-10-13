@@ -9,6 +9,20 @@ interface Props {
   value: number;
   decimals?: number;
   suffix?: string;
+  tiles?: boolean;
+  padDigits?: number;
+}
+
+export function DigitTiles({ text }: { text: string }) {
+  return (
+    <span className="hm-live-digits">
+      {[...text].map((ch, i) => (
+        <span key={`${i}-${ch}`} className={/\d/.test(ch) ? 'hm-live-digit' : 'hm-live-sep'}>
+          {ch}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /**
@@ -16,7 +30,7 @@ interface Props {
  * actualizando" numbers move once instead of arriving as flat static text.
  * The real number is always what settles on; this never fetches anything.
  */
-export function CountUp({ value, decimals = 0, suffix = '' }: Props) {
+export function CountUp({ value, decimals = 0, suffix = '', tiles = false, padDigits }: Props) {
   const reducedMotion = usePrefersReducedMotion();
   const [display, setDisplay] = useState(0);
   const start = useRef<number | null>(null);
@@ -38,10 +52,16 @@ export function CountUp({ value, decimals = 0, suffix = '' }: Props) {
     return () => cancelAnimationFrame(frame);
   }, [value, reducedMotion]);
 
-  return (
-    <>
-      {display.toLocaleString('es-MX', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
-      {suffix}
-    </>
-  );
+  let core = display.toLocaleString('es-MX', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  if (padDigits && padDigits > 0) {
+    core = String(Math.round(display)).padStart(padDigits, '0');
+  }
+  const formatted = `${core}${suffix}`;
+
+  if (tiles) return <DigitTiles text={formatted} />;
+
+  return <>{formatted}</>;
 }
