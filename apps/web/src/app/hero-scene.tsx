@@ -23,8 +23,8 @@ export function HeroScene() {
       if (disposed || !canvas.isConnected) return;
 
       const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 40);
-      camera.position.set(0.6, 0.15, 6.2);
+      const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 40);
+      camera.position.set(0.85, 0.05, 5.4);
 
       const renderer = new THREE.WebGLRenderer({
         canvas,
@@ -35,15 +35,18 @@ export function HeroScene() {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setClearColor(0x000000, 0);
 
-      scene.add(new THREE.AmbientLight(0xb8a6ff, 0.85));
-      const key = new THREE.PointLight(0x22d3ee, 18, 18);
-      key.position.set(2.4, 1.6, 3.2);
+      scene.add(new THREE.AmbientLight(0xc4b5fd, 1.05));
+      const key = new THREE.PointLight(0x22d3ee, 28, 20);
+      key.position.set(2.2, 1.4, 3.6);
       scene.add(key);
-      const gold = new THREE.PointLight(0xf5c84c, 10, 14);
-      gold.position.set(-1.6, -0.8, 2.4);
+      const gold = new THREE.PointLight(0xf5c84c, 16, 16);
+      gold.position.set(-1.2, -0.6, 2.8);
       scene.add(gold);
+      const rim = new THREE.PointLight(0xa78bfa, 14, 14);
+      rim.position.set(3.2, -1.2, 1.4);
+      scene.add(rim);
 
-      const colors = [0x22d3ee, 0xa78bfa, 0xf5c84c, 0x67e8f9];
+      const colors = [0x22d3ee, 0x67e8f9, 0xa78bfa, 0xf5c84c, 0x38bdf8];
       const gems: Array<{
         mesh: InstanceType<typeof THREE.Mesh>;
         spin: InstanceType<typeof THREE.Vector3>;
@@ -51,23 +54,28 @@ export function HeroScene() {
         baseY: number;
       }> = [];
 
-      for (let i = 0; i < 22; i += 1) {
-        const geo = new THREE.OctahedronGeometry(0.12 + Math.random() * 0.16, 0);
+      for (let i = 0; i < 32; i += 1) {
+        const geo = new THREE.OctahedronGeometry(0.16 + Math.random() * 0.22, 0);
         const mat = new THREE.MeshStandardMaterial({
           color: colors[i % colors.length],
-          metalness: 0.55,
-          roughness: 0.18,
+          metalness: 0.72,
+          roughness: 0.1,
           emissive: colors[i % colors.length],
-          emissiveIntensity: 0.22,
+          emissiveIntensity: 0.55,
         });
         const mesh = new THREE.Mesh(geo, mat);
-        const y = -1.5 + Math.random() * 3.2;
-        mesh.position.set(0.4 + Math.random() * 3.4, y, -0.6 + Math.random() * 2.2);
+        const y = -1.7 + Math.random() * 3.4;
+        const aroundChest = i < 22;
+        mesh.position.set(
+          aroundChest ? 1.15 + Math.random() * 2.4 : -0.2 + Math.random() * 1.1,
+          y,
+          aroundChest ? 0.2 + Math.random() * 2.2 : 0.6 + Math.random() * 1.4,
+        );
         mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
         scene.add(mesh);
         gems.push({
           mesh,
-          spin: new THREE.Vector3(0.4 + Math.random(), 0.6 + Math.random(), 0.25),
+          spin: new THREE.Vector3(0.5 + Math.random(), 0.7 + Math.random(), 0.3),
           phase: Math.random() * Math.PI * 2,
           baseY: y,
         });

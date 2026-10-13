@@ -15,8 +15,10 @@ import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
 import logo from '../assets/logo.webp';
 import mascotThumbs from '../assets/mascot/thumbs.webp';
-import mascotPresent from '../assets/mascot/present.webp';
+import mascotMegaphone from '../assets/mascot/mascot-megaphone.png';
 import mascotIdle from '../assets/mascot/idle.webp';
+import chestDiamonds from '../assets/mascot/chest-diamonds.png';
+import giftBox from '../assets/mascot/gift-box.png';
 import {
   BellIcon,
   BoltIcon,
@@ -250,6 +252,7 @@ export default async function HomePage() {
             </span>
           </div>
           <div className="hm-hero-art" aria-hidden="true">
+            <img className="hm-hero-chest" src={chestDiamonds.src} alt="" decoding="async" />
             <img className="hm-hero-mascot" src={mascotThumbs.src} alt="" decoding="async" />
             <p className="hm-hero-aside">Más diamantes, más victorias</p>
           </div>
@@ -259,12 +262,17 @@ export default async function HomePage() {
       <Link href="/promociones" className="hm-promo">
         <div className="hm-promo-art" aria-hidden="true">
           <div className="hx-mascot-glow" />
-          <img className="hm-promo-mascot" src={mascotPresent.src} alt="" decoding="async" />
+          <img className="hm-promo-mascot" src={mascotMegaphone.src} alt="" decoding="async" />
         </div>
         <div className="hm-promo-copy">
-          <h2>Promociones nuevas todos los meses</h2>
-          <span className="hm-promo-cta">Ver ofertas →→</span>
+          <h2>
+            Promociones
+            <span>nuevas</span>
+            todos los meses
+          </h2>
+          <span className="hm-promo-cta">Ver ofertas →</span>
         </div>
+        <img className="hm-promo-gift" src={giftBox.src} alt="" decoding="async" />
       </Link>
 
       {showLive && (
