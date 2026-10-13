@@ -1,38 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import {
-  countCompletedOrders,
-  countCompletedOrdersToday,
-  countUniqueCustomers,
-  getPublicTop50,
-  listStorefront,
-  listTestimonials,
-} from '@levelup/db';
+import { listStorefront } from '@levelup/db';
 import { getCustomerSession } from '../lib/customer-session';
 import { getDb } from '../lib/server';
-import { diamonds, initials, mxn, roundDownSignificant } from '../lib/format';
-import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
-import logo from '../assets/logo.webp';
-import mascotThumbs from '../assets/mascot/thumbs.webp';
-import mascotPresent from '../assets/mascot/present.webp';
-import mascotIdle from '../assets/mascot/idle.webp';
-import {
-  BellIcon,
-  BoltIcon,
-  CartIcon,
-  CrownIcon,
-  DiamondIcon,
-  FacebookIcon,
-  HeadsetIcon,
-  InfinityIcon,
-  InstagramIcon,
-  ShieldIcon,
-  TikTokIcon,
-  UserIcon,
-} from './icons';
+import paintedHome from '../assets/home/painted-home.png';
+import { BoltIcon, HeadsetIcon, InfinityIcon, ShieldIcon } from './icons';
 import { HowItWorks } from './how-it-works';
-import { CountUp, DigitTiles } from './count-up';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,20 +39,49 @@ const WHY_US = [
   },
 ] as const;
 
+const FLYER_SLOTS = [
+  ['descuentos', 'chidos'],
+  ['super_pack', 'super pack'],
+  ['energia', 'insana'],
+  ['mega_prime', 'megaprime', 'packs_mega'],
+] as const;
+
+type Campaign = Awaited<ReturnType<typeof listStorefront>>[number];
+
+function assignFlyerSlots(campaigns: Campaign[], featuredKey: string | null): (Campaign | null)[] {
+  const rest = campaigns.filter((c) => c.key !== featuredKey);
+  const used = new Set<string>();
+  const slots: (Campaign | null)[] = [null, null, null, null];
+
+  FLYER_SLOTS.forEach((needles, i) => {
+    const found = rest.find(
+      (c) =>
+        !used.has(c.key) &&
+        needles.some((n) => c.key.includes(n.replace(' ', '_')) || c.name.toLowerCase().includes(n)),
+    );
+    if (found) {
+      slots[i] = found;
+      used.add(found.key);
+    }
+  });
+
+  for (const campaign of rest) {
+    const empty = slots.indexOf(null);
+    if (empty === -1) break;
+    if (!used.has(campaign.key)) {
+      slots[empty] = campaign;
+      used.add(campaign.key);
+    }
+  }
+
+  return slots;
+}
+
 export default async function HomePage() {
-  const [campaigns, delivered, customers, today, top50, testimonials, session] = await Promise.all([
+  const [campaigns, session] = await Promise.all([
     listStorefront(getDb()),
-    countCompletedOrders(getDb()),
-    countUniqueCustomers(getDb()),
-    countCompletedOrdersToday(getDb()),
-    getPublicTop50(getDb()),
-    listTestimonials(getDb()),
     getCustomerSession(),
   ]);
-
-  const rated = testimonials.filter((t) => t.rating);
-  const avgRating =
-    rated.length >= 3 ? rated.reduce((sum, t) => t.rating! + sum, 0) / rated.length : null;
 
   const packs = campaigns.flatMap((campaign) => campaign.combos.map((combo) => ({ campaign, combo })));
   const featured =
@@ -88,202 +91,115 @@ export default async function HomePage() {
     null;
 
   const social = socialLinks();
-  const hasSocial = social.facebook || social.instagram || social.tiktok;
-
-  const top3 = top50.rows.slice(0, 3);
-  const rail = campaigns.filter((c) => !featured || c.key !== featured.campaign.key);
-  const liveCount = today > 0 ? today : delivered;
-  const liveCountIsToday = today > 0;
-  const showLive = liveCount > 0 || customers > 0 || avgRating;
+  const flyers = assignFlyerSlots(campaigns, featured?.campaign.key ?? null);
+  const buyHref = featured ? `/comprar/${featured.combo.key}` : '/promociones';
 
   return (
-    <main className="page hm">
-      <header className="hm-bar">
-        <div className="hm-bar-side hm-bar-social">
-          {hasSocial && (
-            <div className="social-links">
-              {social.facebook && (
-                <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
-                  <FacebookIcon className="icon" />
-                </a>
-              )}
-              {social.instagram && (
-                <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
-                  <InstagramIcon className="icon" />
-                </a>
-              )}
-              {social.tiktok && (
-                <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
-                  <TikTokIcon className="icon" />
-                </a>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="hm-bar-brand">
-          <img src={logo.src} width={44} height={44} alt="" decoding="async" />
-          <div className="hm-bar-wordmark">
-            <span className="hm-bar-name">
-              LEVELUP <span className="grad">STORE</span>
-            </span>
-            <span className="hm-bar-place">MÉXICO</span>
-          </div>
-        </div>
-        <div className="hm-bar-side hm-bar-account">
-          <span className="hm-bar-user hm-bar-bell" aria-hidden="true">
-            <BellIcon className="icon" />
-            <span className="hm-bar-bell-dot" />
-          </span>
-          <Link href="/cuenta" className="hm-bar-user" aria-label={session ? 'Mi cuenta' : 'Crear mi cuenta'}>
-            <UserIcon className="icon" />
-          </Link>
-        </div>
-      </header>
+    <main className="page hm hm-painted">
+      <h1 className="sr-only">LevelUp Store — Recargas Free Fire</h1>
+      <div className="hm-board">
+        <img className="hm-board-art" src={paintedHome.src} alt="LevelUp Store" decoding="async" />
 
-      {top3.length > 0 && (
-        <Link href="/ranking" className="hm-season">
-          <div className="hm-season-label">
-            <CrownIcon className="icon" />
-            <span>
-              Temporada {top50.season?.seasonNumber ?? 1}
-              <em>Top de jugadores</em>
-            </span>
-          </div>
-          <div className="hm-season-players">
-            {top3.map((player) => {
-              const name = player.displayName ?? 'Jugador';
-              const url = avatarUrl(player.avatarAssetUrl);
-              return (
-                <div key={player.playerProfileId} className={`hm-season-player hm-season-r${player.rank}`}>
-                  <span className="hm-season-rank" aria-hidden="true">
-                    {player.rank}
-                  </span>
-                  {url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt="" width={28} height={28} />
-                  ) : (
-                    <div className="avatar" aria-hidden="true">
-                      {initials(name)}
-                    </div>
-                  )}
-                  <span className="hm-season-name">{name}</span>
-                  <span className="hm-season-diamonds">
-                    <DiamondIcon className="icon" />
-                    {diamonds(player.seasonalDiamonds)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          <span className="hm-season-more">Ver tabla completa</span>
-        </Link>
-      )}
-
-      {featured && (
-        <Link href={`/comprar/${featured.combo.key}`} className="hm-hero">
-          <div className="hm-hero-copy">
-            <div className="hm-hero-kicker">
-              <BoltIcon className="icon" />
-              Oferta especial
-            </div>
-            <div className="hm-hero-pack">
-              <span className="hm-hero-num grad">{diamonds(featured.combo.advertisedDiamonds)}</span>
-              <span className="hm-hero-unit">diamantes</span>
-            </div>
-            <div className="hm-hero-price">× {mxn(featured.combo.priceMxnCents)}</div>
-            <ul className="hm-hero-chips">
-              <li>
-                <BoltIcon className="icon" />
-                Entrega inmediata
-              </li>
-              <li>
-                <ShieldIcon className="icon" />
-                Pago seguro
-              </li>
-              <li>
-                <DiamondIcon className="icon" />
-                Mejor precio
-              </li>
-            </ul>
-            <span className="hm-hero-cta">
-              <CartIcon className="icon" />
-              Comprar ahora →
-            </span>
-          </div>
-          <div className="hm-hero-art" aria-hidden="true">
-            <img className="hm-hero-mascot" src={mascotThumbs.src} alt="" decoding="async" />
-            <p className="hm-hero-aside">Más diamantes, más victorias</p>
-          </div>
-        </Link>
-      )}
-
-      <Link href="/promociones" className="hm-promo">
-        <div className="hm-promo-art" aria-hidden="true">
-          <div className="hx-mascot-glow" />
-          <img className="hm-promo-mascot" src={mascotPresent.src} alt="" decoding="async" />
-        </div>
-        <div className="hm-promo-copy">
-          <h2>Promociones nuevas todos los meses</h2>
-          <span className="hm-promo-cta">Ver ofertas →→</span>
-        </div>
-      </Link>
-
-      {showLive && (
-        <section className="hm-live" aria-label="Actividad en vivo">
-          <span className="hm-live-pill">
-            <span className="hm-live-dot" aria-hidden="true" />
-            En vivo
-          </span>
-          {liveCount > 0 && (
-            <div className="hm-live-stat">
-              <strong>
-                <CountUp value={liveCount} tiles padDigits={4} />
-              </strong>
-              <span>{liveCountIsToday ? 'recargas hoy' : 'recargas'}</span>
-            </div>
-          )}
-          {avgRating && (
-            <div className="hm-live-stat hm-live-rating">
-              <strong>★ {avgRating.toFixed(1)}</strong>
-              <span>valoración</span>
-            </div>
-          )}
-          {customers > 0 && (
-            <div className="hm-live-stat">
-              <strong>
-                <DigitTiles text={`+${roundDownSignificant(customers).toLocaleString('es-MX')}`} />
-              </strong>
-              <span>clientes satisfechos</span>
-            </div>
-          )}
-          <img className="hm-live-mascot" src={mascotIdle.src} alt="" decoding="async" />
-        </section>
-      )}
-
-      {rail.length > 0 && (
-        <>
-          <div className="hm-ofertas-head">
-            <h2>Ofertas disponibles</h2>
-            <Link href="/promociones" className="hm-ofertas-more">
-              Ver más
-            </Link>
-          </div>
-          <div className="hm-ofertas">
-            {rail.map((campaign) => {
-              const flyer = flyerUrl(campaign.flyerAssetUrl);
-              return (
-                <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="hm-offer">
-                  {flyer ? (
-                    <img className="hm-offer-flyer" src={flyer} alt={campaign.name} decoding="async" />
-                  ) : (
-                    <div className="hm-offer-flyer hm-offer-empty">{campaign.name}</div>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </>
-      )}
+        {social.tiktok && (
+          <a
+            className="hm-hit"
+            style={{ left: '2.4%', top: '5.2%', width: '8.2%', height: '3.6%' }}
+            href={social.tiktok}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="TikTok"
+          />
+        )}
+        {social.instagram && (
+          <a
+            className="hm-hit"
+            style={{ left: '10.6%', top: '5.2%', width: '8.2%', height: '3.6%' }}
+            href={social.instagram}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Instagram"
+          />
+        )}
+        <Link
+          className="hm-hit"
+          style={{ left: '86.2%', top: '4.6%', width: '11.4%', height: '4.4%' }}
+          href="/cuenta"
+          aria-label={session ? 'Mi cuenta' : 'Crear mi cuenta'}
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '1.6%', top: '9.4%', width: '96.8%', height: '4.4%' }}
+          href="/ranking"
+          aria-label="Ver tabla de Temporada 1"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '1.6%', top: '14.2%', width: '96.8%', height: '26.2%' }}
+          href={buyHref}
+          aria-label="Comprar 110 diamantes"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '1.6%', top: '41.2%', width: '96.8%', height: '10.4%' }}
+          href="/promociones"
+          aria-label="Ver ofertas"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '70%', top: '56.4%', width: '28.4%', height: '3.6%' }}
+          href="/promociones"
+          aria-label="Ver más ofertas"
+        />
+        {flyers.map((campaign, i) => {
+          const col = i % 2;
+          const row = Math.floor(i / 2);
+          const href = campaign ? `/promocion/${campaign.key}` : '/promociones';
+          return (
+            <Link
+              key={campaign?.key ?? `slot-${i}`}
+              className="hm-hit"
+              style={{
+                left: col === 0 ? '1.6%' : '50.6%',
+                top: row === 0 ? '60.4%' : '75.6%',
+                width: '47.8%',
+                height: '14.8%',
+              }}
+              href={href}
+              aria-label={campaign ? campaign.name : 'Ver promociones'}
+            />
+          );
+        })}
+        <Link
+          className="hm-hit"
+          style={{ left: '0%', top: '91.8%', width: '20%', height: '8%' }}
+          href="/"
+          aria-label="Inicio"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '20%', top: '91.8%', width: '20%', height: '8%' }}
+          href="/promociones"
+          aria-label="Promociones"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '40%', top: '91.8%', width: '20%', height: '8%' }}
+          href="/cuenta"
+          aria-label="Mi cuenta"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '60%', top: '91.8%', width: '20%', height: '8%' }}
+          href="/confianza"
+          aria-label="Confianza"
+        />
+        <Link
+          className="hm-hit"
+          style={{ left: '80%', top: '91.8%', width: '20%', height: '8%' }}
+          href="/soporte"
+          aria-label="Soporte"
+        />
+      </div>
 
       {campaigns.length === 0 && (
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>
