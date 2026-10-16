@@ -986,11 +986,12 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   object-fit: contain;
   filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.45));
   z-index: 2;
+  animation: hmFloat 4.6s ease-in-out infinite;
 }
 .hm-hero-mascot {
   position: absolute;
-  right: -8%;
-  bottom: -1%;
+  right: -10%;
+  bottom: 15%;
   height: 118%;
   width: auto;
   max-width: 68%;
@@ -998,6 +999,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   object-position: right bottom;
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.5));
   z-index: 1;
+  animation: hmFloat 4.6s ease-in-out infinite;
 }
 .hm-hero-aside { display: none; }
 
@@ -1224,7 +1226,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   .hm-hero-num { font-size: clamp(34px, 11vw, 46px); }
   .hm-hero-unit { font-size: 13px; }
   .hm-hero-price { font-size: 20px; margin-bottom: 10px; }
-  .hm-hero-mascot { max-width: 70%; height: 116%; right: -10%; bottom: -1%; }
+  .hm-hero-mascot { max-width: 70%; height: 116%; right: -11%; bottom: 13%; }
   .hm-hero-chest { width: 46%; }
   .hm-hero-aside { font-size: 10px; max-width: 6.8em; top: 8px; right: 6px; }
   .hm-promo { grid-template-columns: 96px 1fr 78px; min-height: 132px; padding: 4px 8px 6px 0; }
@@ -1263,10 +1265,10 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   height: 100%;
   pointer-events: none;
 }
-.hm-hero-mascot {
-  animation: hmFloat 3.8s ease-in-out infinite;
-}
 .hm-hero-chest {
+  animation: hmFloat 4.6s ease-in-out infinite;
+}
+.hm-hero-mascot {
   animation: hmFloat 4.6s ease-in-out infinite;
 }
 .hm-promo-mascot {
