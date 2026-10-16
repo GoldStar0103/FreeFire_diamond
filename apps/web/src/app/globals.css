@@ -1005,14 +1005,15 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 
 .hm-promo {
   display: grid;
-  grid-template-columns: 118px 1fr 86px;
+  grid-template-columns: 148px 1fr 82px;
   align-items: center;
   gap: 6px 8px;
   position: relative;
   z-index: 2;
-  min-height: 148px;
+  min-height: 156px;
   margin-bottom: 14px;
-  padding: 8px 10px 10px 4px;
+  padding: 8px 10px 8px 2px;
+  overflow: visible;
   border-radius: 16px;
   border: 1px solid rgba(34, 211, 238, 0.45);
   background:
@@ -1024,10 +1025,11 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .hm-promo-art {
   position: relative;
   display: grid;
-  place-items: center;
-  width: 118px;
-  height: 132px;
+  place-items: end center;
+  width: 148px;
+  height: 148px;
   background: transparent;
+  overflow: visible;
 }
 .hm-promo-mascot,
 .hm-promo-gift,
@@ -1045,9 +1047,10 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .hm-promo-mascot {
   position: relative;
   z-index: 1;
-  width: 118px;
-  height: 132px;
+  width: 148px;
+  height: 148px;
   object-fit: contain;
+  object-position: center bottom;
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.4));
 }
 .hm-promo-copy {
@@ -1229,10 +1232,10 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   .hm-hero-mascot { max-width: 70%; height: 116%; right: -11%; bottom: 13%; }
   .hm-hero-chest { width: 46%; }
   .hm-hero-aside { font-size: 10px; max-width: 6.8em; top: 8px; right: 6px; }
-  .hm-promo { grid-template-columns: 96px 1fr 78px; min-height: 132px; padding: 4px 8px 6px 0; }
-  .hm-promo-art { width: 96px; height: 120px; }
-  .hm-promo-mascot { width: 96px; height: 120px; }
-  .hm-promo-gift { width: 78px; }
+  .hm-promo { grid-template-columns: 132px 1fr 68px; min-height: 148px; padding: 6px 8px 6px 0; }
+  .hm-promo-art { width: 132px; height: 136px; }
+  .hm-promo-mascot { width: 132px; height: 136px; }
+  .hm-promo-gift { width: 68px; }
   .hm-promo-copy h2 { font-size: 15px; margin-bottom: 8px; }
   .hm-promo-cta { padding: 7px 12px; font-size: 11px; }
   .hm-live-digit { min-width: 1.15em; height: 1.4em; font-size: 15px; }
