@@ -748,29 +748,29 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 
 .hm-season {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  padding: 7px 10px;
+  gap: 8px 10px;
+  padding: 8px 10px;
   margin-bottom: 12px;
   border-radius: 14px;
   background: var(--surface);
   border: 1px solid rgba(139, 92, 246, 0.4);
   box-shadow: 0 0 18px rgba(139, 92, 246, 0.12);
-  overflow: hidden;
 }
 .hm-season-players {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  flex: 1;
+  gap: 6px;
   min-width: 0;
-  overflow: hidden;
-  scrollbar-width: none;
 }
-.hm-season-players::-webkit-scrollbar { display: none; }
 .hm-season-label {
+  grid-column: 1;
+  grid-row: 1;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -788,9 +788,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
+  flex: none;
   padding: 3px 8px 3px 3px;
   border-radius: 999px;
   background: rgba(11, 13, 24, 0.55);
@@ -819,12 +817,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .hm-season-r1 img,
 .hm-season-r1 .avatar { outline: 2px solid #f5c84c; outline-offset: 1px; }
 .hm-season-name {
-  flex: 1 1 auto;
-  min-width: 4.5em;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: 12.5px;
   font-weight: 700;
+  white-space: nowrap;
 }
 .hm-season-diamonds {
   display: inline-flex;
@@ -837,7 +832,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 .hm-season-diamonds .icon { width: 12px; height: 12px; }
 .hm-season-more {
-  margin-left: auto;
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
   flex: none;
   padding: 3px 7px;
   border-radius: 999px;
