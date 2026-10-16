@@ -990,13 +990,12 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 .hm-hero-mascot {
   position: absolute;
-  right: -10%;
-  bottom: 15%;
-  height: 118%;
-  width: auto;
-  max-width: 68%;
+  top: 8px;
+  right: 8px;
+  width: 46%;
+  height: auto;
   object-fit: contain;
-  object-position: right bottom;
+  object-position: center top;
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.5));
   z-index: 1;
   animation: hmFloat 4.6s ease-in-out infinite;
@@ -1229,12 +1228,12 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   .hm-hero-num { font-size: clamp(34px, 11vw, 46px); }
   .hm-hero-unit { font-size: 13px; }
   .hm-hero-price { font-size: 20px; margin-bottom: 10px; }
-  .hm-hero-mascot { max-width: 70%; height: 116%; right: -11%; bottom: 13%; }
-  .hm-hero-chest { width: 46%; }
+  .hm-hero-mascot { top: 6px; right: 6px; bottom: auto; width: 46%; max-width: none; max-height: none; height: auto; }
+  .hm-hero-chest { width: 50%; right: 0; bottom: -2%; }
   .hm-hero-aside { font-size: 10px; max-width: 6.8em; top: 8px; right: 6px; }
-  .hm-promo { grid-template-columns: 132px 1fr 68px; min-height: 148px; padding: 6px 8px 6px 0; }
-  .hm-promo-art { width: 132px; height: 136px; }
-  .hm-promo-mascot { width: 132px; height: 136px; }
+  .hm-promo { grid-template-columns: 124px 1fr 64px; min-height: 148px; padding: 8px 8px 8px 8px; }
+  .hm-promo-art { width: 124px; height: 132px; }
+  .hm-promo-mascot { width: 124px; height: 132px; }
   .hm-promo-gift { width: 68px; }
   .hm-promo-copy h2 { font-size: 15px; margin-bottom: 8px; }
   .hm-promo-cta { padding: 7px 12px; font-size: 11px; }

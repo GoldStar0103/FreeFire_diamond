@@ -54,8 +54,8 @@ export function HeroScene() {
         baseY: number;
       }> = [];
 
-      for (let i = 0; i < 32; i += 1) {
-        const geo = new THREE.OctahedronGeometry(0.16 + Math.random() * 0.22, 0);
+      for (let i = 0; i < 16; i += 1) {
+        const geo = new THREE.OctahedronGeometry(0.08 + Math.random() * 0.08, 0);
         const mat = new THREE.MeshStandardMaterial({
           color: colors[i % colors.length],
           metalness: 0.72,
@@ -64,12 +64,10 @@ export function HeroScene() {
           emissiveIntensity: 0.55,
         });
         const mesh = new THREE.Mesh(geo, mat);
-        const y = -1.7 + Math.random() * 3.4;
-        const aroundChest = i < 22;
         mesh.position.set(
-          aroundChest ? 1.15 + Math.random() * 2.4 : -0.2 + Math.random() * 1.1,
-          y,
-          aroundChest ? 0.2 + Math.random() * 2.2 : 0.6 + Math.random() * 1.4,
+          1.2 + Math.random() * 0.7,
+          -1.85 + Math.random() * 0.25,
+          0.15 + Math.random() * 0.45,
         );
         mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
         scene.add(mesh);
@@ -77,7 +75,7 @@ export function HeroScene() {
           mesh,
           spin: new THREE.Vector3(0.5 + Math.random(), 0.7 + Math.random(), 0.3),
           phase: Math.random() * Math.PI * 2,
-          baseY: y,
+          baseY: mesh.position.y,
         });
       }
 
