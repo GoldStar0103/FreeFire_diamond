@@ -985,19 +985,19 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.45));
-  z-index: 1;
+  z-index: 2;
   animation: hmFloat 4.6s ease-in-out infinite;
 }
 .hm-hero-mascot {
   position: absolute;
-  top: 8px;
+  top: 36px;
   right: 8px;
   width: 46%;
   height: auto;
   object-fit: contain;
   object-position: center top;
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.5));
-  z-index: 2;
+  z-index: 1;
   animation: hmFloat 4.6s ease-in-out infinite;
 }
 .hm-hero-aside { display: none; }
@@ -1228,8 +1228,8 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   .hm-hero-num { font-size: clamp(34px, 11vw, 46px); }
   .hm-hero-unit { font-size: 13px; }
   .hm-hero-price { font-size: 20px; margin-bottom: 10px; }
-  .hm-hero-mascot { top: 4px; right: 4px; bottom: auto; width: 48%; max-width: none; max-height: none; height: auto; z-index: 2; }
-  .hm-hero-chest { width: 46%; right: 0; bottom: -2%; z-index: 1; }
+  .hm-hero-mascot { top: 28px; right: 4px; bottom: auto; width: 48%; max-width: none; max-height: none; height: auto; z-index: 1; }
+  .hm-hero-chest { width: 46%; right: 0; bottom: -2%; z-index: 2; }
   .hm-hero-aside { font-size: 10px; max-width: 6.8em; top: 8px; right: 6px; }
   .hm-promo { grid-template-columns: 138px 1fr 62px; min-height: 164px; padding: 8px 8px 6px 6px; align-items: end; }
   .hm-promo-art { width: 138px; height: 150px; }
