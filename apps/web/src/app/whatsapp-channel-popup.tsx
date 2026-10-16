@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChatIcon } from './icons';
+import cardArt from '../assets/make/whatsapp-community.png';
 
 const STORAGE_KEY = 'levelup_whatsapp_popup_hide_until';
 
@@ -11,10 +11,9 @@ function todayMexicoCity(): string {
 }
 
 /**
- * The site-wide "join our WhatsApp channel" popup the client asked for,
- * replacing a manual snippet+CSS hack they had on the old site. Shown once
- * per Mexico City day per browser — `localStorage`, not a cookie, since
- * nothing here needs the server to know about it.
+ * The site-wide "join our WhatsApp channel" popup the client asked for.
+ * The card is the approved artwork; the buttons sit on the painted controls.
+ * Shown once per Mexico City day per browser.
  */
 export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
   const [visible, setVisible] = useState(false);
@@ -28,9 +27,6 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
     }
     if (hideUntil === todayMexicoCity()) return;
 
-    // A beat after the page settles, not on first paint — a modal fighting
-    // the page for attention before anyone has seen what store this even is
-    // reads as spam, not a welcome.
     const timer = setTimeout(() => setVisible(true), 1200);
     return () => clearTimeout(timer);
   }, []);
@@ -48,31 +44,35 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
   };
 
   return (
-    <div className="wa-popup-overlay" role="dialog" aria-modal="true" aria-labelledby="wa-popup-title">
-      <div className="wa-popup card">
-        <button type="button" className="wa-popup-close" aria-label="Cerrar" onClick={dismiss}>
-          ✕
-        </button>
-        <div className="wa-popup-icon">
-          <ChatIcon className="icon" />
-        </div>
-        <h2 id="wa-popup-title" className="wa-popup-title">
+    <div className="wa-popup-overlay" onMouseDown={dismiss}>
+      <section
+        className="wa-popup"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="wa-popup-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 id="wa-popup-title" className="sr-only">
           ¡Únete a nuestra Comunidad!
         </h2>
-        <p className="wa-popup-text">
-          Recibe promociones exclusivas, sorteos y soporte directo en nuestro canal oficial de
-          WhatsApp.
-        </p>
-        <a href={channelUrl} target="_blank" rel="noreferrer" className="btn wide wa-popup-cta" onClick={dismiss}>
-          <ChatIcon className="icon" /> Unirme al canal
+        <img src={cardArt.src} alt="" />
+        <button type="button" className="wa-popup-close" aria-label="Cerrar" onClick={dismiss} />
+        <a
+          className="wa-popup-join"
+          href={channelUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={dismiss}
+        >
+          <span className="sr-only">Unirme al canal</span>
         </a>
-        <button type="button" className="btn ghost wide" onClick={dismiss}>
-          Continuar en la página
+        <button type="button" className="wa-popup-continue" onClick={dismiss}>
+          <span className="sr-only">Continuar en la página</span>
         </button>
-        <button type="button" className="wa-popup-hide-link" onClick={dismissForToday}>
-          No mostrar más por hoy
+        <button type="button" className="wa-popup-hide" onClick={dismissForToday}>
+          <span className="sr-only">No mostrar más por hoy</span>
         </button>
-      </div>
+      </section>
     </div>
   );
 }

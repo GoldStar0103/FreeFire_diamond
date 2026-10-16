@@ -1,92 +1,46 @@
 import type { Metadata } from 'next';
-import { Orbitron, Rajdhani } from 'next/font/google';
 import Link from 'next/link';
 import { getPublicTop50, listStorefront } from '@levelup/db';
 import { getCustomerSession } from '../lib/customer-session';
 import { getDb } from '../lib/server';
-import { loadHomeActivity } from '../lib/home-activity';
 import { loadAccountNotices } from '../lib/account-notices';
-import { diamonds, initials, mxn } from '../lib/format';
-import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
-import logo from '../assets/logo.webp';
-import mascotThumbs from '../assets/mascot/thumbs.webp';
-import mascotMegaphone from '../assets/mascot/mascot-megaphone.png';
-import chestDiamonds from '../assets/mascot/chest-diamonds.png';
-import giftBox from '../assets/mascot/gift-box.png';
-import mascotWink from '../assets/mascot/wink.webp';
-import mascotIdle from '../assets/mascot/idle.webp';
-import mascotHug from '../assets/mascot/hug-diamond.webp';
-import mascotWave from '../assets/mascot/wave.webp';
-import {
-  BoltIcon,
-  CartIcon,
-  CrownIcon,
-  DiamondIcon,
-  FacebookIcon,
-  HeadsetIcon,
-  InfinityIcon,
-  InstagramIcon,
-  ShieldIcon,
-  TikTokIcon,
-  UserIcon,
-} from './icons';
-import { HowItWorks } from './how-it-works';
-import { HeroScene } from './hero-scene';
-import { LiveMetrics } from './live-metrics';
+import heroArt from '../assets/make/home-hero.jpg';
+import lowerArt from '../assets/make/home-lower-approved.jpg';
+import offer1 from '../assets/make/offer-1.jpg';
+import offer2 from '../assets/make/offer-2.jpg';
+import offer3 from '../assets/make/offer-3.jpg';
+import offer4 from '../assets/make/offer-4.jpg';
 import { NotificationBell } from './notifications';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { alternates: { canonical: '/' } };
 
-const display = Orbitron({
-  subsets: ['latin'],
-  weight: ['700', '800', '900'],
-  variable: '--font-display',
-  display: 'swap',
-});
-const ui = Rajdhani({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
-  variable: '--font-ui',
-  display: 'swap',
-});
-
-const WHY_US = [
-  {
-    icon: BoltIcon,
-    tone: 'purple',
-    mascot: mascotWink,
-    title: 'Recargas automáticas',
-    text: 'Diamantes directo a tu cuenta cuando la entrega queda confirmada.',
-  },
-  {
-    icon: ShieldIcon,
-    tone: 'cyan',
-    mascot: mascotIdle,
-    title: 'Pago 100% seguro',
-    text: 'Métodos de pago confiables. Tu compra protegida.',
-  },
-  {
-    icon: InfinityIcon,
-    tone: 'green',
-    mascot: mascotHug,
-    title: 'Garantía de por vida',
-    text: 'Si una recarga entregada falla, la revisamos hasta dejarla resuelta.',
-  },
-  {
-    icon: HeadsetIcon,
-    tone: 'pink',
-    mascot: mascotWave,
-    title: 'Soporte LevelUp',
-    text: 'Estamos contigo antes y después de tu recarga.',
-  },
+const OFFERS = [
+  { src: offer1, title: 'Energía Insana', glow: 'mk-glow-1' },
+  { src: offer2, title: 'Recargas Locochonas', glow: 'mk-glow-2' },
+  { src: offer3, title: 'Super Packs', glow: 'mk-glow-3' },
+  { src: offer4, title: 'Descuentos Chidos', glow: 'mk-glow-4' },
 ] as const;
+
+function plain(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/** The flyer opens its live campaign when one is on sale. Otherwise it stays a sample. */
+function offerHref(campaigns: { key: string; name: string }[], title: string): string | null {
+  const needle = plain(title);
+  const match = campaigns.find((campaign) => {
+    const name = plain(campaign.name);
+    return name.includes(needle) || needle.includes(name);
+  });
+  return match ? `/promocion/${match.key}` : null;
+}
 
 type Ranked = Awaited<ReturnType<typeof getPublicTop50>>['rows'][number];
 
-/** Second, first, third — the approved ribbon, not rank order left to right. */
+/** Second, first, third — the order painted on the approved ribbon. */
 function podiumOrder(rows: Ranked[]): Ranked[] {
   const top = [...rows].sort((a, b) => a.rank - b.rank).slice(0, 3);
   if (top.length < 2) return top;
@@ -96,224 +50,139 @@ function podiumOrder(rows: Ranked[]): Ranked[] {
 
 export default async function HomePage() {
   const db = getDb();
-  const [campaigns, top50, session, activity] = await Promise.all([
+  const [campaigns, top50, session] = await Promise.all([
     listStorefront(db),
     getPublicTop50(db),
     getCustomerSession(),
-    loadHomeActivity(),
   ]);
   const notices = session ? await loadAccountNotices(session.playerProfileId, session.playerId) : [];
-
   const packs = campaigns.flatMap((campaign) => campaign.combos.map((combo) => ({ campaign, combo })));
   const featured =
     packs.find((p) => p.combo.advertisedDiamonds === 110) ??
     packs.find((p) => p.campaign.permanent) ??
     packs[0] ??
     null;
-
   const social = socialLinks();
-  const hasSocial = social.facebook || social.instagram || social.tiktok;
   const podium = podiumOrder(top50.rows);
-  const rail = campaigns.slice(0, 4);
+  const buyHref = featured ? `/comprar/${featured.combo.key}` : '/promociones';
 
   return (
-    <main className={`page hm ${display.variable} ${ui.variable}`}>
-      <header className="hm-bar">
-        <div className="hm-bar-side hm-bar-social">
-          {hasSocial && (
-            <div className="social-links">
-              {social.tiktok && (
-                <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
-                  <TikTokIcon className="icon" />
-                </a>
-              )}
-              {social.instagram && (
-                <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
-                  <InstagramIcon className="icon" />
-                </a>
-              )}
-              {social.facebook && (
-                <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
-                  <FacebookIcon className="icon" />
-                </a>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="hm-bar-brand">
-          <img src={logo.src} width={44} height={44} alt="" decoding="async" />
-          <div className="hm-bar-wordmark">
-            <span className="hm-bar-name">
-              LEVELUP <span className="grad">STORE</span>
-            </span>
-            <span className="hm-bar-place">MÉXICO</span>
-          </div>
-        </div>
-        <div className="hm-bar-side hm-bar-account">
+    <main className="make-home">
+      <h1 className="sr-only">LevelUp Store México</h1>
+      <section className="mk-hero" aria-label="LevelUp Store promociones principales">
+        <img className="mk-hero-art" src={heroArt.src} alt="" />
+        {social.tiktok && (
+          <a className="mk-hit mk-tiktok" href={social.tiktok} target="_blank" rel="noreferrer">
+            <span className="sr-only">TikTok</span>
+          </a>
+        )}
+        {social.instagram && (
+          <a className="mk-hit mk-instagram" href={social.instagram} target="_blank" rel="noreferrer">
+            <span className="sr-only">Instagram</span>
+          </a>
+        )}
+        {social.facebook && (
+          <a className="mk-hit mk-facebook" href={social.facebook} target="_blank" rel="noreferrer">
+            <span className="sr-only">Facebook</span>
+          </a>
+        )}
+        <div className="mk-hit mk-bell">
           <NotificationBell signedIn={Boolean(session)} notices={notices} />
-          <Link href="/cuenta" className="hm-bar-user" aria-label={session ? 'Mi cuenta' : 'Crear mi cuenta'}>
-            <UserIcon className="icon" />
-          </Link>
         </div>
-      </header>
-
-      {top50.season && (
-        <section className="hm-season" aria-label="Top de jugadores">
-          <Link href="/ranking" className="hm-season-label">
-            <CrownIcon className="icon" />
-            <span>
-              Temporada {top50.season.seasonNumber}
-              <em>Top de jugadores</em>
-            </span>
-          </Link>
-          <div className="hm-season-players">
-            {podium.length === 0 && (
-              <span className="hm-season-empty">Aún no hay jugadores en esta temporada.</span>
-            )}
-            {podium.map((player) => {
-              const name = player.displayName ?? 'Jugador';
-              const url = avatarUrl(player.avatarAssetUrl);
-              return (
-                <Link
-                  key={player.playerProfileId}
-                  href={`/jugador/${player.playerProfileId}`}
-                  className={`hm-season-player hm-season-r${player.rank}`}
-                >
-                  <span className="hm-season-rank" aria-hidden="true">
-                    {player.rank}
-                  </span>
-                  {url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt="" width={28} height={28} />
-                  ) : (
-                    <div className="avatar" aria-hidden="true">
-                      {initials(name)}
-                    </div>
-                  )}
-                  <span className="hm-season-name">{name}</span>
-                  <span className="hm-season-diamonds">
-                    <DiamondIcon className="icon" />
-                    {diamonds(player.seasonalDiamonds)}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-          <Link href="/ranking" className="hm-season-more">
-            Ver tabla completa →
-          </Link>
-        </section>
-      )}
-
-      {featured && (
-        <Link href={`/comprar/${featured.combo.key}`} className="hm-hero">
-          <HeroScene />
-          <div className="hm-hero-copy">
-            <div className="hm-hero-kicker">
-              <BoltIcon className="icon" />
-              Oferta especial
-            </div>
-            <div className="hm-hero-pack">
-              <span className="hm-hero-num grad">{diamonds(featured.combo.advertisedDiamonds)}</span>
-              <span className="hm-hero-unit">diamantes</span>
-            </div>
-            <div className="hm-hero-price">× {mxn(featured.combo.priceMxnCents)}</div>
-            <ul className="hm-hero-chips">
-              <li>
-                <BoltIcon className="icon" />
-                Entrega inmediata
-              </li>
-              <li>
-                <ShieldIcon className="icon" />
-                Pago seguro
-              </li>
-              <li>
-                <DiamondIcon className="icon" />
-                Mejor precio
-              </li>
-            </ul>
-          </div>
-          <div className="hm-hero-art" aria-hidden="true">
-            <img className="hm-hero-chest" src={chestDiamonds.src} alt="" decoding="async" />
-            <img className="hm-hero-mascot" src={mascotThumbs.src} alt="" decoding="async" />
-          </div>
-          <span className="hm-hero-cta">
-            <CartIcon className="icon" />
-            Comprar ahora →
-          </span>
+        <Link className="mk-hit mk-profile" href="/cuenta">
+          <span className="sr-only">{session ? 'Mi cuenta' : 'Crear mi cuenta'}</span>
         </Link>
-      )}
+        {[2, 1, 3].map((rank) => {
+          const player = podium.find((row) => row.rank === rank);
+          const slot = rank === 1 ? 2 : rank === 2 ? 1 : 3;
+          return (
+            <Link
+              key={rank}
+              className={`mk-hit mk-player mk-player-${slot}`}
+              href={player ? `/jugador/${player.playerProfileId}` : '/ranking'}
+            >
+              <span className="sr-only">
+                {player
+                  ? `Puesto ${player.rank}, ${player.displayName ?? 'Jugador'}`
+                  : `Puesto ${rank}`}
+              </span>
+            </Link>
+          );
+        })}
+        <Link className="mk-hit mk-ranking" href="/ranking">
+          <span className="sr-only">Ver tabla completa</span>
+        </Link>
+        <Link className="mk-hit mk-buy" href={buyHref}>
+          <span className="sr-only">Comprar ahora</span>
+        </Link>
+        <Link className="mk-hit mk-promo" href="/promociones">
+          <span className="sr-only">Ver ofertas</span>
+        </Link>
+      </section>
 
-      <Link href="/promociones" className="hm-promo">
-        <div className="hm-promo-art" aria-hidden="true">
-          <div className="hx-mascot-glow" />
-          <img className="hm-promo-mascot" src={mascotMegaphone.src} alt="" decoding="async" />
-        </div>
-        <div className="hm-promo-copy">
-          <h2>
-            Promociones
-            <span>nuevas</span>
-            todos los meses
+      <section className="mk-offers" id="ofertas" aria-labelledby="offers-title">
+        <header className="mk-offers-head">
+          <h2 id="offers-title">
+            <span aria-hidden="true">◇</span> OFERTAS <strong>DISPONIBLES</strong>
           </h2>
-          <span className="hm-promo-cta">Ver ofertas →</span>
-        </div>
-        <img className="hm-promo-gift" src={giftBox.src} alt="" decoding="async" />
-      </Link>
-
-      <LiveMetrics initial={activity} />
-
-      <div className="hm-ofertas-head">
-        <h2>Ofertas disponibles</h2>
-        <Link href="/promociones" className="hm-ofertas-more">
-          Ver más
-        </Link>
-      </div>
-      {rail.length > 0 ? (
-        <div className="hm-ofertas">
-          {rail.map((campaign) => {
-            const flyer = flyerUrl(campaign.flyerAssetUrl);
+          <Link href="/promociones">Ver más →</Link>
+        </header>
+        {OFFERS.every((offer) => !offerHref(campaigns, offer.title)) && (
+          <p className="mk-reference-note">Vista visual de referencia · campañas no activas</p>
+        )}
+        <div className="mk-offers-grid">
+          {OFFERS.map((offer) => {
+            const href = offerHref(campaigns, offer.title);
             return (
-              <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="hm-offer">
-                {flyer ? (
-                  <img className="hm-offer-flyer" src={flyer} alt={campaign.name} decoding="async" loading="lazy" />
-                ) : (
-                  <div className="hm-offer-flyer hm-offer-empty">{campaign.name}</div>
-                )}
+              <Link key={offer.title} className={`mk-offer ${offer.glow}`} href={href ?? '/promociones'}>
+                <img src={offer.src.src} alt="" />
+                <span className="sr-only">{href ? offer.title : `Creativo de muestra: ${offer.title}`}</span>
+                {!href && <span>MUESTRA VISUAL</span>}
               </Link>
             );
           })}
         </div>
-      ) : (
-        <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>
-      )}
-
-      <section className="hm-why">
-        <div className="hm-section-head">
-          <h2 className="section-title-lg">
-            ¿Por qué elegir <span className="grad">LevelUp Store</span>?
-          </h2>
-          <div className="hm-callout">
-            <span className="hm-bubble">¡Siempre contigo!</span>
-            <img src={mascotThumbs.src} alt="" width={88} height={96} decoding="async" loading="lazy" />
-          </div>
-        </div>
-        <div className="why-grid">
-          {WHY_US.map(({ icon: Icon, tone, mascot, title, text }) => (
-            <div key={title} className={`card why-item glow-${tone}`}>
-              <div className="why-item-top">
-                <div className={`trust-icon ${tone}`}>
-                  <Icon className="icon" />
-                </div>
-                <img className="why-mascot" src={mascot.src} alt="" decoding="async" loading="lazy" />
-              </div>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
-          ))}
-        </div>
       </section>
 
-      <HowItWorks />
+      <section className="mk-lower" id="como-funciona" aria-label="Beneficios y proceso de compra">
+        <img src={lowerArt.src} alt="Por qué elegir LevelUp Store y cómo funciona una recarga en cuatro pasos" />
+        <Link className="mk-art mk-art-inicio" href="/">
+          <span className="sr-only">Inicio</span>
+        </Link>
+        <Link className="mk-art mk-art-ofertas" href="/promociones">
+          <span className="sr-only">Ofertas</span>
+        </Link>
+        <a className="mk-art mk-art-como" href="#como-funciona">
+          <span className="sr-only">Cómo funciona</span>
+        </a>
+        <Link className="mk-art mk-art-soporte" href="/soporte">
+          <span className="sr-only">Soporte</span>
+        </Link>
+        <Link className="mk-art mk-art-terminos" href="/legal/terminos">
+          <span className="sr-only">Términos y condiciones</span>
+        </Link>
+        <Link className="mk-art mk-art-privacidad" href="/legal/privacidad">
+          <span className="sr-only">Política de privacidad</span>
+        </Link>
+        <Link className="mk-art mk-art-pagos" href="/confianza">
+          <span className="sr-only">Métodos de pago</span>
+        </Link>
+        {social.facebook && (
+          <a className="mk-art mk-art-fb" href={social.facebook} target="_blank" rel="noreferrer">
+            <span className="sr-only">Facebook</span>
+          </a>
+        )}
+        {social.instagram && (
+          <a className="mk-art mk-art-ig" href={social.instagram} target="_blank" rel="noreferrer">
+            <span className="sr-only">Instagram</span>
+          </a>
+        )}
+        {social.tiktok && (
+          <a className="mk-art mk-art-tt" href={social.tiktok} target="_blank" rel="noreferrer">
+            <span className="sr-only">TikTok</span>
+          </a>
+        )}
+      </section>
     </main>
   );
 }
