@@ -1171,7 +1171,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 .hm-offer-flyer {
   width: 100%;
-  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  object-position: center;
   background: var(--surface-2);
   display: block;
 }
