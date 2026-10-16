@@ -1142,6 +1142,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .hm-ofertas {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-items: start;
   gap: 12px;
   margin-bottom: 28px;
 }
@@ -1161,8 +1162,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 .hm-offer-flyer {
   width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: contain;
+  height: auto;
   background: var(--surface-2);
   display: block;
 }
