@@ -9,8 +9,6 @@ import { BottomNav } from './bottom-nav';
 import { WhatsappChannelPopup } from './whatsapp-channel-popup';
 import { whatsappChannelUrl } from '../lib/whatsapp-channel';
 import { legalIdentity, pending } from '../lib/legal';
-import { socialLinks } from '../lib/social';
-import { FacebookIcon, InstagramIcon, TikTokIcon } from './icons';
 import logo from '../assets/logo.webp';
 import './globals.css';
 
@@ -94,8 +92,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const metaId = metaPixelId();
   const tiktokId = tiktokPixelId();
   const channelUrl = whatsappChannelUrl();
-  const social = socialLinks();
-  const hasSocial = social.facebook || social.instagram || social.tiktok;
 
   return (
     <html lang="es-MX" className={outfit.className}>
@@ -105,56 +101,43 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {channelUrl && <WhatsappChannelPopup channelUrl={channelUrl} />}
         {children}
         <footer className="site-footer">
-          <div className="footer-grid">
-            <div className="footer-col footer-brand-col">
-              <div className="footer-brand">
-                <img src={logo.src} width={36} height={36} alt="" loading="lazy" decoding="async" />
-                <span>LEVELUP STORE</span>
-              </div>
-              <p className="footer-tag">Recargas de diamantes Free Fire, directo a tu cuenta.</p>
-            </div>
-            <div className="footer-col">
-              <h2>Navegación</h2>
-              <a href="/">Inicio</a>
-              <a href="/promociones">Promociones</a>
-              <a href="/cuenta">Mi cuenta</a>
-              <a href="/ranking">Ranking</a>
-              <a href="/pedidos">Mis pedidos</a>
-              <a href="/confianza">Confianza</a>
-              <a href="/soporte">Soporte</a>
-            </div>
-            <div className="footer-col">
-              <h2>Legal</h2>
-              <a href="/legal/terminos">Términos y Condiciones</a>
-              <a href="/legal/privacidad">Aviso de Privacidad</a>
-              <p className="footer-note">Operado por {pending(legalIdentity().legalName, 'razón social')}.</p>
-            </div>
-            {hasSocial && (
-              <div className="footer-col">
-                <h2>Síguenos</h2>
-                <div className="footer-social">
-                  {social.tiktok && (
-                    <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
-                      <TikTokIcon className="icon" />
-                    </a>
-                  )}
-                  {social.instagram && (
-                    <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
-                      <InstagramIcon className="icon" />
-                    </a>
-                  )}
-                  {social.facebook && (
-                    <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
-                      <FacebookIcon className="icon" />
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
+          {/* The logo on every page, not just the home hero: a buyer who lands
+              straight on a shared /comprar link should still see whose store
+              this is. Decorative here — the name sits right beside it. */}
+          <div className="footer-brand">
+            <img
+              src={logo.src}
+              width={36}
+              height={36}
+              alt=""
+              loading="lazy"
+              decoding="async"
+            />
+            <span>LEVELUP STORE</span>
           </div>
-          <div className="footer-notes">
-            <div className="footer-note">No afiliado a Garena. Free Fire es marca de sus respectivos dueños.</div>
+          <div className="footer-links">
+            <a href="/">Inicio</a>
+            <a href="/cuenta">Mi cuenta</a>
+            <a href="/ranking">Ranking</a>
+            <a href="/pedidos">Mis pedidos</a>
+            <a href="/confianza">Confianza</a>
+            {/* A real page now (see /soporte) rather than jumping straight to
+                WhatsApp — the client's own complaint was that support offered
+                nothing but a redirect. WhatsApp is still the fastest way to
+                actually reach someone; it is one tap away on that page. */}
+            <a href="/soporte">Soporte</a>
           </div>
+          <div className="footer-links small">
+            <a href="/legal/terminos">Términos y Condiciones</a>
+            <a href="/legal/privacidad">Aviso de Privacidad</a>
+          </div>
+          <div className="footer-note">
+            No afiliado a Garena. Free Fire es marca de sus respectivos dueños.
+          </div>
+          <div className="footer-note">
+            Operado por {pending(legalIdentity().legalName, 'razón social')}.
+          </div>
+          <div className="footer-note">Juega más. Domina más.</div>
         </footer>
         <BottomNav />
       </body>
