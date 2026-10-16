@@ -989,11 +989,11 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 .hm-hero-mascot {
   position: absolute;
-  right: -6%;
-  bottom: -3%;
-  height: 112%;
+  right: -8%;
+  bottom: -1%;
+  height: 118%;
   width: auto;
-  max-width: 70%;
+  max-width: 68%;
   object-fit: contain;
   object-position: right bottom;
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.5));
@@ -1224,7 +1224,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   .hm-hero-num { font-size: clamp(34px, 11vw, 46px); }
   .hm-hero-unit { font-size: 13px; }
   .hm-hero-price { font-size: 20px; margin-bottom: 10px; }
-  .hm-hero-mascot { max-width: 72%; height: 108%; right: -8%; bottom: -3%; }
+  .hm-hero-mascot { max-width: 70%; height: 116%; right: -10%; bottom: -1%; }
   .hm-hero-chest { width: 46%; }
   .hm-hero-aside { font-size: 10px; max-width: 6.8em; top: 8px; right: 6px; }
   .hm-promo { grid-template-columns: 96px 1fr 78px; min-height: 132px; padding: 4px 8px 6px 0; }
