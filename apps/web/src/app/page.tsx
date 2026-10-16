@@ -14,7 +14,7 @@ import { diamonds, initials, mxn, roundDownSignificant } from '../lib/format';
 import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
 import logo from '../assets/logo.webp';
-import mascotThumbs from '../assets/mascot/thumbs.webp';
+import heroAnnounce from '../assets/mascot/hero-announce.webp';
 import mascotMegaphone from '../assets/mascot/mascot-megaphone.png';
 import mascotIdle from '../assets/mascot/idle.webp';
 import chestDiamonds from '../assets/mascot/chest-diamonds.png';
@@ -249,7 +249,7 @@ export default async function HomePage() {
           </div>
           <div className="hm-hero-art" aria-hidden="true">
             <img className="hm-hero-chest" src={chestDiamonds.src} alt="" decoding="async" />
-            <img className="hm-hero-mascot" src={mascotThumbs.src} alt="" decoding="async" />
+            <img className="hm-hero-mascot" src={heroAnnounce.src} alt="" decoding="async" />
             <p className="hm-hero-aside">Más diamantes, más victorias</p>
           </div>
         </Link>
