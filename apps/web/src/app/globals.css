@@ -763,9 +763,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   grid-column: 1 / -1;
   grid-row: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 .hm-season-label {
@@ -787,8 +787,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .hm-season-player {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex: none;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
   padding: 3px 8px 3px 3px;
   border-radius: 999px;
   background: rgba(11, 13, 24, 0.55);
@@ -820,6 +821,9 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   font-size: 12.5px;
   font-weight: 700;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .hm-season-diamonds {
   display: inline-flex;

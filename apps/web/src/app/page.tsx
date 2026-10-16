@@ -207,10 +207,6 @@ export default async function HomePage() {
                     </div>
                   )}
                   <span className="hm-season-name">{name}</span>
-                  <span className="hm-season-diamonds">
-                    <DiamondIcon className="icon" />
-                    {diamonds(player.seasonalDiamonds)}
-                  </span>
                 </div>
               );
             })}
