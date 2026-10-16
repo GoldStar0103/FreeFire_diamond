@@ -215,7 +215,7 @@ export default async function HomePage() {
               );
             })}
           </div>
-          <span className="hm-season-more">Ver tabla completa</span>
+          <span className="hm-season-more">Ver tabla completa →</span>
         </Link>
       )}
 

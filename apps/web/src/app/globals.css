@@ -683,8 +683,18 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 }
 .hm-bar-side { display: flex; align-items: center; min-width: 0; }
 .hm-bar-social { justify-content: flex-start; }
-.hm-bar-social .social-links { gap: 10px; flex-wrap: nowrap; }
-.hm-bar-social .icon { width: 20px; height: 20px; }
+.hm-bar-social .social-links { gap: 8px; flex-wrap: nowrap; }
+.hm-bar-social .social-links a {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.hm-bar-social .icon { width: 18px; height: 18px; }
 .hm-bar-brand {
   display: flex;
   flex-direction: column;
@@ -719,7 +729,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -831,7 +841,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   container-type: inline-size;
   min-height: 318px;
   margin-bottom: 12px;
-  padding: 18px 14px 16px 18px;
+  padding: 18px 14px 78px 18px;
   border-radius: 20px;
   border: 1.5px solid rgba(167, 139, 250, 0.85);
   background:
@@ -846,8 +856,14 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
 .hm-hero-copy {
   position: relative;
   z-index: 2;
-  max-width: 54%;
+  max-width: none;
 }
+.hm-hero-kicker,
+.hm-hero-pack,
+.hm-hero-price {
+  max-width: 58%;
+}
+.hm-hero-chips { max-width: 72%; }
 .hm-hero-kicker {
   display: inline-flex;
   align-items: center;
@@ -884,12 +900,16 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   text-transform: uppercase;
 }
 .hm-hero-price {
-  color: var(--gold);
-  font-size: 26px;
+  display: inline-flex;
+  width: fit-content;
+  color: #1a1404;
+  background: var(--gold);
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
   margin-bottom: 14px;
-  text-shadow: 0 0 16px rgba(245, 200, 76, 0.35);
+  padding: 4px 10px;
+  border-radius: 8px;
   white-space: nowrap;
 }
 .hm-hero-chips {
@@ -897,7 +917,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   margin: 0 0 14px;
   padding: 0;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 5px;
 }
 .hm-hero-chips li {
@@ -913,14 +933,17 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   color: var(--text);
   line-height: 1.15;
   flex: none;
-  max-width: 7.2em;
 }
 .hm-hero-chips .icon { width: 13px; height: 13px; color: var(--accent-2); }
 .hm-hero-cta {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  width: 100%;
   padding: 12px 20px;
+  position: relative;
+  z-index: 3;
   border-radius: 999px;
   white-space: nowrap;
   background: var(--accent-2);
@@ -959,21 +982,7 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.5));
   z-index: 2;
 }
-.hm-hero-aside {
-  position: absolute;
-  top: 10px;
-  right: 8px;
-  margin: 0;
-  max-width: 7.2em;
-  text-align: right;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  line-height: 1.15;
-  text-transform: uppercase;
-  color: var(--accent-2);
-  text-shadow: 0 0 12px rgba(34, 211, 238, 0.45);
-}
+.hm-hero-aside { display: none; }
 
 .hm-promo {
   display: grid;
@@ -1179,18 +1188,23 @@ input:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
   .hm-bar-name { font-size: 15px; letter-spacing: 0.03em; }
   .hm-bar-place { font-size: 9px; }
   .hm-bar-brand img { width: 34px; height: 34px; }
+  .hm-bar-social .social-links { gap: 6px; }
+  .hm-bar-social .social-links a { width: 34px; height: 34px; border-radius: 12px; }
   .hm-bar-social .icon { width: 16px; height: 16px; }
-  .hm-bar-user { width: 34px; height: 34px; }
+  .hm-bar-user { width: 34px; height: 34px; border-radius: 12px; }
   .hm-bar-user .icon { width: 16px; height: 16px; }
   .hm-season { gap: 6px; padding: 6px 8px; }
   .hm-season-label { font-size: 10px; }
   .hm-season-name { font-size: 11px; }
   .hm-season-more { font-size: 11px; }
-  .hm-hero { min-height: 292px; padding: 14px 8px 12px 14px; }
-  .hm-hero-copy { max-width: 52%; }
+  .hm-hero { min-height: 0; padding: 14px 12px 64px 14px; }
+  .hm-hero-kicker,
+  .hm-hero-pack,
+  .hm-hero-price { max-width: 62%; }
+  .hm-hero-chips { max-width: 78%; }
   .hm-hero-num { font-size: clamp(34px, 11vw, 46px); }
   .hm-hero-unit { font-size: 13px; }
-  .hm-hero-price { font-size: 20px; }
+  .hm-hero-price { font-size: 18px; margin-bottom: 10px; }
   .hm-hero-mascot { max-width: 60%; height: 116%; right: 14%; bottom: -6%; }
   .hm-hero-chest { width: 46%; }
   .hm-hero-aside { font-size: 10px; max-width: 6.8em; top: 8px; right: 6px; }
