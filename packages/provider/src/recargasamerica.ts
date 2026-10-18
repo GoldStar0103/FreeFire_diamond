@@ -192,7 +192,22 @@ export class RecargasAmericaProvider implements TopupProvider {
   }
 
   async getBalance(): Promise<UsdTenK> {
-    const res = await this.call<{ balance: number | string; currency: string }>('GET', '/wallet');
+    let res = await this.call<{ balance: number | string; currency: string }>('GET', '/wallet');
+
+    // Observed in production: intermittent transport-level failures (reset
+    // connections, timeouts) on this exact endpoint, with no HTTP error body —
+    // the same flaky-provider shape validatePlayer already retries once for.
+    // getBalance is called on the critical fulfillment path (the pre-flight
+    // check, and the before/after pair an ambiguous purchase is reconciled
+    // against), so a transient blip here was aborting and alerting on whole
+    // orders that the worker's own retry would have completed moments later
+    // anyway. One silent retry, never a second one — a genuinely dead
+    // endpoint still surfaces as an error rather than doubling every call's
+    // latency.
+    if (!res.ok) {
+      res = await this.call<{ balance: number | string; currency: string }>('GET', '/wallet');
+    }
+
     if (!res.ok) throw new ProviderProtocolError(`Could not read wallet: ${res.message}`);
     return parseUsd(res.data.balance);
   }

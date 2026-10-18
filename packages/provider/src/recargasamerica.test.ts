@@ -227,3 +227,43 @@ describe('validatePlayer', () => {
     expect(callCount).toBe(1);
   });
 });
+
+describe('getBalance', () => {
+  // Observed in production on 2026-10-18: /wallet intermittently fails at
+  // the transport level (reset connections, timeouts) with no HTTP error
+  // body — the same flaky shape validatePlayer already retries once for.
+  it('retries once on a transport failure and returns the result of the second attempt', async () => {
+    const calls: Array<() => Promise<Response>> = [
+      async () => {
+        throw new Error('fetch failed');
+      },
+      async () => new Response(JSON.stringify({ success: true, data: { balance: '125.50', currency: 'USD' } }), { status: 200 }),
+    ];
+    const fetchImpl = (async () => calls.shift()!()) as unknown as typeof fetch;
+
+    const balance = await provider(fetchImpl).getBalance();
+    expect(balance).toBe(1_255_000);
+  });
+
+  it('throws if the retry also fails, without retrying a second time', async () => {
+    let callCount = 0;
+    const alwaysFailing = (async () => {
+      callCount += 1;
+      throw new Error('fetch failed');
+    }) as unknown as typeof fetch;
+
+    await expect(provider(alwaysFailing).getBalance()).rejects.toThrow(ProviderProtocolError);
+    expect(callCount).toBe(2);
+  });
+
+  it('does not retry a successful read — the fast path stays fast', async () => {
+    let callCount = 0;
+    const countingFetch = (async () => {
+      callCount += 1;
+      return new Response(JSON.stringify({ success: true, data: { balance: '50', currency: 'USD' } }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await provider(countingFetch).getBalance();
+    expect(callCount).toBe(1);
+  });
+});
