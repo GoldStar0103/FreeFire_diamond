@@ -20,6 +20,9 @@ importers:
       '@levelup/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@levelup/payments':
+        specifier: workspace:*
+        version: link:../../packages/payments
       '@levelup/provider':
         specifier: workspace:*
         version: link:../../packages/provider

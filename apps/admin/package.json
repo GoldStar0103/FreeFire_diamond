@@ -13,6 +13,7 @@
   "dependencies": {
     "@levelup/db": "workspace:*",
     "@levelup/engine": "workspace:*",
+    "@levelup/payments": "workspace:*",
     "@levelup/provider": "workspace:*",
     "@levelup/shared": "workspace:*",
     "drizzle-orm": "^0.36.0",

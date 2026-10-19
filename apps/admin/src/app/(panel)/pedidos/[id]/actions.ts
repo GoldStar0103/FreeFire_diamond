@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { applyReviewAction, approvePayment, type ReviewAction, type ReviewFailureCode } from '@levelup/engine';
+import { GatewayError, type ChargeState } from '@levelup/payments';
 import {
   DrizzlePaymentStore,
   DrizzleReviewStore,
@@ -9,6 +10,7 @@ import {
   reverseCompletedOrder,
 } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
+import { getMercadoPago } from '../../../../lib/mercadopago';
 import { requireSession } from '../../../../lib/session';
 
 export interface ReviewState {
@@ -288,5 +290,74 @@ export async function reverseOrder(_prev: ReverseState, formData: FormData): Pro
     ok: plan
       ? `Pedido revertido — se quitaron ${plan.lpRemoved} LP y ${plan.rankingDiamondsRemoved} 💎 del ranking.`
       : 'Pedido revertido. No tenía progreso de Level Pass que deshacer.',
+  };
+}
+
+export interface MpCheckState {
+  status: 'idle' | 'ok' | 'not_found' | 'error';
+  message?: string;
+  snapshot?: {
+    state: ChargeState;
+    amountReceivedCents: number | null;
+    paidAt: string | null;
+    reference: string | null;
+    voucherUrl: string | null;
+  };
+}
+
+/**
+ * Ask Mercado Pago directly what it has on file for this order — client
+ * request, 2026-10-19: a customer disputes a payment ("I paid, where's my
+ * order?") and the owner needs the gateway's own answer, not just our
+ * recorded state, to tell a real provider-side miss from a scam attempt.
+ *
+ * Read-only: never touches `payments`, never calls `approvePayment`. If the
+ * money really is there and unrecorded, that's still a job for "Liberar
+ * recarga" (or the reconciliation cron) — this button only answers the
+ * question, it doesn't act on it.
+ *
+ * Looked up by `orderNumber`, not the stored payment reference — see
+ * `MercadoPagoGateway.getCharge`'s own comment: a Mercado Pago Preference is
+ * closed the instant it's created, so the only thing ever searchable is the
+ * order number it was tagged with (`external_reference`).
+ */
+export async function checkMercadoPagoPayment(_prev: MpCheckState, formData: FormData): Promise<MpCheckState> {
+  await requireSession();
+
+  const orderNumber = String(formData.get('orderNumber') ?? '');
+  if (!orderNumber) return { status: 'error', message: 'Falta el pedido.' };
+
+  const gateway = getMercadoPago();
+  if (!gateway) return { status: 'error', message: 'Mercado Pago no está configurado en este servidor.' };
+
+  let snapshot;
+  try {
+    snapshot = await gateway.getCharge(orderNumber);
+  } catch (err) {
+    return {
+      status: 'error',
+      message:
+        err instanceof GatewayError
+          ? `Mercado Pago no respondió: ${err.message}`
+          : 'No se pudo contactar a Mercado Pago. Intenta de nuevo.',
+    };
+  }
+
+  if (!snapshot) {
+    return {
+      status: 'not_found',
+      message: 'Mercado Pago no tiene ningún pago registrado con este número de pedido.',
+    };
+  }
+
+  return {
+    status: 'ok',
+    snapshot: {
+      state: snapshot.state,
+      amountReceivedCents: snapshot.amountReceivedCents,
+      paidAt: snapshot.paidAt ? snapshot.paidAt.toISOString() : null,
+      reference: snapshot.reference ?? null,
+      voucherUrl: snapshot.voucherUrl ?? null,
+    },
   };
 }

@@ -6,6 +6,7 @@ import { requireSession } from '../../../../lib/session';
 import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import { ReleasePaymentButton } from './release-payment-button';
+import { CheckMercadoPagoButton } from './check-mercadopago-button';
 import { ReverseOrderForm } from './reverse-order-form';
 import { LpOverrideForm } from './lp-override-form';
 import {
@@ -274,6 +275,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         (order.payment?.method === 'spei' || order.payment?.method === 'oxxo') && (
           <ReleasePaymentButton orderId={order.orderId} orderNumber={order.orderNumber} />
         )}
+
+      {/* Mercado Pago only — Stripe's own dashboard link above already covers
+          card, and manual transfers have no gateway to ask. */}
+      {order.payment?.gateway === 'mercadopago' && (
+        <CheckMercadoPagoButton orderNumber={order.orderNumber} />
+      )}
 
       {/* Only for an order that actually earned Level Pass progress, and not
           one already reversed — its LP is gone and editing it would put
