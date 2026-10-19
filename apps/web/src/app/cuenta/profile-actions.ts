@@ -60,6 +60,26 @@ export async function saveAvatar(_prev: AvatarFormState, formData: FormData): Pr
   return { ok: true };
 }
 
+export interface CheckLinkedIdState {
+  status: 'idle' | 'found' | 'error';
+  playerId?: string;
+  nickname?: string;
+  message?: string;
+}
+
+/** Preview before spending this season's one allowed change — same reasoning as checkPlayerId in cuenta/actions.ts. */
+export async function checkLinkedPlayerId(
+  _prev: CheckLinkedIdState,
+  formData: FormData,
+): Promise<CheckLinkedIdState> {
+  const playerId = String(formData.get('playerId') ?? '').trim();
+  const verification = await verifyPlayerId(playerId);
+  if (!verification.ok) {
+    return { status: 'error', message: verification.message };
+  }
+  return { status: 'found', playerId, nickname: verification.nickname };
+}
+
 export interface LinkedIdFormState {
   error?: string;
   ok?: boolean;

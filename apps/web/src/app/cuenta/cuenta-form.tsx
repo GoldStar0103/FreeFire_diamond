@@ -2,9 +2,11 @@
 
 import { useActionState, useEffect, useState } from 'react';
 import {
+  checkPlayerId,
   completeSignup,
   requestOtp,
   verifyOtp,
+  type CheckPlayerIdState,
   type CompleteSignupState,
   type RequestOtpState,
   type VerifyOtpState,
@@ -20,6 +22,10 @@ export function CuentaForm() {
   const [verifyState, verifyAction, verifyPending] = useActionState<VerifyOtpState, FormData>(verifyOtp, {
     status: 'idle',
   });
+  const [checkState, checkAction, checkPending] = useActionState<CheckPlayerIdState, FormData>(
+    checkPlayerId,
+    { status: 'idle' },
+  );
   const [signupState, signupAction, signupPending] = useActionState<CompleteSignupState, FormData>(
     completeSignup,
     { status: 'idle' },
@@ -27,6 +33,7 @@ export function CuentaForm() {
 
   const [step, setStep] = useState<Step>('request');
   const [email, setEmail] = useState('');
+  const [identityConfirmed, setIdentityConfirmed] = useState(false);
 
   useEffect(() => {
     if (requestState.status === 'sent' && requestState.email) {
@@ -105,8 +112,35 @@ export function CuentaForm() {
   }
 
   if (step === 'signup') {
+    const found = checkState.status === 'found';
+
+    // Confirmed: swap to the real create-account submit. The hidden field
+    // carries the id forward, but completeSignup re-validates independently
+    // rather than trusting it — same principle as checkout's own placeOrder.
+    if (found && identityConfirmed) {
+      return (
+        <form className="card" action={signupAction}>
+          <input type="hidden" name="playerId" value={checkState.playerId} />
+          <div className="confirm">
+            <div className="confirm-q">Tu cuenta</div>
+            <div className="confirm-name">{checkState.nickname}</div>
+          </div>
+          <p className="hint">
+            Este ID es el que cuenta para el ranking. Puedes recargar otros IDs con la misma cuenta:
+            igual suman al Level Pass y La Bóveda. Solo puedes cambiarlo una vez por temporada.
+          </p>
+
+          {signupState.status === 'error' && <div className="alert bad">{signupState.message}</div>}
+
+          <button className="btn primary wide" type="submit" disabled={signupPending}>
+            {signupPending ? 'Creando cuenta…' : 'Crear mi cuenta'}
+          </button>
+        </form>
+      );
+    }
+
     return (
-      <form className="card" action={signupAction}>
+      <form className="card" action={checkAction}>
         <p className="hint">
           Este ID es el que cuenta para el ranking. Puedes recargar otros IDs con la misma cuenta:
           igual suman al Level Pass y La Bóveda. Solo puedes cambiarlo una vez por temporada.
@@ -119,17 +153,33 @@ export function CuentaForm() {
             inputMode="numeric"
             pattern="\d*"
             placeholder="123456789"
+            defaultValue={checkState.playerId ?? ''}
             required
             autoFocus
-            disabled={signupPending}
+            disabled={checkPending}
           />
         </label>
 
-        {signupState.status === 'error' && <div className="alert bad">{signupState.message}</div>}
+        {checkState.message && <div className="alert bad">{checkState.message}</div>}
 
-        <button className="btn primary wide" type="submit" disabled={signupPending}>
-          {signupPending ? 'Creando cuenta…' : 'Crear mi cuenta'}
-        </button>
+        {found ? (
+          <div className="confirm">
+            <div className="confirm-q">¿Eres tú?</div>
+            <div className="confirm-name">{checkState.nickname}</div>
+            <div className="row">
+              <button type="submit" className="btn ghost" disabled={checkPending}>
+                No, cambiar ID
+              </button>
+              <button type="button" className="btn primary" onClick={() => setIdentityConfirmed(true)}>
+                Sí, soy yo
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn primary wide" type="submit" disabled={checkPending}>
+            {checkPending ? 'Buscando…' : 'Buscar mi cuenta'}
+          </button>
+        )}
       </form>
     );
   }

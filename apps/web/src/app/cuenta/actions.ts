@@ -138,6 +138,35 @@ export async function verifyOtp(_prev: VerifyOtpState, formData: FormData): Prom
 
 // ── step 3: create the account (new emails only) ─────────────────────────────
 
+export interface CheckPlayerIdState {
+  status: 'idle' | 'found' | 'error';
+  playerId?: string;
+  nickname?: string;
+  message?: string;
+}
+
+/**
+ * Preview before committing — same reason checkout shows the nickname
+ * before charging anything: a player ID is a string of digits with no
+ * other confirmation, and seeing your own in-game name is both the typo
+ * check and the proof the account is real.
+ *
+ * Purely a preview. completeSignup below re-validates independently and
+ * never trusts a nickname carried in from the form — same as checkout's
+ * own placeOrder never trusting the client for exactly that reason.
+ */
+export async function checkPlayerId(
+  _prev: CheckPlayerIdState,
+  formData: FormData,
+): Promise<CheckPlayerIdState> {
+  const playerId = String(formData.get('playerId') ?? '').trim();
+  const verification = await verifyPlayerId(playerId);
+  if (!verification.ok) {
+    return { status: 'error', message: verification.message };
+  }
+  return { status: 'found', playerId, nickname: verification.nickname };
+}
+
 export interface CompleteSignupState {
   status: 'idle' | 'done' | 'error';
   message?: string;
