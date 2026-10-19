@@ -6,7 +6,7 @@ import { requireSession } from '../../../../lib/session';
 import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import { ReleasePaymentButton } from './release-payment-button';
-import { CheckMercadoPagoButton } from './check-mercadopago-button';
+import { CheckMercadoPagoButton, CheckMercadoPagoReferenceForm } from './check-mercadopago-button';
 import { ReverseOrderForm } from './reverse-order-form';
 import { LpOverrideForm } from './lp-override-form';
 import {
@@ -281,6 +281,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       {order.payment?.gateway === 'mercadopago' && (
         <CheckMercadoPagoButton orderNumber={order.orderNumber} />
       )}
+
+      {/* Not gated to this order's own gateway: a customer disputing a
+          manual-transfer or Stripe order can still wave around a real
+          Mercado Pago reference that actually belongs to a different
+          order — this is how that gets caught. */}
+      <CheckMercadoPagoReferenceForm currentOrderNumber={order.orderNumber} />
 
       {/* Only for an order that actually earned Level Pass progress, and not
           one already reversed — its LP is gone and editing it would put

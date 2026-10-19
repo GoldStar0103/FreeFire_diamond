@@ -110,6 +110,17 @@ interface MpPayment {
   } | null;
 }
 
+/** What `getPaymentById` reports: a raw payment reference, resolved to the order it actually belongs to. */
+export interface PaymentReferenceSnapshot {
+  paymentId: string;
+  state: ChargeState;
+  amountReceivedCents: number | null;
+  paidAt: Date | null;
+  /** The order this payment's `external_reference` actually names — null if it was never tied to one. */
+  orderNumber: string | null;
+  voucherUrl: string | null;
+}
+
 const TERMINAL_FAILED = new Set(['rejected', 'cancelled']);
 
 /** Mercado Pago's own states, reduced to the gateway-neutral ones this system acts on. */
@@ -326,6 +337,41 @@ export class MercadoPagoGateway implements PaymentGateway {
           : null,
       paidAt: payment.date_approved ? new Date(payment.date_approved) : null,
       reference: String(payment.id),
+      voucherUrl: payment.transaction_details?.external_resource_url ?? null,
+    };
+  }
+
+  /**
+   * The reverse lookup of `getCharge`: given a raw Mercado Pago payment id
+   * (the `reference` a customer might read off their own receipt and quote
+   * back), say which order it is actually tied to — or that it does not
+   * exist at all.
+   *
+   * Real need behind this, 2026-10-19: a customer sent the owner one real
+   * payment receipt, then tried to claim it covered a second order for the
+   * same pack too. The owner could see on Mercado Pago's own voucher that
+   * the reference didn't match, but had no way to independently confirm
+   * that from here — `getCharge` only answers "does order X have a
+   * payment", never "what order does payment Y actually belong to". This
+   * closes that gap: paste whatever reference the customer gives, and see
+   * `orderNumber` for the honest answer.
+   */
+  async getPaymentById(paymentId: string): Promise<PaymentReferenceSnapshot | null> {
+    let payment: MpPayment;
+    try {
+      payment = await this.request<MpPayment>('GET', `/v1/payments/${encodeURIComponent(paymentId)}`);
+    } catch (err) {
+      if (err instanceof MpNotFound) return null;
+      throw err;
+    }
+
+    const state = paymentState(payment);
+    return {
+      paymentId: String(payment.id),
+      state,
+      amountReceivedCents: state === 'paid' && payment.transaction_amount != null ? Math.round(payment.transaction_amount * 100) : null,
+      paidAt: payment.date_approved ? new Date(payment.date_approved) : null,
+      orderNumber: payment.external_reference ?? null,
       voucherUrl: payment.transaction_details?.external_resource_url ?? null,
     };
   }

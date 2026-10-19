@@ -361,3 +361,72 @@ export async function checkMercadoPagoPayment(_prev: MpCheckState, formData: For
     },
   };
 }
+
+export interface MpReferenceCheckState {
+  status: 'idle' | 'ok' | 'not_found' | 'error';
+  message?: string;
+  snapshot?: {
+    state: ChargeState;
+    amountReceivedCents: number | null;
+    paidAt: string | null;
+    orderNumber: string | null;
+    voucherUrl: string | null;
+  };
+}
+
+/**
+ * The reverse of `checkMercadoPagoPayment`: given a raw payment reference the
+ * customer quotes (off their own receipt, or a screenshot), say which order
+ * it is actually tied to on Mercado Pago's side — or that it isn't tied to
+ * any payment at all.
+ *
+ * Client request, 2026-10-19 (same dispute as `checkMercadoPagoPayment`): the
+ * owner could see on Mercado Pago's own voucher that a customer's claimed
+ * reference didn't match the order in question, but had no way to prove it —
+ * only "does this order have a payment", never "what order does this payment
+ * actually belong to". Same read-only guarantee: never touches `payments`,
+ * never approves anything.
+ */
+export async function checkMercadoPagoReference(
+  _prev: MpReferenceCheckState,
+  formData: FormData,
+): Promise<MpReferenceCheckState> {
+  await requireSession();
+
+  const paymentId = String(formData.get('paymentId') ?? '').trim();
+  if (!paymentId) return { status: 'error', message: 'Falta la referencia de pago.' };
+
+  const gateway = getMercadoPago();
+  if (!gateway) return { status: 'error', message: 'Mercado Pago no está configurado en este servidor.' };
+
+  let snapshot;
+  try {
+    snapshot = await gateway.getPaymentById(paymentId);
+  } catch (err) {
+    return {
+      status: 'error',
+      message:
+        err instanceof GatewayError
+          ? `Mercado Pago no respondió: ${err.message}`
+          : 'No se pudo contactar a Mercado Pago. Intenta de nuevo.',
+    };
+  }
+
+  if (!snapshot) {
+    return {
+      status: 'not_found',
+      message: 'Mercado Pago no tiene ningún pago con esa referencia. Es inventada o pertenece a otra cuenta.',
+    };
+  }
+
+  return {
+    status: 'ok',
+    snapshot: {
+      state: snapshot.state,
+      amountReceivedCents: snapshot.amountReceivedCents,
+      paidAt: snapshot.paidAt ? snapshot.paidAt.toISOString() : null,
+      orderNumber: snapshot.orderNumber,
+      voucherUrl: snapshot.voucherUrl ?? null,
+    },
+  };
+}

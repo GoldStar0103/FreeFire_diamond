@@ -360,6 +360,46 @@ describe('gatewayChargeId round-trip', () => {
   });
 });
 
+describe('getPaymentById', () => {
+  it('reports which order a raw payment reference actually belongs to', async () => {
+    const { impl, calls } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          id: 'pay_9',
+          status: 'approved',
+          transaction_amount: 85,
+          external_reference: 'LU-261015-M292',
+          date_approved: '2026-10-15T03:28:32.000Z',
+          transaction_details: { external_resource_url: 'https://www.mercadopago.com.mx/payments/pay_9/ticket' },
+        },
+      },
+    ]);
+
+    const result = await gateway(impl).getPaymentById('pay_9');
+    expect(result).toEqual({
+      paymentId: 'pay_9',
+      state: 'paid',
+      amountReceivedCents: 8_500,
+      paidAt: new Date('2026-10-15T03:28:32.000Z'),
+      orderNumber: 'LU-261015-M292',
+      voucherUrl: 'https://www.mercadopago.com.mx/payments/pay_9/ticket',
+    });
+    expect(calls[0]?.url).toBe('https://api.mercadopago.com/v1/payments/pay_9');
+  });
+
+  it('returns null for a payment id Mercado Pago has never heard of', async () => {
+    const { impl } = fakeFetch([{ status: 404, body: { message: 'not found' } }]);
+    expect(await gateway(impl).getPaymentById('nope')).toBeNull();
+  });
+
+  it('reports a null order number when the payment was never tied to one', async () => {
+    const { impl } = fakeFetch([{ status: 200, body: { id: 'pay_9', status: 'pending' } }]);
+    const result = await gateway(impl).getPaymentById('pay_9');
+    expect(result?.orderNumber).toBeNull();
+  });
+});
+
 describe('paymentState', () => {
   it('treats every unrecognised or in-flight status as pending, never as settled', () => {
     for (const status of ['authorized', 'in_process', 'in_mediation'] as const) {
