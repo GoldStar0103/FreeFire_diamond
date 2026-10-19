@@ -33,6 +33,7 @@ import {
 } from '../../lib/customer-session.js';
 import { getDb, otpRequestLimiter } from '../../lib/server.js';
 import { buildEmailSender } from '../../lib/email-sender.js';
+import { verifyPlayerId } from '../../lib/player-validation.js';
 
 const OTP_TTL_MS = 10 * 60_000;
 const OTP_MAX_ATTEMPTS = 5;
@@ -149,8 +150,13 @@ export async function completeSignup(_prev: CompleteSignupState, formData: FormD
   }
 
   const playerId = String(formData.get('playerId') ?? '').trim();
-  if (!/^\d{6,15}$/.test(playerId)) {
-    return { status: 'error', message: 'El ID de Free Fire debe tener entre 6 y 15 números.' };
+
+  // Checked against the provider, not just the digit-count shape: an ID
+  // that was never real stays wrong for this account's whole lifetime —
+  // every future recharge and every Level Pass reward — not just one order.
+  const verification = await verifyPlayerId(playerId);
+  if (!verification.ok) {
+    return { status: 'error', message: verification.message };
   }
 
   const db = getDb();

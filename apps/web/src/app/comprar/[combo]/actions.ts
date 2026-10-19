@@ -1,10 +1,9 @@
 'use server';
 
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import {
   attachGatewayCharge,
-  baseProducts,
   DrizzleOrderingStore,
   DrizzlePaymentStore,
   getPaymentDetails,
@@ -16,6 +15,7 @@ import { ValidationUnsupportedError } from '@levelup/provider';
 import type { PaymentGateway } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
 import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
+import { validationProductId } from '../../../lib/player-validation';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
@@ -109,25 +109,6 @@ export interface CheckoutState {
   checkoutUrl?: string;
   /** Where the client should send the original tab once `checkoutUrl` opens. */
   orderPageUrl?: string;
-}
-
-/**
- * The product used for validation lookups. Validation never charges.
- *
- * Any recharge-type product validates the same account, so the cheapest one
- * on the books — nothing expensive is being touched. Active only: when the
- * provider replaces its product ids, the retired rows stay in the table (and
- * the 100 💎 one is still the cheapest), and validating against a dead id would
- * fail every customer at step one.
- */
-async function validationProductId(): Promise<string | null> {
-  const [row] = await getDb()
-    .select({ providerProductId: baseProducts.providerProductId })
-    .from(baseProducts)
-    .where(and(eq(baseProducts.canValidate, true), eq(baseProducts.active, true)))
-    .orderBy(baseProducts.diamondsBase)
-    .limit(1);
-  return row?.providerProductId ?? null;
 }
 
 type ConfirmResult = { ok: true; nickname: string } | { ok: false; message: string };

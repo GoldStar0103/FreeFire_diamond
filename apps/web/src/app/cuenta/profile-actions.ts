@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { changeLinkedPlayerId, setFeaturedBadges, updateAvatar, updateDisplayName } from '@levelup/db';
 import { createCustomerSessionToken } from '../../lib/customer-auth.js';
 import { getDb } from '../../lib/server.js';
+import { verifyPlayerId } from '../../lib/player-validation.js';
 import {
   requireCustomerSession,
   clearCustomerSessionCookie,
@@ -69,7 +70,16 @@ export async function saveLinkedPlayerId(
   formData: FormData,
 ): Promise<LinkedIdFormState> {
   const session = await requireCustomerSession();
-  const result = await changeLinkedPlayerId(getDb(), session.playerProfileId, String(formData.get('playerId') ?? ''));
+  const playerId = String(formData.get('playerId') ?? '').trim();
+
+  // Checked against the provider before it is spent on this season's one
+  // allowed change — same reasoning as signup: a linked ID that was never
+  // real silently breaks every future recharge and Level Pass reward for
+  // this account, not just one order.
+  const verification = await verifyPlayerId(playerId);
+  if (!verification.ok) return { error: verification.message };
+
+  const result = await changeLinkedPlayerId(getDb(), session.playerProfileId, playerId);
   if (!result.ok) {
     return {
       error:
