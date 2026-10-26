@@ -220,22 +220,29 @@ export class RecargasAmericaProvider implements TopupProvider {
         { product_id: coerceId(providerProductId), service_user_id: playerId },
       );
 
-    let res = await attempt();
-
     // The provider's own lookup is observably flaky on a brand-new player ID:
     // the exact same request that just failed reliably succeeds on an
     // immediate retry, which is otherwise indistinguishable from "come back
-    // later" to a first-time buyer deciding whether this store is real. One
-    // silent retry here is cheaper than losing that buyer to a false alarm —
-    // never retried again after this, so a genuinely dead endpoint still
-    // surfaces as an error rather than doubling every request's latency.
+    // later" to a first-time buyer deciding whether this store is real.
+    //
+    // Originally one silent retry (two attempts total). Raised to two retries
+    // (three attempts) on 2026-10-26: production logs over a week showed
+    // isolated single timeouts (not part of a multi-minute outage burst)
+    // still occasionally surviving the first retry too — e.g. 2026-10-26
+    // 16:45 UTC, reported by the client, where both of two 12s attempts timed
+    // out back to back. A third attempt is cheap insurance against exactly
+    // that shape and still bounded — never retried a third time after this,
+    // so a genuinely dead endpoint (the multi-minute "en mantenimiento"
+    // bursts also seen in those logs) still surfaces as an error within a few
+    // extra seconds rather than hanging the form indefinitely.
     //
     // Unlike the old /pins/validate, a capability rejection is not a
     // transport-level failure any more — it comes back as `res.ok` with
     // `supported: false` (handled below) — so unconditionally retrying a real
     // `!res.ok` here is correct: there is no longer a definitive-failure case
     // hiding inside it worth skipping the retry for.
-    if (!res.ok) {
+    let res = await attempt();
+    for (let i = 0; i < 2 && !res.ok; i++) {
       res = await attempt();
     }
 

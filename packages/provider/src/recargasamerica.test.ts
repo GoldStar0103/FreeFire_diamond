@@ -157,10 +157,10 @@ describe('validatePlayer', () => {
   // The client reported this exact pattern in production: a brand-new
   // player ID fails validation the first time and then succeeds on an
   // immediate retry with the identical request — the provider's own lookup
-  // is flaky on a cold ID, not our request. One silent retry here is what
-  // turns that into a single successful search instead of a customer having
-  // to click twice (or worse, giving up).
-  it('retries once on a failed lookup and returns the result of the second attempt', async () => {
+  // is flaky on a cold ID, not our request. The retry here is what turns
+  // that into a single successful search instead of a customer having to
+  // click twice (or worse, giving up).
+  it('retries on a failed lookup and returns the result of the second attempt', async () => {
     const result = await provider(
       fakeFetch([
         { status: 502, body: { success: false, error: 'Upstream error' } },
@@ -174,9 +174,28 @@ describe('validatePlayer', () => {
     expect(result).toEqual({ found: true, nickname: 'ShadowFF' });
   });
 
-  it('throws if the retry also fails, without retrying a second time', async () => {
+  // 2026-10-26: production showed a single customer lookup where both of two
+  // back-to-back attempts timed out, surfacing the hard error — the one
+  // retry wasn't always enough. A third attempt recovers that case.
+  it('retries a second time and returns the result of the third attempt', async () => {
+    const result = await provider(
+      fakeFetch([
+        { status: 502, body: { success: false, error: 'Upstream error' } },
+        { status: 502, body: { success: false, error: 'Upstream error' } },
+        {
+          status: 200,
+          body: { success: true, data: { supported: true, status: true, account_name: 'ShadowFF' } },
+        },
+      ]),
+    ).validatePlayer('351', '182938102');
+
+    expect(result).toEqual({ found: true, nickname: 'ShadowFF' });
+  });
+
+  it('throws if all three attempts fail, without retrying a fourth time', async () => {
     const calls: Array<{ status: number; body: unknown }> = [
       { status: 502, body: { success: false, error: 'Upstream error' } },
+      { status: 502, body: { success: false, error: 'Still down' } },
       { status: 502, body: { success: false, error: 'Still down' } },
     ];
     let callCount = 0;
@@ -191,7 +210,7 @@ describe('validatePlayer', () => {
     await expect(provider(countingFetch).validatePlayer('351', '182938102')).rejects.toThrow(
       ProviderProtocolError,
     );
-    expect(callCount).toBe(2);
+    expect(callCount).toBe(3);
   });
 
   it('does not retry a capability rejection (supported:false) — it is a 200, not a transport failure', async () => {
