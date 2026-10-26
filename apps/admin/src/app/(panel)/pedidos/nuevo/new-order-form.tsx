@@ -64,7 +64,7 @@ export function NewOrderForm({ combos }: { combos: ComboOption[] }) {
               <div className="alert ok">
                 <div className="row">
                   <div>
-                    Cuenta encontrada: <strong>{lookup.nickname}</strong>
+                    Cuenta encontrada: <strong>{lookup.nickname ?? 'verificada, sin nombre disponible'}</strong>
                   </div>
                   <div className="spacer" />
                   <button
@@ -81,7 +81,7 @@ export function NewOrderForm({ combos }: { combos: ComboOption[] }) {
         ) : (
           <div className="row">
             <div>
-              <strong>{lookup.nickname}</strong>
+              <strong>{lookup.nickname ?? 'Cuenta verificada'}</strong>
               <div className="mono" style={{ color: 'var(--muted)', fontSize: 13 }}>
                 ID {lookup.playerId}
               </div>

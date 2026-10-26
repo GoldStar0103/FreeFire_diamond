@@ -29,7 +29,7 @@ import { trackingContext } from '../../../lib/tracking';
 export interface ValidateState {
   status: 'idle' | 'found' | 'not_found' | 'error';
   playerId?: string;
-  nickname?: string;
+  nickname?: string | null;
   message?: string;
 }
 
@@ -72,7 +72,12 @@ export async function validatePlayer(
   try {
     const result = await getProvider().validatePlayer(validator, playerId);
 
-    if (!result.found || !result.nickname) {
+    // `found` is the provider's actual answer on whether the account exists.
+    // `nickname` can legitimately be null on a real account (a stale
+    // validate-only product id can return `status: true, account_name:
+    // null` — confirmed in production 2026-10-26) — the UI below falls back
+    // to a generic confirmation when that happens.
+    if (!result.found) {
       return {
         status: 'not_found',
         playerId,
@@ -111,7 +116,7 @@ export interface CheckoutState {
   orderPageUrl?: string;
 }
 
-type ConfirmResult = { ok: true; nickname: string } | { ok: false; message: string };
+type ConfirmResult = { ok: true; nickname: string | null } | { ok: false; message: string };
 
 /**
  * `placeOrder` and `payWithCard` are public POST endpoints in their own
@@ -142,7 +147,7 @@ async function confirmPlayer(playerId: string): Promise<ConfirmResult> {
 
   try {
     const result = await getProvider().validatePlayer(productId, playerId);
-    if (!result.found || !result.nickname) {
+    if (!result.found) {
       return { ok: false, message: 'No encontramos ese ID de Free Fire. Revísalo por favor.' };
     }
     return { ok: true, nickname: result.nickname };

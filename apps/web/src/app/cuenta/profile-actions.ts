@@ -63,7 +63,7 @@ export async function saveAvatar(_prev: AvatarFormState, formData: FormData): Pr
 export interface CheckLinkedIdState {
   status: 'idle' | 'found' | 'error';
   playerId?: string;
-  nickname?: string;
+  nickname?: string | null;
   message?: string;
 }
 

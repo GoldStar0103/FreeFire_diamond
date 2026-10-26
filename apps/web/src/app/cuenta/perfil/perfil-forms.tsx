@@ -81,7 +81,7 @@ export function LinkedIdForm({
         <input type="hidden" name="playerId" value={checkState.playerId} />
         <div className="confirm">
           <div className="confirm-q">Nuevo ID</div>
-          <div className="confirm-name">{checkState.nickname}</div>
+          <div className="confirm-name">{checkState.nickname ?? 'Cuenta verificada'}</div>
         </div>
         <p className="hint">
           Solo este ID suma al ranking de la temporada. Puedes recargar otros IDs y igual suman al
@@ -121,7 +121,7 @@ export function LinkedIdForm({
       {found ? (
         <div className="confirm">
           <div className="confirm-q">¿Eres tú?</div>
-          <div className="confirm-name">{checkState.nickname}</div>
+          <div className="confirm-name">{checkState.nickname ?? 'Cuenta verificada'}</div>
           <div className="row">
             <button type="submit" className="btn ghost" disabled={checkPending}>
               No, cambiar ID

@@ -123,7 +123,7 @@ export function CuentaForm() {
           <input type="hidden" name="playerId" value={checkState.playerId} />
           <div className="confirm">
             <div className="confirm-q">Tu cuenta</div>
-            <div className="confirm-name">{checkState.nickname}</div>
+            <div className="confirm-name">{checkState.nickname ?? 'Cuenta verificada'}</div>
           </div>
           <p className="hint">
             Este ID es el que cuenta para el ranking. Puedes recargar otros IDs con la misma cuenta:
@@ -165,7 +165,7 @@ export function CuentaForm() {
         {found ? (
           <div className="confirm">
             <div className="confirm-q">¿Eres tú?</div>
-            <div className="confirm-name">{checkState.nickname}</div>
+            <div className="confirm-name">{checkState.nickname ?? 'Cuenta verificada'}</div>
             <div className="row">
               <button type="submit" className="btn ghost" disabled={checkPending}>
                 No, cambiar ID

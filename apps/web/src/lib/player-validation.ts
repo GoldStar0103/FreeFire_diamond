@@ -26,7 +26,7 @@ export async function validationProductId(): Promise<string | null> {
 }
 
 export type PlayerIdVerification =
-  | { ok: true; nickname: string }
+  | { ok: true; nickname: string | null }
   | { ok: false; message: string };
 
 /**
@@ -59,7 +59,13 @@ export async function verifyPlayerId(playerId: string): Promise<PlayerIdVerifica
 
   try {
     const result = await getProvider().validatePlayer(productId, playerId);
-    if (!result.found || !result.nickname) {
+    // `found` is the actual answer — the provider has confirmed this account
+    // exists. `nickname` can come back null even on a real account (seen in
+    // production 2026-10-26: a stale validate-only product id returns
+    // `status: true, account_name: null`); treating that as "not found" was
+    // the bug, not a flaky lookup. The nickname is a nice-to-have proof for
+    // the customer, not the source of truth on whether the ID is real.
+    if (!result.found) {
       return { ok: false, message: 'No encontramos ese ID de Free Fire. Revísalo e intenta de nuevo.' };
     }
     return { ok: true, nickname: result.nickname };

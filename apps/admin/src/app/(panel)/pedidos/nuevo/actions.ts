@@ -12,7 +12,7 @@ import { requireSession } from '../../../../lib/session';
 export interface LookupState {
   status: 'idle' | 'found' | 'not_found' | 'error';
   playerId?: string;
-  nickname?: string;
+  nickname?: string | null;
   message?: string;
 }
 
@@ -52,7 +52,10 @@ export async function lookupPlayer(
 
   try {
     const result = await getProvider().validatePlayer(productId, playerId);
-    return result.found && result.nickname
+    // `found` is the provider's real answer; `nickname` can come back null
+    // on a genuine account (confirmed in production 2026-10-26 against a
+    // stale validate-only product id), so it is not required to proceed.
+    return result.found
       ? { status: 'found', playerId, nickname: result.nickname }
       : { status: 'not_found', playerId, message: 'No existe esa cuenta de Free Fire.' };
   } catch (err) {
@@ -103,10 +106,10 @@ export async function createManualOrder(
   const productId = await validationProductId();
   if (!productId) return { error: 'Corre la sincronización del catálogo primero.' };
 
-  let nickname: string;
+  let nickname: string | null;
   try {
     const check = await getProvider().validatePlayer(productId, playerId);
-    if (!check.found || !check.nickname) {
+    if (!check.found) {
       return { error: 'No existe esa cuenta de Free Fire. Revisa el ID.' };
     }
     nickname = check.nickname;

@@ -141,7 +141,7 @@ export async function verifyOtp(_prev: VerifyOtpState, formData: FormData): Prom
 export interface CheckPlayerIdState {
   status: 'idle' | 'found' | 'error';
   playerId?: string;
-  nickname?: string;
+  nickname?: string | null;
   message?: string;
 }
 

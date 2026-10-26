@@ -385,7 +385,7 @@ export function Checkout({
   const identityRow = (
     <div className="row confirmed" style={{ marginBottom: 16 }}>
       <div>
-        <div className="confirm-name">{validation.nickname}</div>
+        <div className="confirm-name">{validation.nickname ?? 'Cuenta verificada'}</div>
         <div className="hint mono">ID {validation.playerId}</div>
       </div>
       <div className="spacer" />
@@ -455,7 +455,7 @@ export function Checkout({
             {found ? (
               <div className="confirm">
                 <div className="confirm-q">¿Eres tú?</div>
-                <div className="confirm-name">{validation.nickname}</div>
+                <div className="confirm-name">{validation.nickname ?? 'Cuenta verificada'}</div>
                 <div className="row">
                   <button type="submit" className="btn ghost" disabled={validating}>
                     No, cambiar ID
