@@ -17,6 +17,21 @@ import { setPixelUserData, trackPixel } from '../../../lib/pixel';
 import { BankIcon, CardIcon, StoreIcon } from '../../icons';
 
 /**
+ * Instagram, TikTok and other in-app browsers run the page inside their own
+ * WKWebView and hand `window.open()` off to a *separate* Safari process —
+ * the blank tab opens fine, but this page's reference to it can no longer
+ * navigate it afterward. The write to `.location.href` below just silently
+ * does nothing, no error, no sign anything went wrong — the customer is left
+ * staring at a permanently blank tab. Almost all of this store's traffic
+ * arrives through exactly these apps (see the root layout), so this is not
+ * an edge case.
+ */
+function isInAppBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Instagram|FBAN|FBAV|TikTok|BytedanceWebview|musical_ly/i.test(navigator.userAgent || '');
+}
+
+/**
  * Send the customer to Stripe in a new tab, keeping this one on the order
  * page — Stripe's own hosted confirmation for OXXO/SPEI does not redirect
  * back on its own, so leaving the whole page there was a dead end.
@@ -27,8 +42,10 @@ import { BankIcon, CardIcon, StoreIcon } from '../../icons';
  * exist to stop, since by then there is no user gesture left to point to.
  * Opening a blank tab now and pointing it at the real URL once it arrives
  * keeps it inside that gesture. If the popup was blocked anyway (some
- * browsers block even this), falling back to sending the whole tab, exactly
- * like before, beats leaving the customer stuck with no way to pay.
+ * browsers block even this), or we are inside an in-app browser that cannot
+ * navigate a popup it opened (see `isInAppBrowser` above), falling back to
+ * sending the whole tab, exactly like before, beats leaving the customer
+ * stuck with no way to pay.
  */
 function useStripeTabRedirect(state: CheckoutState) {
   const popup = useRef<Window | null>(null);
@@ -46,12 +63,35 @@ function useStripeTabRedirect(state: CheckoutState) {
   }, [state.checkoutUrl, state.orderPageUrl]);
 
   return () => {
+    // Left null on purpose for in-app browsers — the effect above already
+    // falls back to sending the whole tab whenever there is no usable popup.
+    if (isInAppBrowser()) return;
     popup.current = window.open('about:blank', '_blank');
   };
 }
 
-/** Shown right above the button on any form that is about to pop up the gateway's own page. */
+/**
+ * Shown right above the button on any form that is about to send the
+ * customer to the gateway's own page. The copy has to match
+ * `useStripeTabRedirect`'s actual behavior — in an in-app browser this tab
+ * navigates away instead of opening a new one, so promising a "pestaña
+ * nueva" there would be telling the customer to expect something that is
+ * not going to happen.
+ */
 function GatewayTabNotice({ provider }: { provider: string }) {
+  const [inApp, setInApp] = useState(false);
+  useEffect(() => setInApp(isInAppBrowser()), []);
+
+  if (inApp) {
+    return (
+      <div className="alert warn" style={{ marginBottom: 12 }}>
+        🔒 Al confirmar te llevamos a la página segura de {provider} en esta misma pestaña. Si no
+        regresas sola al terminar, usa el botón de atrás de tu navegador para volver a ver tu
+        pedido.
+      </div>
+    );
+  }
+
   return (
     <div className="alert warn" style={{ marginBottom: 12 }}>
       🪟 Al confirmar se abrirá una <strong>pestaña nueva</strong> para pagar en {provider}. Cuando
