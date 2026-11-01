@@ -53,11 +53,36 @@ function useStripeTabRedirect(state: CheckoutState) {
 
   useEffect(() => {
     if (!state.checkoutUrl) return;
-    if (popup.current && !popup.current.closed) {
-      popup.current.location.href = state.checkoutUrl;
-      if (state.orderPageUrl) router.push(state.orderPageUrl);
+    const checkoutUrl = state.checkoutUrl;
+    const win = popup.current;
+    if (win && !win.closed) {
+      win.location.href = checkoutUrl;
+      // `isInAppBrowser()` only catches the apps that brand their in-app
+      // browser's user agent (Instagram/Facebook/TikTok). WhatsApp — this
+      // store's single biggest traffic source (see root layout) — does not,
+      // so there is no string to sniff for it. Rather than chase every app's
+      // UA one at a time, check the symptom instead: if the popup is still
+      // sitting on `about:blank` a beat after we told it to navigate, the
+      // write above silently did nothing (same failure as the Instagram
+      // case) and we fall back to sending the whole tab. Reading
+      // `.location.href` throws once the popup *has* navigated to the
+      // gateway's (cross-origin) page, which this treats as success.
+      window.setTimeout(() => {
+        let stuck: boolean;
+        try {
+          stuck = win.location.href === 'about:blank';
+        } catch {
+          stuck = false;
+        }
+        if (stuck) {
+          win.close();
+          window.location.href = checkoutUrl;
+        } else if (state.orderPageUrl) {
+          router.push(state.orderPageUrl);
+        }
+      }, 700);
     } else {
-      window.location.href = state.checkoutUrl;
+      window.location.href = checkoutUrl;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.checkoutUrl, state.orderPageUrl]);
