@@ -14,15 +14,30 @@ import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
 import type { PaymentGateway } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
-import { callerIp, getDb, getProvider, validationLimiter } from '../../../lib/server';
+import { callerIp, getDb, getProvider, stuckRedirectLimiter, validationLimiter } from '../../../lib/server';
 import { validationProductId } from '../../../lib/player-validation';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
-import { notifyNewOrder } from '../../../lib/telegram';
+import { notifyNewOrder, notifyStuckGatewayRedirect } from '../../../lib/telegram';
 import { trackingContext } from '../../../lib/tracking';
+
+/**
+ * Called by `useStripeTabRedirect` (checkout.tsx) when its popup-tab redirect
+ * didn't work and it fell back to a same-tab one. See
+ * `notifyStuckGatewayRedirect` for why this exists — the customer is already
+ * recovered by the time it fires, this is purely so a human finds out which
+ * browser did it. Rate-limited per IP since this is unauthenticated and
+ * takes arbitrary text; the Telegram side dedupes by user agent on top of
+ * that.
+ */
+export async function reportStuckGatewayRedirect(userAgent: string): Promise<void> {
+  const decision = stuckRedirectLimiter.check(await callerIp());
+  if (!decision.allowed) return;
+  await notifyStuckGatewayRedirect(userAgent.slice(0, 300));
+}
 
 // ── step 1: who is this player? ───────────────────────────────────────────────
 

@@ -54,6 +54,38 @@ export async function notifyNewOrder(
   await sendTelegramNotice(text, 'new-order', fetchImpl);
 }
 
+/**
+ * Seen user agents that already triggered `notifyStuckGatewayRedirect` this
+ * process lifetime. In-memory and reset on every deploy/restart — not meant
+ * to be durable, only to stop one broken in-app browser from paging a human
+ * once per customer who hits it instead of once per app.
+ */
+const alertedStuckRedirectUserAgents = new Set<string>();
+
+/**
+ * `useStripeTabRedirect` (checkout.tsx) opens a popup for the payment gateway
+ * and falls back to a same-tab redirect if that popup is still stuck on
+ * `about:blank` a moment later — the symptom of an in-app browser that
+ * handed `window.open()` to a process it can no longer drive (WhatsApp did
+ * this on 2026-11-01; see `lib/in-app-browser.ts`). The customer recovers on
+ * their own by the time this fires — this exists only so a human learns
+ * which app it was, instead of finding out from a support screenshot days
+ * later.
+ */
+export async function notifyStuckGatewayRedirect(
+  userAgent: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  if (alertedStuckRedirectUserAgents.has(userAgent)) return;
+  alertedStuckRedirectUserAgents.add(userAgent);
+
+  const text = [
+    '🧩 Pago atorado en una pestaña emergente (el cliente se recuperó solo)',
+    `User agent: ${userAgent}`,
+  ].join('\n');
+  await sendTelegramNotice(text, 'stuck-gateway-redirect', fetchImpl);
+}
+
 /** One line per method — was hardcoded to the card wording alone until OXXO/SPEI got real methods. */
 const GATEWAY_SALE_HEADLINE: Record<string, string> = {
   card: '✅ Venta con tarjeta',

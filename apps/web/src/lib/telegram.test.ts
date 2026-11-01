@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { notifyGatewaySale, notifyNewOrder } from './telegram.js';
+import { notifyGatewaySale, notifyNewOrder, notifyStuckGatewayRedirect } from './telegram.js';
 
 const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALERT_CHAT_ID'] as const;
 const saved: Record<string, string | undefined> = {};
@@ -104,6 +104,42 @@ describe('notifyGatewaySale', () => {
 
     await expect(
       notifyGatewaySale({ ...NOTICE, method: 'card' }, fetchImpl as unknown as typeof fetch),
+    ).resolves.toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('notifyStuckGatewayRedirect', () => {
+  it('posts the user agent that got stuck', async () => {
+    setEnv('test-token', '12345');
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{}', { status: 200 }));
+
+    await notifyStuckGatewayRedirect('TestUA/1 stuck-ua-unique-1', fetchImpl as unknown as typeof fetch);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [, init] = fetchImpl.mock.calls[0]!;
+    const body = JSON.parse(init!.body as string);
+    expect(body.text).toContain('TestUA/1 stuck-ua-unique-1');
+  });
+
+  it('only alerts once per distinct user agent, so one broken browser does not page a human per customer', async () => {
+    setEnv('test-token', '12345');
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{}', { status: 200 }));
+    const ua = 'TestUA/1 stuck-ua-unique-2';
+
+    await notifyStuckGatewayRedirect(ua, fetchImpl as unknown as typeof fetch);
+    await notifyStuckGatewayRedirect(ua, fetchImpl as unknown as typeof fetch);
+    await notifyStuckGatewayRedirect(ua, fetchImpl as unknown as typeof fetch);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when Telegram is not configured, rather than throwing', async () => {
+    setEnv(undefined, undefined);
+    const fetchImpl = vi.fn();
+
+    await expect(
+      notifyStuckGatewayRedirect('TestUA/1 stuck-ua-unique-3', fetchImpl as unknown as typeof fetch),
     ).resolves.toBeUndefined();
     expect(fetchImpl).not.toHaveBeenCalled();
   });

@@ -23,6 +23,8 @@ declare global {
   // eslint-disable-next-line no-var
   var __webOtpRequestLimiter: RateLimiter | undefined;
   // eslint-disable-next-line no-var
+  var __webStuckRedirectLimiter: RateLimiter | undefined;
+  // eslint-disable-next-line no-var
   var __webProvider: TopupProvider | undefined;
 }
 
@@ -101,6 +103,21 @@ export const otpRequestLimiter: RateLimiter =
     windowMs: Number(process.env.OTP_REQUEST_RATE_WINDOW_MS ?? 10 * 60_000),
   });
 if (process.env.NODE_ENV !== 'production') globalThis.__webOtpRequestLimiter = otpRequestLimiter;
+
+/**
+ * Guards `reportStuckGatewayRedirect` — an unauthenticated action that takes
+ * arbitrary text (the caller's own user agent) and forwards it to Telegram.
+ * A real occurrence is rare (one in-app browser failing to navigate a
+ * popup); this limit only exists to stop someone spamming the alert channel
+ * directly, not to constrain legitimate traffic.
+ */
+export const stuckRedirectLimiter: RateLimiter =
+  globalThis.__webStuckRedirectLimiter ??
+  createRateLimiter({
+    limit: Number(process.env.STUCK_REDIRECT_RATE_LIMIT ?? 5),
+    windowMs: Number(process.env.STUCK_REDIRECT_RATE_WINDOW_MS ?? 10 * 60_000),
+  });
+if (process.env.NODE_ENV !== 'production') globalThis.__webStuckRedirectLimiter = stuckRedirectLimiter;
 
 function buildProvider(): TopupProvider {
   if (process.env.WEB_DRY_RUN === 'true') {
