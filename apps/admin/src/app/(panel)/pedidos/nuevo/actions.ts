@@ -3,7 +3,12 @@
 import { and, eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { baseProducts, DrizzleOrderingStore, DrizzlePaymentStore } from '@levelup/db';
+import {
+  baseProducts,
+  DrizzleOrderingStore,
+  DrizzlePaymentStore,
+  getActiveProvider as getActiveProviderSetting,
+} from '@levelup/db';
 import { approvePayment, createOrder, type CreateOrderFailure } from '@levelup/engine';
 import { getDb } from '../../../../lib/db';
 import { getActiveProvider } from '../../../../lib/provider';
@@ -23,12 +28,25 @@ export interface CreateState {
 /**
  * Any recharge-type product validates the same account; validation is free.
  * Active only — a product id the provider has retired stays in the table.
+ *
+ * Scoped to whichever provider is currently active — `base_products` holds
+ * both providers' rows at once, so an unscoped query here can return the
+ * OTHER provider's id, which then fails every validate call once it is
+ * handed to the active provider's client. See `apps/web`'s identical fix
+ * for the same bug, surfaced by the first live dual-provider test.
  */
 async function validationProductId(): Promise<string | null> {
+  const { provider } = await getActiveProviderSetting(getDb());
   const [row] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
-    .where(and(eq(baseProducts.canValidate, true), eq(baseProducts.active, true)))
+    .where(
+      and(
+        eq(baseProducts.provider, provider),
+        eq(baseProducts.canValidate, true),
+        eq(baseProducts.active, true),
+      ),
+    )
     .orderBy(baseProducts.diamondsBase)
     .limit(1);
   return row?.providerProductId ?? null;

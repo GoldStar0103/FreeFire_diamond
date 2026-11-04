@@ -15,6 +15,7 @@ import { parseUsd } from '@levelup/provider';
 import type { AvailableProduct, CampaignDraft, ComboDraft } from '@levelup/engine';
 import type { Database } from '../index.js';
 import { auditLog, baseProducts, campaigns, comboItems, combos } from '../schema.js';
+import { getActiveProvider } from './provider-routing.js';
 
 export interface CampaignOption {
   id: string;
@@ -30,16 +31,20 @@ export class DrizzleCatalogAdminStore {
    * Denominations the provider currently offers, for the recipe builder —
    * one entry per face value, not one per underlying row.
    *
-   * `base_products` is unique on `provider_product_id`, not on
+   * `base_products` is unique on `(provider, provider_product_id)`, not on
    * `diamonds_base` (schema.ts's own comment on that index): a SKU rotation
    * deactivates the old row instead of deleting it, so a denomination can
-   * genuinely have several rows over time, old ones inactive. Left
+   * genuinely have several rows over time, old ones inactive — and now, with
+   * two providers, can have two simultaneously-active rows at once. Left
    * ungrouped, the recipe builder showed the same amount as several buttons,
    * and `reviewComboDraft`'s own `Map` keying by `diamondsBase` could land on
    * whichever duplicate happened to come last and wrongly refuse an amount
    * that a still-active row covers — the exact bug the client hit with 5600.
+   * Scoped to the active provider so the price shown is the one a save will
+   * actually use (see `saveCombo`).
    */
   async listAvailableProducts(): Promise<AvailableProduct[]> {
+    const { provider } = await getActiveProvider(this.db);
     const rows = await this.db
       .select({
         diamondsBase: baseProducts.diamondsBase,
@@ -47,6 +52,7 @@ export class DrizzleCatalogAdminStore {
         active: baseProducts.active,
       })
       .from(baseProducts)
+      .where(eq(baseProducts.provider, provider))
       .orderBy(asc(baseProducts.diamondsBase));
 
     const byDenomination = new Map<number, AvailableProduct>();
@@ -117,16 +123,26 @@ export class DrizzleCatalogAdminStore {
    * Recipe entries resolve to the ACTIVE product for each denomination, so a
    * combo saved today points at whatever the provider currently sells rather
    * than at a withdrawn SKU that happens to share the denomination.
+   *
+   * Scoped to the currently active provider — without this, saving ANY
+   * combo while both providers have active rows (the normal state once
+   * Central One exists as a failover target) could silently repoint its
+   * recipe onto the wrong provider's id, bypassing `activateProvider`'s
+   * atomic repoint entirely and leaving a combo selling through a different
+   * provider than the one everything else — its locks, its wallet tracking
+   * — believes is active.
    */
   async saveCombo(
     draft: ComboDraft,
     options: { campaignId: string; sortOrder: number; adminUserId: string | null },
   ): Promise<{ comboId: string; created: boolean }> {
+    const { provider: activeProvider } = await getActiveProvider(this.db);
+
     return this.db.transaction(async (tx) => {
       const products = await tx
         .select({ id: baseProducts.id, diamondsBase: baseProducts.diamondsBase })
         .from(baseProducts)
-        .where(eq(baseProducts.active, true));
+        .where(and(eq(baseProducts.provider, activeProvider), eq(baseProducts.active, true)));
 
       const byDenomination = new Map(products.map((p) => [p.diamondsBase, p.id]));
 

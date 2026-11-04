@@ -15,6 +15,7 @@ import { pesosToCentavos, checkRecipe } from '@levelup/shared/money';
 import { CAMPAIGNS } from '../../../phase0/catalog.mjs';
 import { createDb } from './index.js';
 import { campaigns, combos, comboItems, baseProducts, settings } from './schema.js';
+import { getActiveProvider } from './adapters/provider-routing.js';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error('DATABASE_URL is not set');
@@ -44,6 +45,9 @@ async function seed() {
   let itemCount = 0;
   let skippedRecipes = 0;
   const shortfalls: string[] = [];
+  // Scoped so a re-seed after Central One exists still wires recipes to
+  // whichever provider is actually active, not an arbitrary one of the two.
+  const { provider: activeProvider } = await getActiveProvider(db);
 
   for (const [campaignIndex, campaign] of CAMPAIGNS.entries()) {
     const campaignRow = requireOne(
@@ -122,7 +126,13 @@ async function seed() {
         const [product] = await db
           .select({ id: baseProducts.id })
           .from(baseProducts)
-          .where(and(eq(baseProducts.diamondsBase, denomination), eq(baseProducts.active, true)))
+          .where(
+            and(
+              eq(baseProducts.provider, activeProvider),
+              eq(baseProducts.diamondsBase, denomination),
+              eq(baseProducts.active, true),
+            ),
+          )
           .orderBy(desc(baseProducts.lastSyncedAt))
           .limit(1);
 

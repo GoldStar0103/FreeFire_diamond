@@ -1,6 +1,6 @@
 import 'server-only';
 import { and, eq } from 'drizzle-orm';
-import { baseProducts } from '@levelup/db';
+import { baseProducts, getActiveProvider as getActiveProviderSetting } from '@levelup/db';
 import { ValidationUnsupportedError } from '@levelup/provider';
 import { callerIp, getActiveProvider, getDb, validationLimiter } from './server.js';
 
@@ -14,12 +14,28 @@ const PLAYER_ID_PATTERN = /^\d{6,15}$/;
  * provider replaces its product ids, the retired rows stay in the table (and
  * the 100 💎 one is still the cheapest), and validating against a dead id would
  * fail every customer at step one.
+ *
+ * Scoped to whichever provider is currently active: `base_products` holds
+ * both providers' rows simultaneously (each one's own background catalog
+ * sync keeps them both populated, ready to switch to), so without this an
+ * unqualified "cheapest active, validatable row" query can just as easily
+ * return the OTHER provider's id — which `getActiveProvider()` here then
+ * calls with, producing a product id that provider has never heard of. That
+ * is exactly the bug a dual-provider deploy surfaced: Central One rejecting
+ * a validate call made with RecargasAmérica's raw id, or the reverse.
  */
 export async function validationProductId(): Promise<string | null> {
+  const { provider } = await getActiveProviderSetting(getDb());
   const [row] = await getDb()
     .select({ providerProductId: baseProducts.providerProductId })
     .from(baseProducts)
-    .where(and(eq(baseProducts.canValidate, true), eq(baseProducts.active, true)))
+    .where(
+      and(
+        eq(baseProducts.provider, provider),
+        eq(baseProducts.canValidate, true),
+        eq(baseProducts.active, true),
+      ),
+    )
     .orderBy(baseProducts.diamondsBase)
     .limit(1);
   return row?.providerProductId ?? null;
