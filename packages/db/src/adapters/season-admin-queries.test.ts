@@ -108,7 +108,7 @@ describe.skipIf(!PG_AVAILABLE)('getSeasonRanges', () => {
   });
 });
 
-describe('hasAnySeason / getCurrentSeason', () => {
+describe.skipIf(!PG_AVAILABLE)('hasAnySeason / getCurrentSeason', () => {
   it('reports no season and no current season on a fresh database', async () => {
     expect(await hasAnySeason(db)).toBe(false);
     expect(await getCurrentSeason(db)).toBeNull();
@@ -124,7 +124,7 @@ describe('hasAnySeason / getCurrentSeason', () => {
   });
 });
 
-describe('startFirstSeason', () => {
+describe.skipIf(!PG_AVAILABLE)('startFirstSeason', () => {
   it('creates season 1 with the configured length, and logs it', async () => {
     const adminUserId = await seedAdmin();
     const now = new Date('2026-01-01T00:00:00Z');
@@ -164,7 +164,7 @@ describe('startFirstSeason', () => {
   });
 });
 
-describe('listSeasonHistory', () => {
+describe.skipIf(!PG_AVAILABLE)('listSeasonHistory', () => {
   it('is empty when nothing has closed yet', async () => {
     await db.insert(seasons).values({ seasonNumber: 1, startsAt: new Date(), endsAt: new Date(), status: 'active' });
     expect(await listSeasonHistory(db)).toEqual([]);

@@ -87,7 +87,7 @@ async function seedSeason(overrides: Partial<typeof seasons.$inferInsert> = {}) 
   return season!;
 }
 
-describe('findDueSeasons', () => {
+describe.skipIf(!PG_AVAILABLE)('findDueSeasons', () => {
   it('returns an active season whose end date has already passed', async () => {
     const season = await seedSeason({ endsAt: new Date('2026-03-01') });
     const store = new DrizzleSeasonStore(db);
@@ -111,7 +111,7 @@ describe('findDueSeasons', () => {
   });
 });
 
-describe('getSeasonRanking', () => {
+describe.skipIf(!PG_AVAILABLE)('getSeasonRanking', () => {
   it('orders players by seasonal diamonds, descending', async () => {
     const season = await seedSeason();
     const low = await seedProfile('100001', 'Low');
@@ -135,7 +135,7 @@ describe('getSeasonRanking', () => {
   });
 });
 
-describe('closeSeason', () => {
+describe.skipIf(!PG_AVAILABLE)('closeSeason', () => {
   function plan(overrides: Partial<SeasonClosePlan>, seasonId: string): SeasonClosePlan {
     return {
       seasonId,

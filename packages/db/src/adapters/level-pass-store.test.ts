@@ -98,7 +98,7 @@ async function seedOneCombo() {
       raw: {},
     } satisfies ProviderProduct,
   ]);
-  await syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider });
+  await syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider, providerName: 'recargas_america' });
 
   const [product] = await db.select().from(baseProducts);
   const [campaign] = await db.insert(campaigns).values({ key: 'test', name: 'TEST' }).returning();
@@ -189,7 +189,7 @@ beforeEach(async () => {
   await saveFxRate(db, 20); // round number for exact-cents assertions
 });
 
-describe('findActiveSeason', () => {
+describe.skipIf(!PG_AVAILABLE)('findActiveSeason', () => {
   it('returns null when there is no active season', async () => {
     const store = new DrizzleLevelPassStore(db);
     expect(await store.findActiveSeason()).toBeNull();
@@ -211,7 +211,7 @@ describe('findActiveSeason', () => {
   });
 });
 
-describe('getPlayerState', () => {
+describe.skipIf(!PG_AVAILABLE)('getPlayerState', () => {
   it('returns null for a Free Fire ID with no linked account', async () => {
     const season = await seedActiveSeason();
     const store = new DrizzleLevelPassStore(db);
@@ -257,7 +257,7 @@ describe('getPlayerState', () => {
   });
 });
 
-describe('getCheckpointConfig', () => {
+describe.skipIf(!PG_AVAILABLE)('getCheckpointConfig', () => {
   it('returns the default ladder when nothing has been configured', async () => {
     const store = new DrizzleLevelPassStore(db);
     expect(await store.getCheckpointConfig()).toEqual(DEFAULT_LEVEL_PASS_CHECKPOINTS);
@@ -274,7 +274,7 @@ describe('getCheckpointConfig', () => {
   });
 });
 
-describe('hasProcessedOrder', () => {
+describe.skipIf(!PG_AVAILABLE)('hasProcessedOrder', () => {
   it('is false for an order with no transaction row, true once one exists', async () => {
     const season = await seedActiveSeason();
     const profile = await seedProfile('100001');
@@ -304,7 +304,7 @@ const decision = (overrides: Partial<LevelPassDecision> = {}): LevelPassDecision
   ...overrides,
 });
 
-describe('applyDecision', () => {
+describe.skipIf(!PG_AVAILABLE)('applyDecision', () => {
   it('records the LP transaction with the exact financial figures given', async () => {
     const season = await seedActiveSeason();
     const profile = await seedProfile('100001');
@@ -495,7 +495,7 @@ describe('applyDecision', () => {
   });
 });
 
-describe('findUnprocessedOrders', () => {
+describe.skipIf(!PG_AVAILABLE)('findUnprocessedOrders', () => {
   it('returns a completed order with its computed financials, and excludes an already-processed one', async () => {
     const season = await seedActiveSeason();
     await seedProfile('100001');
@@ -656,7 +656,7 @@ describe('findUnprocessedOrders', () => {
   });
 });
 
-describe('reward delivery', () => {
+describe.skipIf(!PG_AVAILABLE)('reward delivery', () => {
   async function seedCheckpointEvent(
     seasonId: string,
     playerProfileId: string,

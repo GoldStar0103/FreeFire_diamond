@@ -75,6 +75,9 @@ export const resolutionSource = pgEnum('resolution_source', [
   'manual', // an admin decided
 ]);
 
+/** Which backend fulfils a purchase. `recargas_america` is primary; `central_one` is the automatic failover. */
+export const providerName = pgEnum('provider_name', ['recargas_america', 'central_one']);
+
 export const paymentMethod = pgEnum('payment_method', [
   'transfer_manual', // BBVA / OXXO deposit + comprobante — the launch path
   'spei',
@@ -102,6 +105,7 @@ export const baseProducts = pgTable(
   'base_products',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    provider: providerName('provider').notNull().default('recargas_america'),
     providerProductId: text('provider_product_id').notNull(),
     endpointKind: endpointKind('endpoint_kind').notNull(),
     sku: text('sku'),
@@ -119,7 +123,7 @@ export const baseProducts = pgTable(
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('base_products_provider_id_idx').on(t.providerProductId)],
+  (t) => [uniqueIndex('base_products_provider_id_idx').on(t.provider, t.providerProductId)],
 );
 
 // ── merchandising ─────────────────────────────────────────────────────────────
@@ -308,6 +312,8 @@ export const orderItems = pgTable(
     baseProductId: uuid('base_product_id').references(() => baseProducts.id, {
       onDelete: 'set null',
     }),
+    /** Snapshotted at creation/repoint time — keeps correct attribution even after a later switch back. */
+    provider: providerName('provider').notNull().default('recargas_america'),
     providerProductId: text('provider_product_id').notNull(),
     diamondsBase: integer('diamonds_base').notNull(),
 

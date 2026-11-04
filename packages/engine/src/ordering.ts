@@ -19,7 +19,7 @@
 
 import { checkRecipe } from '@levelup/shared/money';
 import type { UsdTenK } from '@levelup/provider';
-import type { EndpointKind } from '@levelup/provider';
+import type { EndpointKind, ProviderName } from '@levelup/provider';
 // Payment concepts live in payments.ts; ordering only needs to record the
 // chosen method on the payment row it creates alongside the order.
 import type { PaymentMethod } from './payments.js';
@@ -29,6 +29,7 @@ export type { PaymentMethod };
 export interface RecipeEntry {
   sequence: number;
   baseProductId: string;
+  provider: ProviderName;
   providerProductId: string;
   endpointKind: EndpointKind;
   diamondsBase: number;
@@ -106,6 +107,7 @@ export interface ComboSnapshot {
 export interface NewOrderItem {
   sequence: number;
   baseProductId: string;
+  provider: ProviderName;
   providerProductId: string;
   diamondsBase: number;
   costUsd: UsdTenK;
@@ -323,6 +325,7 @@ export async function createOrder(
       // fulfilment worker would read as missing calls.
       sequence: index,
       baseProductId: entry.baseProductId,
+      provider: entry.provider,
       providerProductId: entry.providerProductId,
       diamondsBase: entry.diamondsBase,
       costUsd: entry.costUsd as UsdTenK,

@@ -12,7 +12,7 @@
  */
 
 import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
-import { parseUsd } from '@levelup/provider';
+import { parseUsd, type ProviderName } from '@levelup/provider';
 import type {
   ExpiryStore,
   OverduePayment,
@@ -32,6 +32,7 @@ interface SweepRow {
   itemId: string;
   orderId: string;
   orderNumber: string;
+  provider: ProviderName;
   providerReference: string | null;
   costUsd: string | null;
   walletBeforeUsd: string | null;
@@ -44,6 +45,7 @@ function toStalledItem(row: SweepRow): StalledItem {
     orderId: row.orderId,
     orderNumber: row.orderNumber,
     itemId: row.itemId,
+    provider: row.provider,
     providerReference: row.providerReference,
     // Guaranteed non-null by the query — see the note on each `where` clause.
     costUsd: parseUsd(row.costUsd!),
@@ -73,6 +75,7 @@ export class DrizzleRecoveryStore
         itemId: orderItems.id,
         orderId: orders.id,
         orderNumber: orders.orderNumber,
+        provider: orderItems.provider,
         providerReference: orderItems.providerReference,
         costUsd: orderItems.costUsd,
         walletBeforeUsd: orderItems.walletBeforeUsd,
@@ -111,6 +114,7 @@ export class DrizzleRecoveryStore
         itemId: orderItems.id,
         orderId: orders.id,
         orderNumber: orders.orderNumber,
+        provider: orderItems.provider,
         providerReference: orderItems.providerReference,
         costUsd: orderItems.costUsd,
         walletBeforeUsd: orderItems.walletBeforeUsd,

@@ -15,6 +15,7 @@ const usd = (n: number) => Math.round(n * 10_000) as UsdTenK;
 const entry = (sequence: number, diamondsBase: number, overrides: Partial<RecipeEntry> = {}): RecipeEntry => ({
   sequence,
   baseProductId: `bp-${diamondsBase}`,
+  provider: 'recargas_america',
   providerProductId: `d${diamondsBase}`,
   endpointKind: 'pins_recharge',
   diamondsBase,

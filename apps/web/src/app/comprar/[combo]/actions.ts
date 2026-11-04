@@ -14,7 +14,7 @@ import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
 import type { PaymentGateway } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
-import { callerIp, getDb, getProvider, stuckRedirectLimiter, validationLimiter } from '../../../lib/server';
+import { callerIp, getActiveProvider, getDb, stuckRedirectLimiter, validationLimiter } from '../../../lib/server';
 import { validationProductId } from '../../../lib/player-validation';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
@@ -85,7 +85,7 @@ export async function validatePlayer(
   }
 
   try {
-    const result = await getProvider().validatePlayer(validator, playerId);
+    const result = await (await getActiveProvider()).validatePlayer(validator, playerId);
 
     // `found` is the provider's actual answer on whether the account exists.
     // `nickname` can legitimately be null on a real account (a stale
@@ -161,7 +161,7 @@ async function confirmPlayer(playerId: string): Promise<ConfirmResult> {
   }
 
   try {
-    const result = await getProvider().validatePlayer(productId, playerId);
+    const result = await (await getActiveProvider()).validatePlayer(productId, playerId);
     if (!result.found) {
       return { ok: false, message: 'No encontramos ese ID de Free Fire. Revísalo por favor.' };
     }

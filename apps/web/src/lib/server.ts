@@ -8,9 +8,15 @@
 
 import 'server-only';
 import { headers } from 'next/headers';
-import { createDb } from '@levelup/db';
+import { createDb, getActiveProvider as getActiveProviderSetting } from '@levelup/db';
 import { assertDryRunDatabaseIsSafe, createRateLimiter, type RateLimiter } from '@levelup/shared';
-import { RecargasAmericaProvider, ProviderSimulator, type TopupProvider } from '@levelup/provider';
+import {
+  CentralOneProvider,
+  RecargasAmericaProvider,
+  ProviderSimulator,
+  type ProviderName,
+  type TopupProvider,
+} from '@levelup/provider';
 import { pickCallerIp } from './caller-ip.js';
 
 declare global {
@@ -25,7 +31,7 @@ declare global {
   // eslint-disable-next-line no-var
   var __webStuckRedirectLimiter: RateLimiter | undefined;
   // eslint-disable-next-line no-var
-  var __webProvider: TopupProvider | undefined;
+  var __webProviders: Partial<Record<ProviderName, TopupProvider>> | undefined;
 }
 
 function connect() {
@@ -119,13 +125,23 @@ export const stuckRedirectLimiter: RateLimiter =
   });
 if (process.env.NODE_ENV !== 'production') globalThis.__webStuckRedirectLimiter = stuckRedirectLimiter;
 
-function buildProvider(): TopupProvider {
+function buildProvider(name: ProviderName): TopupProvider {
   if (process.env.WEB_DRY_RUN === 'true') {
     return new ProviderSimulator({
       validatableProducts: ['351', '348', '350', '347', '346', '349'],
       knownPlayers: { '7288567050': 'ElCarneseca' },
     });
   }
+
+  if (name === 'central_one') {
+    const apiKey = process.env.CENTRALONE_API_KEY;
+    if (!apiKey) throw new Error('CENTRALONE_API_KEY is not set (or set WEB_DRY_RUN=true)');
+    return new CentralOneProvider({
+      baseUrl: process.env.CENTRALONE_BASE_URL ?? 'https://portal.centraloneglobal.com/api/v1',
+      apiKey,
+    });
+  }
+
   const apiKey = process.env.RA_API_KEY;
   if (!apiKey) throw new Error('RA_API_KEY is not set (or set WEB_DRY_RUN=true)');
   return new RecargasAmericaProvider({
@@ -139,21 +155,35 @@ function buildProvider(): TopupProvider {
 /**
  * Built on first use, not at import.
  *
- * Only the buy flow talks to the provider, but every page that needs `db`
+ * Only the buy flow talks to a provider, but every page that needs `db`
  * imports this module — so an eager build meant a missing or mistyped
  * RA_API_KEY took down the order-status page too. That is exactly backwards:
  * the customers who most need to see their order are the ones who have already
- * paid, and the provider being unreachable is precisely when they will look.
+ * paid, and a provider being unreachable is precisely when they will look.
  *
  * Failing here still fails loudly, just scoped to the flow that needs it.
  */
-export function getProvider(): TopupProvider {
-  const existing = globalThis.__webProvider;
+function getProvider(name: ProviderName): TopupProvider {
+  const cache = (globalThis.__webProviders ??= {});
+  const existing = cache[name];
   if (existing) return existing;
 
-  const built = buildProvider();
-  if (process.env.NODE_ENV !== 'production') globalThis.__webProvider = built;
+  const built = buildProvider(name);
+  if (process.env.NODE_ENV !== 'production') cache[name] = built;
   return built;
+}
+
+/**
+ * Whichever provider is currently serving orders — checkout's "¿Eres tú, X?"
+ * validation runs against this, so it matches whatever will actually fulfil
+ * the order. Reads the `active_provider` setting fresh on every call: it can
+ * change mid-session (an automatic failover, or Jose flipping it by hand),
+ * and caching it would validate against a provider that is no longer the one
+ * about to be charged.
+ */
+export async function getActiveProvider(): Promise<TopupProvider> {
+  const { provider } = await getActiveProviderSetting(getDb());
+  return getProvider(provider);
 }
 
 /** Caller IP for rate limiting. See `pickCallerIp` in `./caller-ip.ts` for the trust decision. */

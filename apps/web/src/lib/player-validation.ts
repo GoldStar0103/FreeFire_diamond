@@ -2,7 +2,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 import { baseProducts } from '@levelup/db';
 import { ValidationUnsupportedError } from '@levelup/provider';
-import { callerIp, getDb, getProvider, validationLimiter } from './server.js';
+import { callerIp, getActiveProvider, getDb, validationLimiter } from './server.js';
 
 const PLAYER_ID_PATTERN = /^\d{6,15}$/;
 
@@ -58,7 +58,7 @@ export async function verifyPlayerId(playerId: string): Promise<PlayerIdVerifica
   }
 
   try {
-    const result = await getProvider().validatePlayer(productId, playerId);
+    const result = await (await getActiveProvider()).validatePlayer(productId, playerId);
     // `found` is the actual answer — the provider has confirmed this account
     // exists. `nickname` can come back null even on a real account (seen in
     // production 2026-10-26: a stale validate-only product id returns

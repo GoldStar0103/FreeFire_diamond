@@ -391,6 +391,7 @@ export async function listOrders(
 export interface OrderItemDetail {
   itemId: string;
   sequence: number;
+  provider: string;
   providerProductId: string;
   diamondsBase: number;
   status: string;
@@ -502,6 +503,7 @@ export async function getOrderDetail(db: Database, orderId: string): Promise<Ord
     items: items.map((i) => ({
       itemId: i.id,
       sequence: i.sequence,
+      provider: i.provider,
       providerProductId: i.providerProductId,
       diamondsBase: i.diamondsBase,
       status: i.status,

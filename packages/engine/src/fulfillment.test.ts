@@ -5,9 +5,14 @@
  * (via the simulator). Nothing is stubbed except persistence and the clock.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProviderSimulator } from '@levelup/provider';
-import { fulfillOrder, PROVIDER_LOCK_KEY, type FulfillmentDeps } from './fulfillment.js';
+import {
+  fulfillOrder,
+  holdForManualFulfillment,
+  PROVIDER_LOCK_KEYS,
+  type FulfillmentDeps,
+} from './fulfillment.js';
 import { InMemoryLock } from './ports.js';
 import { buildOrder, FakeClock, MemoryAlerter, MemoryStore } from './testing.js';
 
@@ -34,7 +39,7 @@ function harness(order = chidos3000(), balanceUsd = 500) {
   const sim = new ProviderSimulator({ initialBalanceUsd: balanceUsd, prices: PRICES });
   const deps: FulfillmentDeps = {
     store,
-    provider: sim,
+    providers: { recargas_america: sim, central_one: new ProviderSimulator({ initialBalanceUsd: 0 }) },
     lock: new InMemoryLock(),
     alerter,
     clock: new FakeClock(),
@@ -87,6 +92,37 @@ describe('happy path', () => {
     expect(result.finalStatus).toBe('completed');
     expect(result.delivered).toBe(8);
     expect(sim.deliveryCount).toBe(8);
+  });
+});
+
+describe('holdForManualFulfillment', () => {
+  it('parks a claimed order in needs_review without touching the provider', async () => {
+    const order = chidos3000();
+    order.status = 'processing';
+    const { deps, sim, store, alerter } = harness(order);
+    const purchase = vi.spyOn(sim, 'purchase');
+
+    await holdForManualFulfillment(deps, 'order-1');
+
+    expect(purchase).not.toHaveBeenCalled();
+    expect(store.current.status).toBe('needs_review');
+    expect(store.current.items.every((i) => i.status === 'queued')).toBe(true);
+    expect(alerter.sent).toEqual([
+      expect.objectContaining({ level: 'warn', title: expect.stringMatching(/emergency mode/i) }),
+    ]);
+  });
+
+  it('throws on an order that cannot legally reach needs_review', async () => {
+    const order = chidos3000();
+    order.status = 'completed';
+    const { deps } = harness(order);
+
+    await expect(holdForManualFulfillment(deps, 'order-1')).rejects.toThrow(/Illegal order transition/);
+  });
+
+  it('throws for an order that does not exist', async () => {
+    const { deps } = harness();
+    await expect(holdForManualFulfillment(deps, 'no-such-order')).rejects.toThrow(/not found/);
   });
 });
 
@@ -215,7 +251,7 @@ describe('indeterminate outcome', () => {
     const result = await fulfillOrder(
       {
         store,
-        provider: sim,
+        providers: { recargas_america: sim, central_one: new ProviderSimulator({ initialBalanceUsd: 0 }) },
         lock: new InMemoryLock(),
         alerter,
         clock: new FakeClock(),
@@ -344,7 +380,7 @@ describe('the advisory lock', () => {
 
     await Promise.all(
       ['a', 'b', 'c'].map((tag) =>
-        lock.withLock(PROVIDER_LOCK_KEY, async () => {
+        lock.withLock(PROVIDER_LOCK_KEYS.recargas_america, async () => {
           observed.push(`${tag}:enter`);
           await new Promise((r) => setTimeout(r, 5));
           observed.push(`${tag}:exit`);
@@ -382,7 +418,7 @@ describe('inter-call delay', () => {
     await fulfillOrder(
       {
         store,
-        provider: sim,
+        providers: { recargas_america: sim, central_one: new ProviderSimulator({ initialBalanceUsd: 0 }) },
         lock: new InMemoryLock(),
         alerter: new MemoryAlerter(),
         clock,
@@ -393,5 +429,106 @@ describe('inter-call delay', () => {
 
     // Seven gaps between eight calls.
     expect(clock.sleeps).toEqual(Array(7).fill(1500));
+  });
+});
+
+describe('mixed-provider orders', () => {
+  // Rare, but structurally possible: a failover repoint lands between two of
+  // an order's items being queued and the worker reaching it. Each item
+  // carries its own provider — fulfilment must still be correct, not assume
+  // the whole order is homogeneous.
+  const mixedOrder = () =>
+    buildOrder({
+      orderNumber: 'LU-000500',
+      items: [
+        ['ra-2180', 2180, PRICES.d2180, 'recargas_america'],
+        ['co-100', 100, PRICES.d100, 'central_one'],
+      ],
+    });
+
+  it('dispatches each item to its own provider', async () => {
+    const store = new MemoryStore(mixedOrder());
+    const alerter = new MemoryAlerter();
+    const ra = new ProviderSimulator({ initialBalanceUsd: 500, prices: PRICES });
+    const co = new ProviderSimulator({ initialBalanceUsd: 500, prices: PRICES });
+    ra.program({ mode: 'succeed' });
+    co.program({ mode: 'succeed' });
+
+    const result = await fulfillOrder(
+      {
+        store,
+        providers: { recargas_america: ra, central_one: co },
+        lock: new InMemoryLock(),
+        alerter,
+        clock: new FakeClock(),
+        config: { interCallDelayMs: 0 },
+      },
+      'order-1',
+    );
+
+    expect(result.finalStatus).toBe('completed');
+    expect(ra.deliveryCount).toBe(1);
+    expect(co.deliveryCount).toBe(1);
+  });
+
+  it('halts the whole order when only the Central One item’s provider is short on balance', async () => {
+    const store = new MemoryStore(mixedOrder());
+    const alerter = new MemoryAlerter();
+    const ra = new ProviderSimulator({ initialBalanceUsd: 500, prices: PRICES });
+    const co = new ProviderSimulator({ initialBalanceUsd: 0, prices: PRICES });
+
+    const result = await fulfillOrder(
+      {
+        store,
+        providers: { recargas_america: ra, central_one: co },
+        lock: new InMemoryLock(),
+        alerter,
+        clock: new FakeClock(),
+        config: { interCallDelayMs: 0 },
+      },
+      'order-1',
+    );
+
+    expect(result.haltedReason).toBe('insufficient_balance');
+    expect(result.finalStatus).toBe('needs_review');
+    // Never attempted the RA item either — a halt must stop the whole order,
+    // not spend on one provider while quietly stalling on the other.
+    expect(ra.deliveryCount).toBe(0);
+    expect(alerter.sent[0]).toMatchObject({
+      detail: expect.objectContaining({ provider: 'central_one' }),
+    });
+  });
+
+  it('locks each provider independently — a busy RA call does not block a Central One call', async () => {
+    const store = new MemoryStore(mixedOrder());
+    const alerter = new MemoryAlerter();
+    const ra = new ProviderSimulator({ initialBalanceUsd: 500, prices: PRICES });
+    const co = new ProviderSimulator({ initialBalanceUsd: 500, prices: PRICES });
+    ra.program({ mode: 'succeed' });
+    co.program({ mode: 'succeed' });
+
+    const lock = new InMemoryLock();
+    const held = lock.withLock(
+      PROVIDER_LOCK_KEYS.recargas_america,
+      () => new Promise((resolve) => setTimeout(resolve, 20)),
+    );
+
+    const result = await fulfillOrder(
+      {
+        store,
+        providers: { recargas_america: ra, central_one: co },
+        lock,
+        alerter,
+        clock: new FakeClock(),
+        config: { interCallDelayMs: 0 },
+      },
+      'order-1',
+    );
+
+    await held;
+    // The Central One item still went through even while RA's lock was held
+    // by something else — proof the two providers never share a lock key.
+    expect(co.deliveryCount).toBe(1);
+    expect(result.delivered).toBeGreaterThanOrEqual(1);
   });
 });

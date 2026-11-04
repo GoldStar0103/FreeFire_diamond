@@ -164,6 +164,47 @@ export function ReviewPanel({ orderId, orderStatus, items }: Props) {
         </div>
       ))}
 
+      {leftToSend.length > 0 && (
+        <details style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: 14 }}>
+            Ya la entregué yo a mano (modo de emergencia u otro proveedor)
+          </summary>
+          <p className="subtitle" style={{ marginTop: 8 }}>
+            Solo para una recarga que nunca se intentó aquí — no uses esto si el sistema ya la
+            envió y la respuesta quedó sin confirmar, para eso está &quot;Sí llegó&quot; arriba.
+          </p>
+          {leftToSend.map((item) => (
+            <form
+              key={item.itemId}
+              action={action}
+              onSubmit={confirmFirst(
+                `¿Confirmas que ya entregaste a mano la recarga #${item.sequence + 1} (${item.diamondsBase} 💎)?`,
+              )}
+              className="row"
+              style={{ alignItems: 'flex-start', marginTop: 8 }}
+            >
+              <input type="hidden" name="orderId" value={orderId} />
+              <input type="hidden" name="kind" value="mark_item_delivered_manually" />
+              <input type="hidden" name="itemId" value={item.itemId} />
+              <span style={{ fontSize: 13 }}>
+                #{item.sequence + 1} · {item.diamondsBase} 💎
+              </span>
+              <input
+                type="text"
+                name="note"
+                placeholder="Con qué proveedor y referencia"
+                required
+                disabled={pending}
+                style={{ flex: 1 }}
+              />
+              <button className="btn sm" type="submit" disabled={pending}>
+                📦 Entregado a mano
+              </button>
+            </form>
+          ))}
+        </details>
+      )}
+
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
         <form
           action={action}

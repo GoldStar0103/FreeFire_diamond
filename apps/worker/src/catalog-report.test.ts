@@ -77,7 +77,9 @@ describe('catalogSyncAlerts', () => {
         repointed: [
           {
             denomination: 100,
+            fromProvider: 'recargas_america',
             fromProviderProductId: '351',
+            toProvider: 'recargas_america',
             toProviderProductId: '901',
             costUsd: usd(0.72),
             recipeItems: 7,
@@ -105,7 +107,9 @@ describe('catalogSyncAlerts', () => {
         repointed: [
           {
             denomination: 100,
+            fromProvider: 'recargas_america',
             fromProviderProductId: '351',
+            toProvider: 'recargas_america',
             toProviderProductId: '901',
             costUsd: usd(0.72),
             recipeItems: 0,

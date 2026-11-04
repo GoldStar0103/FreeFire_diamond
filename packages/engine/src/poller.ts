@@ -14,16 +14,22 @@
  * useful to do and blocking would just stack timers behind it.
  */
 
-import { resolveAmbiguous, type TopupProvider, type UsdTenK } from '@levelup/provider';
+import {
+  resolveAmbiguous,
+  type ProviderName,
+  type TopupProvider,
+  type UsdTenK,
+} from '@levelup/provider';
 import type { Alerter, AdvisoryLock, Clock, FulfillmentStore } from './ports.js';
 import { systemClock } from './ports.js';
-import { PROVIDER_LOCK_KEY } from './fulfillment.js';
+import { PROVIDER_LOCK_KEYS } from './fulfillment.js';
 import { deriveOrderStatus, type OrderStatus } from './states.js';
 
 export interface StalledItem {
   orderId: string;
   orderNumber: string;
   itemId: string;
+  provider: ProviderName;
   providerReference: string | null;
   costUsd: UsdTenK;
   walletBeforeUsd: UsdTenK | null;
@@ -56,13 +62,24 @@ export const defaultPollerConfig: PollerConfig = {
 
 export interface PollerDeps {
   store: RecoveryStore;
-  provider: TopupProvider;
+  providers: Record<ProviderName, TopupProvider>;
   lock: AdvisoryLock & {
     tryWithLock?<T>(key: string, fn: () => Promise<T>): Promise<T | null>;
   };
   alerter: Alerter;
   clock?: Clock;
   config?: Partial<PollerConfig>;
+  /**
+   * Recovery runs on its own sweep, independent of the claim loop — so it can
+   * land a crashed order back on an automatically-claimable status (e.g.
+   * `processing`, with items still `queued`) even while emergency mode is on,
+   * which `holdForManualFulfillment` never gets a chance to catch until that
+   * order next goes stale. `refreshOrderStatus` checks this itself so the gap
+   * closes immediately instead of one staleness window later. Optional, and
+   * treated as "off" when omitted, so the many tests here that do not care
+   * about emergency mode do not all need to supply it.
+   */
+  isEmergencyMode?: () => Promise<boolean>;
 }
 
 export interface SweepResult {
@@ -86,7 +103,7 @@ const empty = (skipped = false): SweepResult => ({
 /** Poll provider-side PENDING orders and settle the ones that finished. */
 export async function pollPendingOrders(deps: PollerDeps): Promise<SweepResult> {
   const config = { ...defaultPollerConfig, ...deps.config };
-  const { store, provider, alerter } = deps;
+  const { store } = deps;
 
   const items = await store.findPendingProviderItems(config.minAgeMs, config.batchSize);
   if (items.length === 0) return empty();
@@ -116,7 +133,8 @@ async function pollOne(
   item: StalledItem,
   result: SweepResult,
 ): Promise<void> {
-  const { store, provider } = deps;
+  const { store, providers } = deps;
+  const provider = providers[item.provider];
 
   if (!item.providerReference) {
     // PENDING with no reference is unpollable — it can only ever be resolved
@@ -150,7 +168,7 @@ async function pollOne(
       responsePayload: status,
     });
     result.completed++;
-    await refreshOrderStatus(store, item.orderId, config.maxAttempts);
+    await refreshOrderStatus(deps, item.orderId, config.maxAttempts);
     return;
   }
 
@@ -181,35 +199,75 @@ async function pollOne(
  */
 export async function recoverStalledItems(deps: PollerDeps): Promise<SweepResult> {
   const config = { ...defaultPollerConfig, ...deps.config };
-  const { store, provider, lock, alerter } = deps;
+  const { store, lock } = deps;
 
-  const run = async (): Promise<SweepResult> => {
-    const items = await store.findStalledSendingItems(config.minAgeMs, config.batchSize);
-    if (items.length === 0) return empty();
+  const items = await store.findStalledSendingItems(config.minAgeMs, config.batchSize);
+  if (items.length === 0) return empty();
 
-    const result = empty();
-    result.examined = items.length;
-
-    for (const item of items) {
-      try {
-        await recoverOne(deps, config, item, result);
-      } catch (err) {
-        // Most likely `settleItem` lost a race against another writer for the
-        // same item — see the comment on the equivalent catch in
-        // `pollPendingOrders`. Skip it rather than abort the rest of the batch.
-        console.warn(`[poller] skipping ${item.itemId}: ${String(err)}`);
-      }
-    }
-
-    return result;
-  };
-
-  // Skip rather than queue: a live combo holds the lock, and its own in-process
-  // reconciliation already covers everything this sweep would look at.
-  if (typeof lock.tryWithLock === 'function') {
-    return (await lock.tryWithLock(PROVIDER_LOCK_KEY, run)) ?? empty(true);
+  // Grouped by provider so each gets its own lock — a busy RA combo must not
+  // block recovering a stalled Central One item, and vice versa. Groups run
+  // concurrently (see below), so in the rare case where one order's items
+  // span both providers and both are stalled in the same sweep, their two
+  // `refreshOrderStatus` calls could race on that one order's status. Never a
+  // money-correctness issue — `settleItem` is still a safe per-item write
+  // either way — and self-heals on the very next sweep, which re-derives the
+  // order's status from scratch regardless of what the last write left it at.
+  const byProvider = new Map<ProviderName, StalledItem[]>();
+  for (const item of items) {
+    const list = byProvider.get(item.provider) ?? [];
+    list.push(item);
+    byProvider.set(item.provider, list);
   }
-  return lock.withLock(PROVIDER_LOCK_KEY, run);
+
+  // Run every provider's group concurrently, not one after another — with an
+  // `AdvisoryLock` that only implements `withLock` (queues rather than skips,
+  // e.g. `InMemoryLock`), awaiting each group in sequence would serialise a
+  // busy RA lock in front of Central One's recovery even though they use
+  // different keys. Launching them together lets each group's own lock
+  // acquisition proceed independently.
+  const outcomes = await Promise.all(
+    [...byProvider.entries()].map(async ([providerName, providerItems]) => {
+      const run = async (): Promise<SweepResult> => {
+        const result = empty();
+        result.examined = providerItems.length;
+
+        for (const item of providerItems) {
+          try {
+            await recoverOne(deps, config, item, result);
+          } catch (err) {
+            // Most likely `settleItem` lost a race against another writer for
+            // the same item — see the equivalent catch in `pollPendingOrders`.
+            // Skip it rather than abort the rest of the batch.
+            console.warn(`[poller] skipping ${item.itemId}: ${String(err)}`);
+          }
+        }
+
+        return result;
+      };
+
+      // Skip rather than queue: a live combo holds this provider's lock, and
+      // its own in-process reconciliation already covers everything this
+      // group would look at.
+      return typeof lock.tryWithLock === 'function'
+        ? await lock.tryWithLock(PROVIDER_LOCK_KEYS[providerName], run)
+        : await lock.withLock(PROVIDER_LOCK_KEYS[providerName], run);
+    }),
+  );
+
+  const total = empty();
+  let anyRan = false;
+  for (const outcome of outcomes) {
+    if (!outcome) continue;
+    anyRan = true;
+    total.examined += outcome.examined;
+    total.completed += outcome.completed;
+    total.stillPending += outcome.stillPending;
+    total.escalated += outcome.escalated;
+    total.resolvedByWallet += outcome.resolvedByWallet;
+  }
+
+  total.skipped = !anyRan;
+  return total;
 }
 
 async function recoverOne(
@@ -218,7 +276,8 @@ async function recoverOne(
   item: StalledItem,
   result: SweepResult,
 ): Promise<void> {
-  const { store, provider, alerter } = deps;
+  const { store, providers, alerter } = deps;
+  const provider = providers[item.provider];
 
   if (item.walletBeforeUsd === null) {
     // No pre-call snapshot means nothing to compare against.
@@ -266,18 +325,40 @@ async function recoverOne(
     result.escalated++;
   }
 
-  await refreshOrderStatus(store, item.orderId, config.maxAttempts);
+  await refreshOrderStatus(deps, item.orderId, config.maxAttempts);
 }
 
 async function refreshOrderStatus(
-  store: FulfillmentStore,
+  deps: Pick<PollerDeps, 'store' | 'alerter' | 'isEmergencyMode'>,
   orderId: string,
   maxAttempts: number,
 ): Promise<void> {
+  const { store, alerter, isEmergencyMode } = deps;
   const order = await store.loadOrder(orderId);
   if (!order) return;
-  const derived: OrderStatus = deriveOrderStatus(order.items, maxAttempts);
-  if (derived !== order.status) await store.updateOrderStatus(orderId, derived);
+
+  let derived: OrderStatus = deriveOrderStatus(order.items, maxAttempts);
+
+  // Only overridden when there is still unattempted/unexhausted work ahead —
+  // a recovery that finishes the order outright (`completed`) is left alone,
+  // since nothing automatic remains to protect against.
+  if (isEmergencyMode && (derived === 'processing' || derived === 'partially_delivered')) {
+    let emergency = false;
+    try {
+      emergency = await isEmergencyMode();
+    } catch (err) {
+      console.error(`[poller] Could not read emergency mode, leaving ${order.orderNumber} on its derived status: ${String(err)}`);
+    }
+    if (emergency) derived = 'needs_review';
+  }
+
+  if (derived === order.status) return;
+  await store.updateOrderStatus(orderId, derived);
+  if (derived === 'needs_review') {
+    await alerter.send('warn', 'Emergency mode — order held for manual fulfillment', {
+      orderNumber: order.orderNumber,
+    });
+  }
 }
 
 async function escalate(deps: PollerDeps, item: StalledItem, reason: string): Promise<void> {

@@ -61,7 +61,7 @@ beforeEach(async () => {
   await db.execute(raw`TRUNCATE player_profiles, player_otp_codes, badge_definitions, badge_ownerships RESTART IDENTITY CASCADE`);
 });
 
-describe('OTP codes', () => {
+describe.skipIf(!PG_AVAILABLE)('OTP codes', () => {
   it('finds a freshly created code as active', async () => {
     await createOtpCode(db, 'jose@levelup.mx', 'hash-1', new Date(Date.now() + 600_000));
     const found = await findActiveOtpCode(db, 'jose@levelup.mx');
@@ -101,7 +101,7 @@ describe('OTP codes', () => {
   });
 });
 
-describe('player profiles', () => {
+describe.skipIf(!PG_AVAILABLE)('player profiles', () => {
   it('creates a profile and finds it by email and by player id', async () => {
     const result = await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' });
     expect(result.ok).toBe(true);
@@ -129,7 +129,7 @@ describe('player profiles', () => {
   });
 });
 
-describe('awardFounderBadgeIfEligible', () => {
+describe.skipIf(!PG_AVAILABLE)('awardFounderBadgeIfEligible', () => {
   it('does nothing when no "founder" badge is defined', async () => {
     const { profile } = (await createPlayerProfile(db, { playerId: '100001', email: 'jose@levelup.mx' })) as { profile: { id: string } };
     await expect(awardFounderBadgeIfEligible(db, profile.id)).resolves.not.toThrow();

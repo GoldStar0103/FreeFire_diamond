@@ -85,6 +85,13 @@
       "when": 1791574520034,
       "tag": "0011_order_reversal",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793768649389,
+      "tag": "0012_provider_failover",
+      "breakpoints": true
     }
   ]
 }

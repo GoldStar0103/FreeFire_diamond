@@ -6,6 +6,7 @@ import type { UsdTenK } from '@levelup/provider';
 const row = (overrides: Partial<OrderItemRow> = {}): OrderItemRow => ({
   id: 'item-1',
   sequence: 0,
+  provider: 'recargas_america',
   providerProductId: '42',
   diamondsBase: 5600,
   costUsd: '27.5000',

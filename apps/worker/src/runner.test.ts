@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ProviderSimulator, type UsdTenK } from '@levelup/provider';
-import { InMemoryLock, PROVIDER_LOCK_KEY } from '@levelup/engine';
+import { InMemoryLock, PROVIDER_LOCK_KEYS } from '@levelup/engine';
 import {
   MemoryAlerter,
   MemoryCatalogStore,
@@ -76,13 +76,21 @@ function testConfig(overrides: Record<string, string> = {}) {
   );
 }
 
-function harness(claims: Array<{ id: string; orderNumber: string; recovered: boolean } | null>) {
+function harness(
+  claims: Array<{ id: string; orderNumber: string; recovered: boolean } | null>,
+  isEmergencyMode: () => Promise<boolean> = async () => false,
+) {
   const store = new QueueStore(
     buildOrder({ orderNumber: 'LU-1', items: [['d100', 100, 0.55]] }),
   );
   const alerter = new MemoryAlerter();
   const provider = new ProviderSimulator({ initialBalanceUsd: 500, prices: { d100: 0.55 } });
   provider.program({ mode: 'succeed' });
+  // A separate, never-programmed simulator — every existing single-provider
+  // test manipulates only `provider` (RA's), so Central One's sync stays on
+  // its own quiet, unchanging default catalog throughout and never adds a
+  // second alert these tests do not expect.
+  const centralOneProvider = new ProviderSimulator({ initialBalanceUsd: 500 });
 
   const queue = {
     claimNext: vi.fn(async () => claims.shift() ?? null),
@@ -95,13 +103,14 @@ function harness(claims: Array<{ id: string; orderNumber: string; recovered: boo
     queue,
     store,
     catalog,
-    provider,
+    providers: { recargas_america: provider, central_one: centralOneProvider },
     lock: new InMemoryLock(),
     orderBoundary: new InMemoryLock(),
     alerter,
     config: testConfig(),
+    isEmergencyMode,
   };
-  return { deps, queue, store, catalog, alerter, provider };
+  return { deps, queue, store, catalog, alerter, provider, centralOneProvider };
 }
 
 describe('runFulfillmentLoop', () => {
@@ -182,6 +191,42 @@ describe('runFulfillmentLoop and the catalog sync', () => {
   });
 });
 
+describe('runFulfillmentLoop in emergency mode', () => {
+  it('holds a claimed order for manual fulfillment instead of calling the provider', async () => {
+    const { deps, store, alerter, provider } = harness(
+      [{ id: 'order-1', orderNumber: 'LU-1', recovered: false }],
+      async () => true,
+    );
+    store.current.status = 'processing';
+
+    const result = await runFulfillmentLoop(deps, new ShutdownSignal(), { maxIterations: 1 });
+
+    expect(result.processed).toBe(1);
+    expect(provider.deliveryCount).toBe(0);
+    expect(store.current.status).toBe('needs_review');
+    expect(store.current.items.every((i) => i.status === 'queued')).toBe(true);
+    expect(alerter.sent).toEqual([
+      expect.objectContaining({ level: 'warn', title: expect.stringMatching(/emergency mode/i) }),
+    ]);
+  });
+
+  it('defaults to automatic fulfillment when the flag cannot be read', async () => {
+    const { deps, provider } = harness(
+      [{ id: 'order-1', orderNumber: 'LU-1', recovered: false }],
+      async () => {
+        throw new Error('settings table unreachable');
+      },
+    );
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const result = await runFulfillmentLoop(deps, new ShutdownSignal(), { maxIterations: 1 });
+
+    expect(result.processed).toBe(1);
+    expect(provider.deliveryCount).toBe(1);
+    error.mockRestore();
+  });
+});
+
 const usd = (n: number) => Math.round(n * 10_000) as UsdTenK;
 
 /** What the harness simulator's default catalog looks like once stored. */
@@ -212,7 +257,7 @@ describe('runCatalogSync', () => {
 
     const result = await runCatalogSync({ ...deps, catalog });
 
-    expect(result?.replaced).toHaveLength(1);
+    expect(result.recargas_america?.replaced).toHaveLength(1);
     expect(catalog.repoints).toEqual([
       expect.objectContaining({ fromProviderProductId: '351', toProviderProductId: 'd100' }),
     ]);
@@ -229,7 +274,7 @@ describe('runCatalogSync', () => {
 
     const result = await runCatalogSync(deps);
 
-    expect(result?.deactivationSkipped?.reason).toBe('empty_catalog');
+    expect(result.recargas_america?.deactivationSkipped?.reason).toBe('empty_catalog');
     expect(catalog.products.every((p) => p.active)).toBe(true);
     expect(alerter.sent).toEqual([
       expect.objectContaining({ level: 'critical', title: expect.stringMatching(/nothing was deactivated/) }),
@@ -253,9 +298,10 @@ describe('runCatalogSync', () => {
     const { deps, alerter, provider, catalog } = harness([]);
     provider.programCatalog(null, 'HTTP 502');
 
-    await expect(runCatalogSync(deps)).resolves.toBeNull();
+    await expect(runCatalogSync(deps)).resolves.toMatchObject({ recargas_america: null });
 
-    expect(catalog.products).toEqual([]);
+    // Central One's own, independent sync still succeeded quietly.
+    expect(catalog.products.filter((p) => p.provider === 'recargas_america')).toEqual([]);
     expect(alerter.sent[0]).toMatchObject({ level: 'warn', title: expect.stringMatching(/failed/) });
   });
 
@@ -269,7 +315,9 @@ describe('runCatalogSync', () => {
     };
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    await expect(runCatalogSync({ ...deps, alerter })).resolves.toBeNull();
+    await expect(runCatalogSync({ ...deps, alerter })).resolves.toMatchObject({
+      recargas_america: null,
+    });
     error.mockRestore();
   });
 
@@ -290,14 +338,17 @@ describe('runCatalogSync', () => {
     };
     const seen: string[][] = [];
     const list = catalog.listStoredProducts.bind(catalog);
-    catalog.listStoredProducts = async () => {
+    catalog.listStoredProducts = async (provider) => {
       seen.push([...held].sort());
-      return list();
+      return list(provider);
     };
 
     await runCatalogSync({ ...deps, lock: recording, orderBoundary: recording });
 
-    expect(seen).toEqual([[PROVIDER_LOCK_KEY, ORDER_BOUNDARY_KEY].sort()]);
+    expect(seen).toEqual([
+      [PROVIDER_LOCK_KEYS.recargas_america, ORDER_BOUNDARY_KEY].sort(),
+      [PROVIDER_LOCK_KEYS.central_one, ORDER_BOUNDARY_KEY].sort(),
+    ]);
     expect(held.size).toBe(0);
   });
 
@@ -317,7 +368,8 @@ describe('runCatalogSync', () => {
     finishOrder();
     await inFlight;
     await sync;
-    expect(list).toHaveBeenCalledTimes(1);
+    // Once per provider — RA then Central One.
+    expect(list).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -338,13 +390,15 @@ describe('CatalogSyncSchedule', () => {
     provider.programCatalog(null, 'HTTP 502');
     const schedule = new CatalogSyncSchedule(60 * 60_000);
 
-    expect(await schedule.runIfDue(deps, 0)).toEqual({ ran: true, result: null });
+    const first = await schedule.runIfDue(deps, 0);
+    expect(first.ran).toBe(true);
+    expect(first.result?.recargas_america).toBeNull();
     expect((await schedule.runIfDue(deps, CATALOG_SYNC_RETRY_MS - 1)).ran).toBe(false);
 
     provider.programCatalog(null);
     const retry = await schedule.runIfDue(deps, CATALOG_SYNC_RETRY_MS);
     expect(retry.ran).toBe(true);
-    expect(retry.result?.mapped).toHaveLength(6);
+    expect(retry.result?.recargas_america?.mapped).toHaveLength(6);
 
     // Back on the normal cadence once it succeeds.
     expect((await schedule.runIfDue(deps, CATALOG_SYNC_RETRY_MS * 2)).ran).toBe(false);
@@ -367,7 +421,7 @@ describe('checkWallet', () => {
     const { deps, alerter } = harness([]);
     const provider = new ProviderSimulator({ initialBalanceUsd: 10 });
 
-    await checkWallet({ ...deps, provider });
+    await checkWallet({ ...deps, providers: { ...deps.providers, recargas_america: provider } });
 
     expect(alerter.has('critical')).toBe(true);
     expect(alerter.sent[0]?.title).toMatch(/wallet is low/i);
@@ -382,13 +436,15 @@ describe('checkWallet', () => {
   it('does not throw when the wallet cannot be read', async () => {
     const { deps } = harness([]);
     const provider = {
-      ...deps.provider,
+      ...deps.providers.recargas_america,
       getBalance: async () => {
         throw new Error('provider down');
       },
-    } as typeof deps.provider;
+    } as typeof deps.providers.recargas_america;
 
-    await expect(checkWallet({ ...deps, provider })).resolves.toBeUndefined();
+    await expect(
+      checkWallet({ ...deps, providers: { ...deps.providers, recargas_america: provider } }),
+    ).resolves.toBeUndefined();
   });
 });
 

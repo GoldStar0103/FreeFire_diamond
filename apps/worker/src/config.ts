@@ -16,6 +16,12 @@ export interface WorkerConfig {
     lowBalanceUsd: number;
     interCallDelayMs: number;
   };
+  /**
+   * The backup provider. Null unless `CENTRALONE_API_KEY` is set — Central One
+   * never becomes a ready failover target without it, but RA-only operation is
+   * otherwise unaffected. Not required for dry run; the simulator stands in.
+   */
+  centralOne: { baseUrl: string; apiKey: string } | null;
   fulfillment: {
     maxAttempts: number;
     /** An order left `processing` longer than this is treated as abandoned. */
@@ -145,6 +151,12 @@ export function loadConfig(): WorkerConfig {
       lowBalanceUsd: number('RA_LOW_BALANCE_USD', 100),
       interCallDelayMs: number('RA_INTER_CALL_DELAY_MS', 1500),
     },
+    centralOne: process.env.CENTRALONE_API_KEY
+      ? {
+          baseUrl: process.env.CENTRALONE_BASE_URL ?? 'https://portal.centraloneglobal.com/api/v1',
+          apiKey: process.env.CENTRALONE_API_KEY,
+        }
+      : null,
     fulfillment: {
       maxAttempts: number('FULFILLMENT_MAX_ATTEMPTS', 3),
       staleOrderMs: number('FULFILLMENT_STALE_ORDER_MS', 5 * 60_000),

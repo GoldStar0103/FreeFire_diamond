@@ -72,7 +72,7 @@ async function seedCombo(priceMxnCents = 10_000): Promise<string> {
   return combo!.id;
 }
 
-describe('listActiveCombosForOffers', () => {
+describe.skipIf(!PG_AVAILABLE)('listActiveCombosForOffers', () => {
   it('lists only active combos', async () => {
     await seedCombo();
     const [campaign] = await db.insert(campaigns).values({ key: 'c2', name: 'C2' }).returning();
@@ -84,7 +84,7 @@ describe('listActiveCombosForOffers', () => {
   });
 });
 
-describe('saveVaultOffer', () => {
+describe.skipIf(!PG_AVAILABLE)('saveVaultOffer', () => {
   it('refuses a Vault price that is not lower than the public price', async () => {
     const comboId = await seedCombo(10_000);
     const adminUserId = await seedAdmin();
@@ -123,7 +123,7 @@ describe('saveVaultOffer', () => {
   });
 });
 
-describe('toggleVaultOffer / deleteVaultOffer', () => {
+describe.skipIf(!PG_AVAILABLE)('toggleVaultOffer / deleteVaultOffer', () => {
   it('toggles active and logs it', async () => {
     const comboId = await seedCombo(10_000);
     const adminUserId = await seedAdmin();

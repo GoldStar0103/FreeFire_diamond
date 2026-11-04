@@ -78,7 +78,7 @@ beforeEach(async () => {
   await db.execute(raw`TRUNCATE settings, base_products CASCADE`);
 });
 
-describe('getLevelPassCheckpoints', () => {
+describe.skipIf(!PG_AVAILABLE)('getLevelPassCheckpoints', () => {
   it('returns the default ladder when nothing has been saved', async () => {
     expect(await getLevelPassCheckpoints(db)).toEqual(DEFAULT_LEVEL_PASS_CHECKPOINTS);
   });
@@ -102,7 +102,7 @@ describe('getLevelPassCheckpoints', () => {
   });
 });
 
-describe('reviewLevelPassCheckpoints', () => {
+describe.skipIf(!PG_AVAILABLE)('reviewLevelPassCheckpoints', () => {
   it('accepts a strictly ascending, positive-integer ladder with a delivering recipe', () => {
     const result = reviewLevelPassCheckpoints([
       draft({ lp: 60, rewardDiamonds: 110, costCents: 1_200, recipe: [100] }),

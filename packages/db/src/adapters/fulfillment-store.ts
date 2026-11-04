@@ -45,6 +45,7 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
       .select({
         id: orderItems.id,
         sequence: orderItems.sequence,
+        provider: orderItems.provider,
         providerProductId: orderItems.providerProductId,
         diamondsBase: orderItems.diamondsBase,
         costUsd: orderItems.costUsd,

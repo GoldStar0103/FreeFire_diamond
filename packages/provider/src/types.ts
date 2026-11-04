@@ -43,6 +43,9 @@ export const formatUsd = (v: UsdTenK): string => (v / 10_000).toFixed(4);
 /** Which endpoint fulfils a SKU. Decided by Phase 0, stored on `base_products`. */
 export type EndpointKind = 'games' | 'pins_recharge' | 'pins_code';
 
+/** Which backend fulfils a purchase. `recargas_america` is primary; `central_one` is the automatic failover. */
+export type ProviderName = 'recargas_america' | 'central_one';
+
 export interface PurchaseRequest {
   endpointKind: EndpointKind;
   providerProductId: string;

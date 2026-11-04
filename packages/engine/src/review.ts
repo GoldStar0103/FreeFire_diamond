@@ -52,6 +52,16 @@ export type ReviewAction =
    * budget; nothing is sent until the order is resumed.
    */
   | { kind: 'mark_item_not_delivered'; itemId: string; confirmedNotCharged: boolean }
+  /**
+   * The admin fulfilled this one themselves, outside the system entirely —
+   * emergency mode, or any other time a recharge was never attempted here.
+   * Deliberately separate from `mark_item_delivered`: that one resolves an
+   * automatic attempt whose outcome was ambiguous, this one records a delivery
+   * the system never tried. Never offered for `unknown` — that item may
+   * already have been charged by the provider, and conflating the two risks a
+   * double delivery.
+   */
+  | { kind: 'mark_item_delivered_manually'; itemId: string; note: string }
   /** Send whatever is still missing — after a wallet top-up, or exhausted retries. */
   | { kind: 'resume' }
   /** Stop for good; the customer is owed money back. */
@@ -112,6 +122,9 @@ export interface ReviewStore {
 
 /** Items whose outcome a human may settle. */
 const RESOLVABLE: ReadonlySet<OrderItemStatus> = new Set<OrderItemStatus>(['unknown', 'failed']);
+
+/** Items that were never (successfully) attempted, so a human can deliver them directly. */
+const MANUALLY_DELIVERABLE: ReadonlySet<OrderItemStatus> = new Set<OrderItemStatus>(['queued', 'failed']);
 
 const fail = (code: ReviewFailureCode, message: string): PlanResult => ({
   ok: false,
@@ -200,6 +213,36 @@ export function planReview(order: ReviewOrder, action: ReviewAction): PlanResult
           previousAttempts: item.attemptCount,
           confirmedNotCharged: action.confirmedNotCharged,
         },
+      );
+    }
+
+    case 'mark_item_delivered_manually': {
+      const wrong = requireStatus(order, 'needs_review');
+      if (wrong) return { ok: false, failure: wrong };
+
+      const item = order.items.find((i) => i.id === action.itemId);
+      if (!item) return fail('ITEM_NOT_FOUND', `No item ${action.itemId} on ${order.orderNumber}.`);
+
+      if (!MANUALLY_DELIVERABLE.has(item.status)) {
+        return fail(
+          'ITEM_NOT_RESOLVABLE',
+          `Item #${item.sequence + 1} is ${item.status}; only an item that was never sent (or definitively ` +
+            'failed) can be recorded as delivered by hand.',
+        );
+      }
+
+      const note = action.note.trim();
+      if (note.length < 3) {
+        return fail('NOTE_REQUIRED', 'Say how it was delivered: which provider, and a reference.');
+      }
+
+      const othersDone = order.items.every((i) => i.id === item.id || i.status === 'succeeded');
+      return plan(
+        order,
+        othersDone ? 'completed' : 'needs_review',
+        [{ itemId: item.id, expectedStatus: item.status, status: 'succeeded', resetAttempts: false }],
+        'review.item_marked_delivered_manually',
+        { itemId: item.id, sequence: item.sequence, diamondsBase: item.diamondsBase, was: item.status, note },
       );
     }
 

@@ -91,6 +91,7 @@ export class DrizzleOrderingStore implements OrderingStore {
       .select({
         sequence: comboItems.sequence,
         baseProductId: baseProducts.id,
+        provider: baseProducts.provider,
         providerProductId: baseProducts.providerProductId,
         endpointKind: baseProducts.endpointKind,
         diamondsBase: baseProducts.diamondsBase,
@@ -126,6 +127,7 @@ export class DrizzleOrderingStore implements OrderingStore {
         (r): RecipeEntry => ({
           sequence: r.sequence,
           baseProductId: r.baseProductId,
+          provider: r.provider,
           providerProductId: r.providerProductId,
           endpointKind: r.endpointKind,
           diamondsBase: r.diamondsBase,
@@ -189,6 +191,7 @@ export class DrizzleOrderingStore implements OrderingStore {
               orderId: created.id,
               sequence: item.sequence,
               baseProductId: item.baseProductId,
+              provider: item.provider,
               providerProductId: item.providerProductId,
               diamondsBase: item.diamondsBase,
               costUsd: toNumericString(item.costUsd),

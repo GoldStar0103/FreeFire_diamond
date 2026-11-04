@@ -7,7 +7,7 @@
  * is parsed deliberately rather than coerced.
  */
 
-import { parseUsd, type EndpointKind, type UsdTenK } from '@levelup/provider';
+import { parseUsd, type EndpointKind, type ProviderName, type UsdTenK } from '@levelup/provider';
 import type { OrderItemRecord, OrderRecord } from '@levelup/engine';
 import type { OrderItemStatus, OrderStatus } from '@levelup/engine';
 
@@ -22,6 +22,7 @@ export interface OrderRow {
 export interface OrderItemRow {
   id: string;
   sequence: number;
+  provider: ProviderName;
   providerProductId: string;
   diamondsBase: number;
   costUsd: string | null;
@@ -46,6 +47,7 @@ export function toOrderItemRecord(row: OrderItemRow): OrderItemRecord {
   return {
     id: row.id,
     sequence: row.sequence,
+    provider: row.provider,
     providerProductId: row.providerProductId,
     diamondsBase: row.diamondsBase,
     costUsd: parseUsd(row.costUsd),

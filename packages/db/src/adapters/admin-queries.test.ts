@@ -88,7 +88,7 @@ const catalog = (): ProviderProduct[] =>
 async function seedCatalog() {
   const provider = new ProviderSimulator();
   provider.programCatalog(catalog());
-  await syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider });
+  await syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider, providerName: 'recargas_america' });
 
   const products = await db.select().from(baseProducts);
   const byDenomination = new Map(products.map((p) => [p.diamondsBase, p.id]));

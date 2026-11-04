@@ -418,7 +418,7 @@ describe.skipIf(!PG_AVAILABLE)('full engine against real Postgres', () => {
     const result = await fulfillOrder(
       {
         store: new DrizzleFulfillmentStore(db),
-        provider: sim,
+        providers: { recargas_america: sim, central_one: sim },
         lock: new PostgresAdvisoryLock(client),
         alerter: new MemoryAlerter(),
         config: { interCallDelayMs: 0 },
@@ -450,7 +450,7 @@ describe.skipIf(!PG_AVAILABLE)('full engine against real Postgres', () => {
     const result = await fulfillOrder(
       {
         store: new DrizzleFulfillmentStore(db),
-        provider: sim,
+        providers: { recargas_america: sim, central_one: sim },
         lock: new PostgresAdvisoryLock(client),
         alerter: new MemoryAlerter(),
         config: { interCallDelayMs: 0 },

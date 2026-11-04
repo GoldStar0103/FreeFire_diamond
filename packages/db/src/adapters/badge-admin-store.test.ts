@@ -82,7 +82,7 @@ const draft = (overrides: Partial<BadgeDefinitionDraft> = {}): BadgeDefinitionDr
   ...overrides,
 });
 
-describe('saveBadgeDefinition', () => {
+describe.skipIf(!PG_AVAILABLE)('saveBadgeDefinition', () => {
   it('creates a new definition and logs it', async () => {
     const adminUserId = await seedAdmin();
     await saveBadgeDefinition(db, draft(), adminUserId);
@@ -105,7 +105,7 @@ describe('saveBadgeDefinition', () => {
   });
 });
 
-describe('setBadgeObtainable', () => {
+describe.skipIf(!PG_AVAILABLE)('setBadgeObtainable', () => {
   it('toggles obtainable and logs it', async () => {
     const adminUserId = await seedAdmin();
     await saveBadgeDefinition(db, draft({ obtainable: true }), adminUserId);
@@ -120,7 +120,7 @@ describe('setBadgeObtainable', () => {
   });
 });
 
-describe('manuallyAwardBadge', () => {
+describe.skipIf(!PG_AVAILABLE)('manuallyAwardBadge', () => {
   it('fails cleanly when the player has no account', async () => {
     const adminUserId = await seedAdmin();
     await saveBadgeDefinition(db, draft({ seasonScoped: false }), adminUserId);
@@ -182,7 +182,7 @@ describe('manuallyAwardBadge', () => {
   });
 });
 
-describe('revokeBadgeOwnership', () => {
+describe.skipIf(!PG_AVAILABLE)('revokeBadgeOwnership', () => {
   it('marks a held badge revoked and excludes it from the holder count', async () => {
     const adminUserId = await seedAdmin();
     await db.insert(playerProfiles).values({ playerId: '100001', email: 'p100001@test.levelup' });

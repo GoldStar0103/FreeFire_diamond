@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProviderSimulator, type ProviderProduct, type UsdTenK } from '@levelup/provider';
+import {
+  ProviderSimulator,
+  type ProviderName,
+  type ProviderProduct,
+  type UsdTenK,
+} from '@levelup/provider';
 import {
   summariseSync,
   syncCatalog,
@@ -45,11 +50,11 @@ function harness(
 
   const store: CatalogSyncStore = {
     listStoredProducts: vi.fn(async () => stored),
-    upsertProducts: vi.fn(async (p: ProductUpsert[]) => {
+    upsertProducts: vi.fn(async (_provider: ProviderName, p: ProductUpsert[]) => {
       calls.push('upsert');
       upserted.push(p);
     }),
-    deactivateProducts: vi.fn(async (ids: string[]) => {
+    deactivateProducts: vi.fn(async (_provider: ProviderName, ids: string[]) => {
       calls.push('deactivate');
       deactivated.push(ids);
     }),
@@ -58,12 +63,21 @@ function harness(
       repointed.push(r);
       return r.map((x) => ({ ...x, ...moved(x) }));
     }),
+    listActiveRecipeProducts: vi.fn(async () => []),
   };
 
   const provider = new ProviderSimulator();
   provider.programCatalog(catalog);
 
-  return { store, provider, upserted, deactivated, repointed, calls, deps: { store, provider } };
+  return {
+    store,
+    provider,
+    upserted,
+    deactivated,
+    repointed,
+    calls,
+    deps: { store, provider, providerName: 'recargas_america' as const },
+  };
 }
 
 const storedRow = (overrides: Partial<StoredProduct> = {}): StoredProduct => ({
@@ -425,7 +439,9 @@ describe('replaced provider products', () => {
     expect(repointed[0]).toEqual([
       {
         denomination: 100,
+        fromProvider: 'recargas_america',
         fromProviderProductId: '351',
+        toProvider: 'recargas_america',
         toProviderProductId: '901',
         costUsd: usd(0.72),
       },

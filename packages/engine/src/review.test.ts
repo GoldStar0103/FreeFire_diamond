@@ -66,6 +66,63 @@ describe('marking a recharge delivered', () => {
   });
 });
 
+describe('marking a recharge delivered by hand (never attempted here)', () => {
+  it('settles a queued item and completes the order when it was the last one', () => {
+    const result = planReview(order([item(0, 'succeeded'), item(1, 'queued', 0)]), {
+      kind: 'mark_item_delivered_manually',
+      itemId: 'item-2',
+      note: 'Central One, ref CO-123',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      plan: {
+        nextOrderStatus: 'completed',
+        itemUpdates: [{ itemId: 'item-2', expectedStatus: 'queued', status: 'succeeded' }],
+        audit: { action: 'review.item_marked_delivered_manually', detail: { note: 'Central One, ref CO-123' } },
+      },
+    });
+  });
+
+  it('also accepts a definitively failed item', () => {
+    const result = planReview(order([item(0, 'failed', 3)]), {
+      kind: 'mark_item_delivered_manually',
+      itemId: 'item-1',
+      note: 'emergency provider, voucher #9',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses an item that already has an answer or is in flight — that is what "Sí llegó" is for', () => {
+    for (const status of ['sending', 'succeeded', 'provider_pending', 'unknown'] as OrderItemStatus[]) {
+      const result = planReview(order([item(0, status)]), {
+        kind: 'mark_item_delivered_manually',
+        itemId: 'item-1',
+        note: 'some provider',
+      });
+      expect(result).toMatchObject({ ok: false, failure: { code: 'ITEM_NOT_RESOLVABLE' } });
+    }
+  });
+
+  it('refuses without a note', () => {
+    const result = planReview(order([item(0, 'queued', 0)]), {
+      kind: 'mark_item_delivered_manually',
+      itemId: 'item-1',
+      note: '  ',
+    });
+    expect(result).toMatchObject({ ok: false, failure: { code: 'NOTE_REQUIRED' } });
+  });
+
+  it('refuses when the order is not under review', () => {
+    const result = planReview(order([item(0, 'queued', 0)], 'processing'), {
+      kind: 'mark_item_delivered_manually',
+      itemId: 'item-1',
+      note: 'some provider',
+    });
+    expect(result).toMatchObject({ ok: false, failure: { code: 'WRONG_ORDER_STATUS' } });
+  });
+});
+
 describe('marking a recharge not delivered', () => {
   it('will not re-queue an unknown outcome without the admin confirming it was not charged', () => {
     // The one click that could deliver twice.

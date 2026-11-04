@@ -36,7 +36,7 @@
  *      the stored row is withdrawn from sale, and a human decides.
  */
 
-import type { ProviderProduct, TopupProvider, UsdTenK } from '@levelup/provider';
+import type { ProviderName, ProviderProduct, TopupProvider, UsdTenK } from '@levelup/provider';
 import { mapDenominations, rankProduct } from '@levelup/provider';
 
 export interface StoredProduct {
@@ -59,16 +59,30 @@ export interface ProductUpsert {
   canValidate: boolean;
 }
 
+/** What a combo recipe currently points at for one denomination, whichever provider that is. */
+export interface ActiveRecipeProduct {
+  denomination: number;
+  provider: ProviderName;
+  providerProductId: string;
+}
+
 /**
  * Move everything that references one provider product onto another of the
  * same denomination. `costUsd` is what the new SKU charges, and is what unsent
  * order items must carry from now on — wallet-delta reconciliation compares
  * the observed debit against it, so leaving the old cost in place would turn
  * every ambiguous call on a re-pointed item into `indeterminate`.
+ *
+ * `fromProvider`/`toProvider` are equal for an ordinary same-provider sync
+ * (the provider renamed/replaced a product id) and differ only when this is
+ * a failover switch (`provider-routing.ts`'s `activateProvider`) — the same
+ * move, just crossing a provider boundary instead of staying within one.
  */
 export interface Repoint {
   denomination: number;
+  fromProvider: ProviderName;
   fromProviderProductId: string;
+  toProvider: ProviderName;
   toProviderProductId: string;
   costUsd: UsdTenK;
 }
@@ -81,9 +95,10 @@ export interface RepointOutcome extends Repoint {
 }
 
 export interface CatalogSyncStore {
-  listStoredProducts(): Promise<StoredProduct[]>;
-  upsertProducts(products: ProductUpsert[]): Promise<void>;
-  deactivateProducts(providerProductIds: string[]): Promise<void>;
+  /** Scoped to one provider — two providers' catalogs never see each other's rows. */
+  listStoredProducts(provider: ProviderName): Promise<StoredProduct[]>;
+  upsertProducts(provider: ProviderName, products: ProductUpsert[]): Promise<void>;
+  deactivateProducts(provider: ProviderName, providerProductIds: string[]): Promise<void>;
 
   /**
    * Re-point recipes and unsent order items, atomically, with an audit row per
@@ -95,6 +110,9 @@ export interface CatalogSyncStore {
    * exclusion matters.
    */
   repointProducts(repoints: Repoint[]): Promise<RepointOutcome[]>;
+
+  /** What combo recipes actually point at right now, per denomination — see `activateProvider`. */
+  listActiveRecipeProducts(): Promise<ActiveRecipeProduct[]>;
 }
 
 export interface CostChange {
@@ -175,6 +193,8 @@ export interface CatalogSyncResult {
 export interface CatalogSyncDeps {
   store: CatalogSyncStore;
   provider: TopupProvider;
+  /** Which provider `provider` actually is — scopes every store call so two providers' syncs never collide. */
+  providerName: ProviderName;
   /** Report a cost move of at least this fraction (0.02 = 2%). */
   costChangeThreshold?: number;
 }
@@ -208,9 +228,10 @@ function pickProduct(
 
 export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncResult> {
   const threshold = deps.costChangeThreshold ?? 0.02;
+  const providerName = deps.providerName;
 
   const catalog = await deps.provider.listFreeFireCatalog();
-  const stored = await deps.store.listStoredProducts();
+  const stored = await deps.store.listStoredProducts(providerName);
   const byProviderId = new Map(stored.map((p) => [p.providerProductId, p]));
   const activeIds = new Set(stored.filter((p) => p.active).map((p) => p.providerProductId));
 
@@ -367,7 +388,7 @@ export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncRes
     // Deactivating on this evidence would take the whole store down because
     // the provider had a bad minute — or a bad migration day.
     const forced = withdrawn.filter((id) => conflicted.has(id));
-    if (forced.length > 0) await deps.store.deactivateProducts(forced);
+    if (forced.length > 0) await deps.store.deactivateProducts(providerName, forced);
 
     return {
       mapped,
@@ -388,7 +409,7 @@ export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncRes
     };
   }
 
-  if (upserts.length > 0) await deps.store.upsertProducts(upserts);
+  if (upserts.length > 0) await deps.store.upsertProducts(providerName, upserts);
 
   // Every other stored product of a mapped denomination hands its references
   // to the product now chosen. Active ones are replacements proper; inactive
@@ -403,7 +424,9 @@ export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncRes
 
       repoints.push({
         denomination: upsert.diamondsBase,
+        fromProvider: providerName,
         fromProviderProductId: previous.providerProductId,
+        toProvider: providerName,
         toProviderProductId: upsert.providerProductId,
         costUsd: upsert.costUsd,
       });
@@ -428,7 +451,7 @@ export async function syncCatalog(deps: CatalogSyncDeps): Promise<CatalogSyncRes
 
   // Anything previously active that the provider no longer offers. Deactivated,
   // never deleted — order items and combo recipes still point at these rows.
-  if (withdrawn.length > 0) await deps.store.deactivateProducts(withdrawn);
+  if (withdrawn.length > 0) await deps.store.deactivateProducts(providerName, withdrawn);
 
   return {
     mapped,

@@ -27,7 +27,7 @@ const EXPLAIN: Record<ReviewFailureCode, string> = {
   WRONG_ORDER_STATUS: 'El pedido ya no está en revisión. Recarga la página.',
   ITEM_NOT_FOUND: 'Esa recarga no pertenece a este pedido.',
   ITEM_NOT_RESOLVABLE:
-    'Esa recarga no se puede resolver a mano: ya tiene respuesta o está en proceso. Recarga la página.',
+    'Esa recarga no se puede resolver así: ya tiene respuesta o está en proceso. Recarga la página.',
   NEEDS_CONFIRMATION:
     'Primero confirma en RecargasAmérica que esa recarga NO se cobró. Si se reenvía y sí se había cobrado, el cliente recibe doble.',
   UNRESOLVED_ITEMS:
@@ -41,6 +41,7 @@ const SUCCESS: Record<ReviewAction['kind'], string> = {
   mark_item_delivered: 'Recarga marcada como entregada.',
   mark_item_not_delivered:
     'Recarga marcada como NO entregada. Se enviará de nuevo cuando presiones "Reanudar entregas".',
+  mark_item_delivered_manually: 'Recarga marcada como entregada a mano.',
   resume: 'Listo: las recargas que faltan se están enviando.',
   flag_refund: 'Pedido marcado para reembolso. No se enviará nada más.',
   refund_done: 'Reembolso registrado. El pedido quedó cerrado.',
@@ -58,6 +59,8 @@ function readAction(formData: FormData): ReviewAction | null {
       return itemId
         ? { kind, itemId, confirmedNotCharged: formData.get('confirmedNotCharged') === 'yes' }
         : null;
+    case 'mark_item_delivered_manually':
+      return itemId ? { kind, itemId, note } : null;
     case 'resume':
       return { kind };
     case 'flag_refund':

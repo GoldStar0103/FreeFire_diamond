@@ -7,6 +7,7 @@ export * from './payments.js';
 export * from './expiry.js';
 export * from './stuck-payments.js';
 export * from './catalog-sync.js';
+export * from './provider-routing.js';
 export * from './catalog-admin.js';
 export * from './conversions.js';
 export * from './review.js';

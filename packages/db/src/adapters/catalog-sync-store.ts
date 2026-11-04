@@ -6,9 +6,10 @@
  * after being withdrawn is reactivated rather than duplicated.
  */
 
-import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
-import { parseUsd } from '@levelup/provider';
+import { and, eq, inArray, notInArray, or, sql } from 'drizzle-orm';
+import { parseUsd, type ProviderName } from '@levelup/provider';
 import type {
+  ActiveRecipeProduct,
   CatalogSyncStore,
   OrderItemStatus,
   OrderStatus,
@@ -48,7 +49,7 @@ const CLOSED_ORDER_STATUSES = [
 export class DrizzleCatalogSyncStore implements CatalogSyncStore {
   constructor(private readonly db: Database) {}
 
-  async listStoredProducts(): Promise<StoredProduct[]> {
+  async listStoredProducts(provider: ProviderName): Promise<StoredProduct[]> {
     const rows = await this.db
       .select({
         id: baseProducts.id,
@@ -58,7 +59,8 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
         costUsd: baseProducts.costUsd,
         active: baseProducts.active,
       })
-      .from(baseProducts);
+      .from(baseProducts)
+      .where(eq(baseProducts.provider, provider));
 
     return rows.map((r) => ({
       ...r,
@@ -66,7 +68,7 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
     }));
   }
 
-  async upsertProducts(products: ProductUpsert[]): Promise<void> {
+  async upsertProducts(provider: ProviderName, products: ProductUpsert[]): Promise<void> {
     if (products.length === 0) return;
     const syncedAt = new Date();
 
@@ -74,6 +76,7 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
       .insert(baseProducts)
       .values(
         products.map((p) => ({
+          provider,
           providerProductId: p.providerProductId,
           endpointKind: p.endpointKind,
           sku: p.sku,
@@ -87,7 +90,7 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
         })),
       )
       .onConflictDoUpdate({
-        target: baseProducts.providerProductId,
+        target: [baseProducts.provider, baseProducts.providerProductId],
         set: {
           // `excluded` is the row we tried to insert. A product the provider
           // has started offering again comes back active automatically.
@@ -104,7 +107,7 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
       });
   }
 
-  async deactivateProducts(providerProductIds: string[]): Promise<void> {
+  async deactivateProducts(provider: ProviderName, providerProductIds: string[]): Promise<void> {
     if (providerProductIds.length === 0) return;
 
     // Deactivate, never delete: combo recipes and historical order items still
@@ -112,7 +115,9 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
     await this.db
       .update(baseProducts)
       .set({ active: false })
-      .where(inArray(baseProducts.providerProductId, providerProductIds));
+      .where(
+        and(eq(baseProducts.provider, provider), inArray(baseProducts.providerProductId, providerProductIds)),
+      );
   }
 
   /**
@@ -138,20 +143,44 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
     if (repoints.length === 0) return [];
 
     return this.db.transaction(async (tx) => {
-      const providerIds = [
-        ...new Set(repoints.flatMap((r) => [r.fromProviderProductId, r.toProviderProductId])),
+      // Keyed on (provider, provider_product_id) — the id string alone is not
+      // guaranteed unique across two providers' id spaces (see the composite
+      // unique index on `base_products`), so a plain `providerProductId` IN
+      // list could resolve to the wrong provider's row.
+      const pairKey = (provider: ProviderName, providerProductId: string) => `${provider}:${providerProductId}`;
+      const pairs = [
+        ...new Set(
+          repoints.flatMap((r) => [
+            pairKey(r.fromProvider, r.fromProviderProductId),
+            pairKey(r.toProvider, r.toProviderProductId),
+          ]),
+        ),
       ];
       const rows = await tx
-        .select({ id: baseProducts.id, providerProductId: baseProducts.providerProductId })
+        .select({
+          id: baseProducts.id,
+          provider: baseProducts.provider,
+          providerProductId: baseProducts.providerProductId,
+        })
         .from(baseProducts)
-        .where(inArray(baseProducts.providerProductId, providerIds));
-      const rowIdOf = new Map(rows.map((r) => [r.providerProductId, r.id]));
+        .where(
+          or(
+            ...pairs.map((key) => {
+              const [provider, providerProductId] = key.split(':') as [ProviderName, string];
+              return and(
+                eq(baseProducts.provider, provider),
+                eq(baseProducts.providerProductId, providerProductId),
+              )!;
+            }),
+          ),
+        );
+      const rowIdOf = new Map(rows.map((r) => [pairKey(r.provider, r.providerProductId), r.id]));
 
       const outcomes: RepointOutcome[] = [];
 
       for (const repoint of repoints) {
-        const fromId = rowIdOf.get(repoint.fromProviderProductId);
-        const toId = rowIdOf.get(repoint.toProviderProductId);
+        const fromId = rowIdOf.get(pairKey(repoint.fromProvider, repoint.fromProviderProductId));
+        const toId = rowIdOf.get(pairKey(repoint.toProvider, repoint.toProviderProductId));
 
         if (!toId) {
           // The engine upserts before re-pointing. Reaching here means that
@@ -164,7 +193,9 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
 
         const common = {
           denomination: repoint.denomination,
+          fromProvider: repoint.fromProvider,
           fromProviderProductId: repoint.fromProviderProductId,
+          toProvider: repoint.toProvider,
           toProviderProductId: repoint.toProviderProductId,
         };
 
@@ -221,6 +252,7 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
           .innerJoin(orders, eq(orders.id, orderItems.orderId))
           .where(
             and(
+              eq(orderItems.provider, repoint.fromProvider),
               eq(orderItems.providerProductId, repoint.fromProviderProductId),
               inArray(orderItems.status, [...UNSENT_ITEM_STATUSES]),
               notInArray(orders.status, [...CLOSED_ORDER_STATUSES]),
@@ -238,6 +270,7 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
           const moved = await tx
             .update(orderItems)
             .set({
+              provider: repoint.toProvider,
               providerProductId: repoint.toProviderProductId,
               baseProductId: toId,
               costUsd: newCost,
@@ -288,6 +321,31 @@ export class DrizzleCatalogSyncStore implements CatalogSyncStore {
 
       return outcomes;
     });
+  }
+
+  /**
+   * What combo recipes actually point at right now, per denomination —
+   * read directly from `combo_items`/`base_products` rather than assumed, so
+   * `activateProvider` stays correct even after a previous switch only got
+   * through some of the six denominations. Several combos can reference the
+   * same `base_products` row for a denomination; any one of them is
+   * representative, so the first is kept and the rest de-duplicated.
+   */
+  async listActiveRecipeProducts(): Promise<ActiveRecipeProduct[]> {
+    const rows = await this.db
+      .select({
+        denomination: baseProducts.diamondsBase,
+        provider: baseProducts.provider,
+        providerProductId: baseProducts.providerProductId,
+      })
+      .from(comboItems)
+      .innerJoin(baseProducts, eq(baseProducts.id, comboItems.baseProductId));
+
+    const byDenomination = new Map<number, ActiveRecipeProduct>();
+    for (const row of rows) {
+      if (!byDenomination.has(row.denomination)) byDenomination.set(row.denomination, row);
+    }
+    return [...byDenomination.values()];
   }
 
   /**

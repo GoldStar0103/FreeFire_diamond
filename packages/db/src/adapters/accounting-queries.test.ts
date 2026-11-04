@@ -90,7 +90,7 @@ async function seedOneCombo() {
       raw: {},
     } satisfies ProviderProduct,
   ]);
-  await syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider });
+  await syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider, providerName: 'recargas_america' });
 
   const [product] = await db.select().from(baseProducts);
   const [campaign] = await db.insert(campaigns).values({ key: 'test', name: 'TEST' }).returning();

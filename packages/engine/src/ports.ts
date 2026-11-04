@@ -7,12 +7,14 @@
  * logic under test is the same logic that runs in production.
  */
 
-import type { EndpointKind, UsdTenK } from '@levelup/provider';
+import type { EndpointKind, ProviderName, UsdTenK } from '@levelup/provider';
 import type { OrderItemStatus, OrderStatus } from './states.js';
 
 export interface OrderItemRecord {
   id: string;
   sequence: number;
+  /** Which provider this item was created/re-pointed against — see `provider-routing.ts`. */
+  provider: ProviderName;
   providerProductId: string;
   diamondsBase: number;
   costUsd: UsdTenK;

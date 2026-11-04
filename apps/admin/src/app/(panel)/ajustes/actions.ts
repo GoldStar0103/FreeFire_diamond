@@ -5,12 +5,17 @@ import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import {
   adminUsers,
+  DrizzleCatalogSyncStore,
   reviewFxRate,
   reviewPaymentDetails,
+  saveEmergencyMode,
   saveFxRate,
   savePaymentDetails,
   savePaymentMethodsEnabled,
+  setActiveProvider as setActiveProviderSetting,
 } from '@levelup/db';
+import { activateProvider, type Alerter } from '@levelup/engine';
+import type { ProviderName } from '@levelup/provider';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { readPurposeToken, signPurposeToken, verifyPassword } from '../../../lib/auth';
@@ -68,6 +73,64 @@ export async function saveSettings(
   revalidatePath('/ajustes');
 
   return { saved: true };
+}
+
+// ── emergency manual-fulfillment mode ───────────────────────────────────────
+
+/**
+ * Stop the worker calling the provider for new orders, so they can be
+ * delivered by hand through the third, API-less provider instead. A plain
+ * toggle rather than part of `saveSettings` — this is an operational switch,
+ * flipped in a hurry, not a form the owner fills out and reviews.
+ */
+export async function setEmergencyModeAction(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const enabled = formData.get('enabled') === 'true';
+
+  await saveEmergencyMode(getDb(), { enabled }, session.adminUserId);
+
+  revalidatePath('/ajustes');
+  revalidatePath('/');
+}
+
+// ── active provider ──────────────────────────────────────────────────────────
+
+/** Logs server-side only — the page re-rendering with the new "activo" badge is the feedback here. */
+const consoleAlerter: Alerter = {
+  async send(level, title, detail) {
+    const line = `[ajustes] [${level}] ${title}`;
+    console.log(detail ? `${line} ${JSON.stringify(detail)}` : line);
+  },
+};
+
+/**
+ * Manually switch which provider is active — same mechanism the automatic
+ * failover cascade uses (`activateProvider`, reusing the catalog-sync
+ * re-point machinery), just triggered by a person instead of a health check.
+ * This is also how Jose fails back to RecargasAmérica once he has confirmed
+ * it recovered — automatic fail-back is deliberately not a thing, to avoid
+ * flapping between two intermittently-unhealthy providers.
+ */
+export async function setActiveProviderAction(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const target = formData.get('provider');
+  if (target !== 'recargas_america' && target !== 'central_one') {
+    throw new Error(`Invalid provider: ${String(target)}`);
+  }
+
+  await activateProvider(
+    {
+      store: new DrizzleCatalogSyncStore(getDb()),
+      alerter: consoleAlerter,
+      setActiveProvider: (provider: ProviderName, adminUserId) =>
+        setActiveProviderSetting(getDb(), provider, adminUserId),
+    },
+    target,
+    session.adminUserId,
+  );
+
+  revalidatePath('/ajustes');
+  revalidatePath('/');
 }
 
 // ── two-factor authentication (TOTP) ────────────────────────────────────────

@@ -95,7 +95,7 @@ async function seedActiveSeason(seasonNumber = 1) {
   return s!;
 }
 
-describe('getMyProfile', () => {
+describe.skipIf(!PG_AVAILABLE)('getMyProfile', () => {
   it('returns null for an unknown id', async () => {
     expect(await getMyProfile(db, '00000000-0000-0000-0000-000000000000')).toBeNull();
   });
@@ -106,7 +106,7 @@ describe('getMyProfile', () => {
   });
 });
 
-describe('getMyLevelUpOverview', () => {
+describe.skipIf(!PG_AVAILABLE)('getMyLevelUpOverview', () => {
   it('returns an all-zero, no-season overview when there is no active season', async () => {
     const p = await seedProfile();
     const overview = await getMyLevelUpOverview(db, p.id);
@@ -200,7 +200,7 @@ describe('getMyLevelUpOverview', () => {
   });
 });
 
-describe('listMyBadges / setFeaturedBadges', () => {
+describe.skipIf(!PG_AVAILABLE)('listMyBadges / setFeaturedBadges', () => {
   it('lists owned, non-revoked badges with season number when applicable', async () => {
     const p = await seedProfile();
     const season = await seedActiveSeason();
@@ -249,7 +249,7 @@ describe('listMyBadges / setFeaturedBadges', () => {
   });
 });
 
-describe('listMyOrders', () => {
+describe.skipIf(!PG_AVAILABLE)('listMyOrders', () => {
   it('lists orders newest first, with LP earned when it exists', async () => {
     const p = await seedProfile();
     const [campaign] = await db.insert(campaigns).values({ key: 'c', name: 'C' }).returning();
@@ -265,7 +265,7 @@ describe('listMyOrders', () => {
   });
 });
 
-describe('reviewDisplayName', () => {
+describe.skipIf(!PG_AVAILABLE)('reviewDisplayName', () => {
   it.each(['ab', 'x'.repeat(21), 'bad<script>', ''])('rejects invalid input (%s)', (raw) => {
     expect(reviewDisplayName(raw).issue).not.toBeNull();
   });
@@ -279,7 +279,7 @@ describe('reviewDisplayName', () => {
   });
 });
 
-describe('updateDisplayName', () => {
+describe.skipIf(!PG_AVAILABLE)('updateDisplayName', () => {
   it('updates on valid input', async () => {
     const p = await seedProfile();
     expect(await updateDisplayName(db, p.id, 'ShadowFF')).toEqual({ ok: true });
@@ -303,7 +303,7 @@ describe('updateDisplayName', () => {
   });
 });
 
-describe('updateAvatar', () => {
+describe.skipIf(!PG_AVAILABLE)('updateAvatar', () => {
   it('sets the avatar key', async () => {
     const p = await seedProfile();
     await updateAvatar(db, p.id, 'avatars/x/abc.jpg');
@@ -311,7 +311,7 @@ describe('updateAvatar', () => {
   });
 });
 
-describe('getPublicTop50', () => {
+describe.skipIf(!PG_AVAILABLE)('getPublicTop50', () => {
   it('is empty with no active season', async () => {
     expect(await getPublicTop50(db)).toEqual({ season: null, rows: [] });
   });
@@ -337,7 +337,7 @@ describe('getPublicTop50', () => {
   });
 });
 
-describe('getPublicProfile', () => {
+describe.skipIf(!PG_AVAILABLE)('getPublicProfile', () => {
   it('returns null for an unknown profile', async () => {
     expect(await getPublicProfile(db, '00000000-0000-0000-0000-000000000000')).toBeNull();
   });
@@ -383,7 +383,7 @@ describe('getPublicProfile', () => {
   });
 });
 
-describe('changeLinkedPlayerId', () => {
+describe.skipIf(!PG_AVAILABLE)('changeLinkedPlayerId', () => {
   it('lets a player change their linked ID once per season, then refuses', async () => {
     const p = await seedProfile('100001');
     await seedActiveSeason(1);

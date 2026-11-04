@@ -23,6 +23,11 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const PROVIDER_LABEL: Record<string, string> = {
+  recargas_america: 'RecargasAmérica',
+  central_one: 'Central One',
+};
+
 const PAYMENT_STATUS_LABEL: Record<string, string> = {
   pending: 'Pendiente',
   under_review: 'En revisión',
@@ -316,6 +321,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <div className="row">
             <strong>#{item.sequence + 1}</strong>
             <span>{diamonds(item.diamondsBase)} 💎 base</span>
+            <span className="badge muted">{PROVIDER_LABEL[item.provider] ?? item.provider}</span>
             <span className={`badge ${statusTone(item.status)}`}>
               {itemStatusLabel(item.status)}
             </span>

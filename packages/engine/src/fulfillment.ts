@@ -17,6 +17,7 @@
 
 import {
   resolveAmbiguous,
+  type ProviderName,
   type PurchaseOutcome,
   type TopupProvider,
   type UsdTenK,
@@ -25,7 +26,18 @@ import type { Alerter, AdvisoryLock, Clock, FulfillmentStore, OrderRecord } from
 import { systemClock } from './ports.js';
 import { assertTransition, deriveOrderStatus, type OrderStatus } from './states.js';
 
-export const PROVIDER_LOCK_KEY = 'provider:recargasamerica';
+/**
+ * One lock per provider — wallet-delta reconciliation is only sound with one
+ * call in flight globally *per wallet* (see `AdvisoryLock`'s doc comment in
+ * `ports.ts`), and the two providers have two separate wallets. Sharing one
+ * key across both would either over-serialise (an RA call blocking an
+ * unrelated Central One call) or, worse, silently drop the guarantee for
+ * whichever provider didn't get its own key.
+ */
+export const PROVIDER_LOCK_KEYS: Record<ProviderName, string> = {
+  recargas_america: 'provider:recargasamerica',
+  central_one: 'provider:centralone',
+};
 
 export interface FulfillmentConfig {
   /** Attempts per item before it goes to a human. */
@@ -44,7 +56,7 @@ export const defaultConfig: FulfillmentConfig = {
 
 export interface FulfillmentDeps {
   store: FulfillmentStore;
-  provider: TopupProvider;
+  providers: Record<ProviderName, TopupProvider>;
   lock: AdvisoryLock;
   alerter: Alerter;
   clock?: Clock;
@@ -80,7 +92,7 @@ export async function fulfillOrder(
 ): Promise<FulfillmentResult> {
   const clock = deps.clock ?? systemClock;
   const config = { ...defaultConfig, ...deps.config };
-  const { store, provider, lock, alerter } = deps;
+  const { store, providers, lock, alerter } = deps;
 
   const order = await store.loadOrder(orderId);
   if (!order) throw new Error(`Order ${orderId} not found`);
@@ -105,23 +117,34 @@ export async function fulfillOrder(
 
   // Free Fire products expose no stock field, so wallet balance is the only
   // pre-flight signal. The customer has already paid — better to pause the
-  // whole order and alert than to start one we cannot finish.
-  const remainingCost = pending.reduce((sum, i) => sum + i.costUsd, 0) as UsdTenK;
-  const balance = await provider.getBalance();
-  if (balance - config.reserveFloorUsd < remainingCost) {
-    await alerter.send('critical', 'Insufficient provider balance — order paused', {
-      orderNumber: order.orderNumber,
-      balanceUsd: balance / 10_000,
-      requiredUsd: remainingCost / 10_000,
-    });
-    await transition(store, order, 'needs_review');
-    return {
-      orderId,
-      finalStatus: 'needs_review',
-      delivered: order.items.filter((i) => i.status === 'succeeded').length,
-      attempted: 0,
-      haltedReason: 'insufficient_balance',
-    };
+  // whole order and alert than to start one we cannot finish. Checked per
+  // provider: a mixed-provider order (rare, but possible if a failover
+  // repoint lands between two of its items being queued) must not pass this
+  // check on one provider's balance while silently being short on the other's.
+  const remainingCostByProvider = new Map<ProviderName, UsdTenK>();
+  for (const item of pending) {
+    const prior = remainingCostByProvider.get(item.provider) ?? (0 as UsdTenK);
+    remainingCostByProvider.set(item.provider, (prior + item.costUsd) as UsdTenK);
+  }
+
+  for (const [providerName, remainingCost] of remainingCostByProvider) {
+    const balance = await providers[providerName].getBalance();
+    if (balance - config.reserveFloorUsd < remainingCost) {
+      await alerter.send('critical', 'Insufficient provider balance — order paused', {
+        orderNumber: order.orderNumber,
+        provider: providerName,
+        balanceUsd: balance / 10_000,
+        requiredUsd: remainingCost / 10_000,
+      });
+      await transition(store, order, 'needs_review');
+      return {
+        orderId,
+        finalStatus: 'needs_review',
+        delivered: order.items.filter((i) => i.status === 'succeeded').length,
+        attempted: 0,
+        haltedReason: 'insufficient_balance',
+      };
+    }
   }
 
   await transition(store, order, 'processing');
@@ -156,9 +179,12 @@ export async function fulfillOrder(
 
     attempted++;
 
-    // Everything from here to settlement holds the global provider lock. Wallet
+    const provider = providers[item.provider];
+    const lockKey = PROVIDER_LOCK_KEYS[item.provider];
+
+    // Everything from here to settlement holds that provider's lock. Wallet
     // comparison is meaningless if another call moves the balance in between.
-    halted = await lock.withLock(PROVIDER_LOCK_KEY, async () => {
+    halted = await lock.withLock(lockKey, async () => {
       const walletBefore = await provider.getBalance();
 
       // Committed before the call goes out. If the process dies now, recovery
@@ -192,6 +218,31 @@ export async function fulfillOrder(
   }
 
   return finish(deps, order, config.maxAttempts, attempted, halted);
+}
+
+/**
+ * Park a freshly claimed order for a human instead of calling the provider.
+ *
+ * Emergency mode's whole point: the worker still claims orders (so they don't
+ * sit silently unclaimed), but routes them straight to `needs_review` instead
+ * of `fulfillOrder`. Items stay `queued` — nothing was attempted — and the
+ * existing review panel's `mark_item_delivered_manually` action is what
+ * settles them once the owner has delivered them by hand.
+ */
+export async function holdForManualFulfillment(
+  deps: Pick<FulfillmentDeps, 'store' | 'alerter'>,
+  orderId: string,
+): Promise<void> {
+  const { store, alerter } = deps;
+  const order = await store.loadOrder(orderId);
+  if (!order) throw new Error(`Order ${orderId} not found`);
+
+  assertTransition(order.status, 'needs_review');
+  await store.updateOrderStatus(orderId, 'needs_review');
+
+  await alerter.send('warn', 'Emergency mode — order held for manual fulfillment', {
+    orderNumber: order.orderNumber,
+  });
 }
 
 interface HandleArgs {

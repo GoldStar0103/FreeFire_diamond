@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { baseProducts, DrizzleOrderingStore, DrizzlePaymentStore } from '@levelup/db';
 import { approvePayment, createOrder, type CreateOrderFailure } from '@levelup/engine';
 import { getDb } from '../../../../lib/db';
-import { getProvider } from '../../../../lib/provider';
+import { getActiveProvider } from '../../../../lib/provider';
 import { requireSession } from '../../../../lib/session';
 
 export interface LookupState {
@@ -51,7 +51,7 @@ export async function lookupPlayer(
   }
 
   try {
-    const result = await getProvider().validatePlayer(productId, playerId);
+    const result = await (await getActiveProvider()).validatePlayer(productId, playerId);
     // `found` is the provider's real answer; `nickname` can come back null
     // on a genuine account (confirmed in production 2026-10-26 against a
     // stale validate-only product id), so it is not required to proceed.
@@ -108,7 +108,7 @@ export async function createManualOrder(
 
   let nickname: string | null;
   try {
-    const check = await getProvider().validatePlayer(productId, playerId);
+    const check = await (await getActiveProvider()).validatePlayer(productId, playerId);
     if (!check.found) {
       return { error: 'No existe esa cuenta de Free Fire. Revisa el ID.' };
     }

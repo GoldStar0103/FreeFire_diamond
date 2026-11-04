@@ -86,7 +86,7 @@ const catalogOf = (denominations: number[], costFor: (d: number) => number): Pro
 function syncWith(catalog: ProviderProduct[]) {
   const provider = new ProviderSimulator();
   provider.programCatalog(catalog);
-  return syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider });
+  return syncCatalog({ store: new DrizzleCatalogSyncStore(db), provider, providerName: 'recargas_america' });
 }
 
 const ALL_SIX = [100, 310, 520, 1060, 2180, 5600];
@@ -558,7 +558,7 @@ describe.skipIf(!PG_AVAILABLE)('a provider product replaced by a new id', () => 
     // combo disagreeing about which SKU fulfils it.
     const { itemId } = await orderWith('payment_confirmed', 'queued');
     const store = new DrizzleCatalogSyncStore(db);
-    await store.upsertProducts([
+    await store.upsertProducts('recargas_america', [
       {
         providerProductId: '901',
         endpointKind: 'pins_recharge',
@@ -575,8 +575,22 @@ describe.skipIf(!PG_AVAILABLE)('a provider product replaced by a new id', () => 
     // product that was never stored.
     await expect(
       store.repointProducts([
-        { denomination: 100, fromProviderProductId: '351', toProviderProductId: '901', costUsd: usd(0.72) },
-        { denomination: 310, fromProviderProductId: '348', toProviderProductId: 'nope', costUsd: usd(2) },
+        {
+          denomination: 100,
+          fromProvider: 'recargas_america',
+          fromProviderProductId: '351',
+          toProvider: 'recargas_america',
+          toProviderProductId: '901',
+          costUsd: usd(0.72),
+        },
+        {
+          denomination: 310,
+          fromProvider: 'recargas_america',
+          fromProviderProductId: '348',
+          toProvider: 'recargas_america',
+          toProviderProductId: 'nope',
+          costUsd: usd(2),
+        },
       ]),
     ).rejects.toThrow(/nope/);
 

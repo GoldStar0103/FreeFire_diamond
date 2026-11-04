@@ -12,7 +12,8 @@ import {
   expireOverduePayments,
   fulfillOrder,
   grantCompletedRewardOrders,
-  PROVIDER_LOCK_KEY,
+  holdForManualFulfillment,
+  PROVIDER_LOCK_KEYS,
   recoverStalledItems,
   pollPendingOrders,
   reportConversions,
@@ -36,17 +37,20 @@ import type {
   SeasonStore,
   StuckPaymentStore,
 } from '@levelup/engine';
-import type { TopupProvider, UsdTenK } from '@levelup/provider';
+import type { ProviderName, TopupProvider, UsdTenK } from '@levelup/provider';
 import type { DrizzleOrderQueue } from '@levelup/db';
 import { catalogSyncAlerts } from './catalog-report.js';
 import type { WorkerConfig } from './config.js';
+
+/** Iterated wherever every provider needs the same treatment (wallet check, catalog sync). */
+const PROVIDER_NAMES: readonly ProviderName[] = ['recargas_america', 'central_one'];
 
 export interface RunnerDeps {
   queue: Pick<DrizzleOrderQueue, 'claimNext' | 'depth'>;
   store: RecoveryStore & ExpiryStore & StuckPaymentStore;
   /** The `base_products` mirror, for the periodic provider catalog sync. */
   catalog: CatalogSyncStore;
-  provider: TopupProvider;
+  providers: Record<ProviderName, TopupProvider>;
   lock: AdvisoryLock;
   /**
    * In-process mutex around each whole order — see `ORDER_BOUNDARY_KEY`.
@@ -55,6 +59,13 @@ export interface RunnerDeps {
   orderBoundary: AdvisoryLock;
   alerter: Alerter;
   config: WorkerConfig;
+  /**
+   * Whether emergency mode is on right now — read fresh on every claim, not
+   * cached in `config`, because the owner flips this from the dashboard while
+   * the worker keeps running. A read failure is treated as "off": a transient
+   * DB hiccup must not silently stall paid orders with no visible reason.
+   */
+  isEmergencyMode: () => Promise<boolean>;
 }
 
 /**
@@ -96,7 +107,7 @@ export async function runFulfillmentLoop(
   signal: ShutdownSignal,
   options: { maxIterations?: number } = {},
 ): Promise<{ processed: number }> {
-  const { queue, store, provider, lock, orderBoundary, alerter, config } = deps;
+  const { queue, store, providers, lock, orderBoundary, alerter, config, isEmergencyMode } = deps;
   let processed = 0;
   let iterations = 0;
 
@@ -123,12 +134,36 @@ export async function runFulfillmentLoop(
       console.warn(`[worker] Recovered abandoned order ${claimed.orderNumber}`);
     }
 
+    let emergency = false;
+    try {
+      emergency = await isEmergencyMode();
+    } catch (err) {
+      console.error(`[worker] Could not read emergency mode, defaulting to automatic: ${String(err)}`);
+    }
+
+    if (emergency) {
+      try {
+        await orderBoundary.withLock(ORDER_BOUNDARY_KEY, () =>
+          holdForManualFulfillment({ store, alerter }, claimed.id),
+        );
+        processed++;
+        console.log(`[worker] ${claimed.orderNumber} -> needs_review (emergency mode)`);
+      } catch (err) {
+        console.error(`[worker] Order ${claimed.orderNumber} threw while holding for manual fulfillment: ${String(err)}`);
+        await alerter.send('critical', 'Could not hold order for manual fulfillment', {
+          orderNumber: claimed.orderNumber,
+          error: String(err),
+        });
+      }
+      continue;
+    }
+
     try {
       const result = await orderBoundary.withLock(ORDER_BOUNDARY_KEY, () =>
         fulfillOrder(
           {
             store,
-            provider,
+            providers,
             lock,
             alerter,
             config: {
@@ -161,12 +196,13 @@ export async function runFulfillmentLoop(
 
 /** Poll PENDING orders, recover dead-worker items, watch the wallet. */
 export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
-  const { store, provider, lock, alerter, config } = deps;
+  const { store, providers, lock, alerter, config, isEmergencyMode } = deps;
   const pollerDeps = {
     store,
-    provider,
+    providers,
     lock,
     alerter,
+    isEmergencyMode,
     config: {
       minAgeMs: config.sweeps.minAgeMs,
       escalateAfterMs: config.sweeps.escalateAfterMs,
@@ -233,26 +269,40 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
  * are failing" into "top up the wallet".
  */
 export async function checkWallet(deps: RunnerDeps): Promise<void> {
-  const { provider, alerter, queue, config } = deps;
-  try {
-    const balance = await provider.getBalance();
-    const threshold = Math.round(config.provider.lowBalanceUsd * 10_000) as UsdTenK;
+  const { providers, alerter, queue, config } = deps;
+  // Only RA has a configured threshold today — Central One's wallet still
+  // gets checked (so a bad reading fails loudly) but never alerts on being
+  // "low", since there is no equivalent business threshold for it yet.
+  const thresholdUsd: Partial<Record<ProviderName, number>> = {
+    recargas_america: config.provider.lowBalanceUsd,
+  };
 
-    if (balance < threshold) {
-      const depth = await queue.depth().catch(() => ({}));
-      await alerter.send('critical', 'Provider wallet is low', {
-        balanceUsd: (balance / 10_000).toFixed(2),
-        thresholdUsd: config.provider.lowBalanceUsd,
-        outstandingOrders: JSON.stringify(depth),
-      });
+  for (const providerName of PROVIDER_NAMES) {
+    try {
+      const balance = await providers[providerName].getBalance();
+      const threshold = thresholdUsd[providerName];
+      if (threshold === undefined) continue;
+
+      if (balance < (Math.round(threshold * 10_000) as UsdTenK)) {
+        const depth = await queue.depth().catch(() => ({}));
+        await alerter.send('critical', 'Provider wallet is low', {
+          provider: providerName,
+          balanceUsd: (balance / 10_000).toFixed(2),
+          thresholdUsd: threshold,
+          outstandingOrders: JSON.stringify(depth),
+        });
+      }
+    } catch (err) {
+      console.error(`[sweep] Could not read ${providerName} wallet balance: ${String(err)}`);
     }
-  } catch (err) {
-    console.error(`[sweep] Could not read wallet balance: ${String(err)}`);
   }
 }
 
+/** One sync result per provider — both are synced on the same schedule, independently. */
+export type CatalogSyncRunResult = Record<ProviderName, CatalogSyncResult | null>;
+
 /**
- * One provider catalog sync, as the worker runs it.
+ * Both providers' catalog syncs, as the worker runs them.
  *
  * Before this ran on its own the sync was a CLI someone had to remember, so a
  * provider changing its ids would have surfaced as customers complaining that
@@ -260,17 +310,24 @@ export async function checkWallet(deps: RunnerDeps): Promise<void> {
  * follows the change (re-pointing recipes and unsent items) or says loudly that
  * it could not.
  *
- * Lock order is the same as fulfilment's — order boundary, then provider — so
- * the two cannot deadlock. The provider lock is what guarantees no item is
- * re-pointed while its own call is in flight; see `ORDER_BOUNDARY_KEY` for why
- * the boundary is needed on top.
+ * Both providers are synced every time, independently — Central One stays
+ * ready to fail over to even while RecargasAmérica is primary, so activating
+ * it never needs a live Central One call at the stressful moment of an actual
+ * outage. Each provider's sync is still scoped to its own rows (see
+ * `CatalogSyncStore`), so one can never deactivate or re-point the other's.
  *
- * Returns null when the sync threw. Like every sweep step, a failure is logged
- * and survived: a catalog endpoint having a bad minute must not stop the
- * worker delivering orders that are already paid for.
+ * Lock order is the same as fulfilment's — order boundary, then the
+ * provider's own lock — so the two cannot deadlock. Each provider's lock is
+ * what guarantees no item of ITS is re-pointed while its own call is in
+ * flight; see `ORDER_BOUNDARY_KEY` for why the boundary is needed on top.
+ *
+ * A provider whose sync throws gets `null` in the result. Like every sweep
+ * step, a failure is logged and survived — a bad minute on one provider's
+ * catalog endpoint must not stop the worker delivering orders already paid
+ * for, nor stop the OTHER provider's sync from running.
  */
-export async function runCatalogSync(deps: RunnerDeps): Promise<CatalogSyncResult | null> {
-  const { catalog, provider, lock, orderBoundary, alerter } = deps;
+export async function runCatalogSync(deps: RunnerDeps): Promise<CatalogSyncRunResult> {
+  const { catalog, providers, lock, orderBoundary, alerter } = deps;
 
   // The `Alerter` contract is never to throw, but this runs on the sweep loop
   // and a broken alerter must not be what stops it.
@@ -279,27 +336,38 @@ export async function runCatalogSync(deps: RunnerDeps): Promise<CatalogSyncResul
       console.error(`[catalog] Could not send alert "${title}": ${String(err)}`);
     });
 
-  let result: CatalogSyncResult;
-  try {
-    result = await orderBoundary.withLock(ORDER_BOUNDARY_KEY, () =>
-      lock.withLock(PROVIDER_LOCK_KEY, () => syncCatalog({ store: catalog, provider })),
-    );
-  } catch (err) {
-    console.error(`[catalog] Sync failed: ${String(err)}`);
-    // Warn, not critical: a failed sync changes nothing — the previous catalog
-    // stays exactly as it was — and the retry comes round shortly. If the
-    // provider's purchase endpoints are down too, fulfilment says so itself.
-    await send('warn', 'Provider catalog sync failed — will retry', { error: String(err) });
-    return null;
+  const results = {} as CatalogSyncRunResult;
+
+  for (const providerName of PROVIDER_NAMES) {
+    try {
+      const result = await orderBoundary.withLock(ORDER_BOUNDARY_KEY, () =>
+        lock.withLock(PROVIDER_LOCK_KEYS[providerName], () =>
+          syncCatalog({ store: catalog, provider: providers[providerName], providerName }),
+        ),
+      );
+      results[providerName] = result;
+
+      const alerts = catalogSyncAlerts(result);
+      const line = `[catalog] ${providerName}: ${summariseSync(result)}`;
+      if (alerts.length > 0) console.warn(line);
+      else console.log(line);
+      for (const alert of alerts) {
+        await send(alert.level, `${alert.title} (${providerName})`, alert.detail);
+      }
+    } catch (err) {
+      console.error(`[catalog] Sync failed for ${providerName}: ${String(err)}`);
+      // Warn, not critical: a failed sync changes nothing — the previous
+      // catalog stays exactly as it was — and the retry comes round shortly.
+      // If the provider's purchase endpoints are down too, fulfilment says so
+      // itself.
+      await send('warn', `Provider catalog sync failed — will retry (${providerName})`, {
+        error: String(err),
+      });
+      results[providerName] = null;
+    }
   }
 
-  const alerts = catalogSyncAlerts(result);
-  const line = `[catalog] ${summariseSync(result)}`;
-  if (alerts.length > 0) console.warn(line);
-  else console.log(line);
-
-  for (const alert of alerts) await send(alert.level, alert.title, alert.detail);
-  return result;
+  return results;
 }
 
 /** After a failed sync, try again this soon rather than a full interval later. */
@@ -333,14 +401,15 @@ export class CatalogSyncSchedule {
   async runIfDue(
     deps: RunnerDeps,
     now: number = Date.now(),
-  ): Promise<{ ran: boolean; result: CatalogSyncResult | null }> {
+  ): Promise<{ ran: boolean; result: CatalogSyncRunResult | null }> {
     if (!this.isDue(now)) return { ran: false, result: null };
 
     const result = await runCatalogSync(deps);
     // Scheduled from when the run was due, not when it finished, and sooner
-    // after a failure: on the day the provider migrates, an hour between
-    // attempts is an hour of not knowing.
-    this.nextAt = now + (result ? this.intervalMs : Math.min(this.intervalMs, this.retryMs));
+    // if either provider's sync failed: on the day a provider migrates, an
+    // hour between attempts is an hour of not knowing.
+    const anyFailed = Object.values(result).some((r) => r === null);
+    this.nextAt = now + (anyFailed ? Math.min(this.intervalMs, this.retryMs) : this.intervalMs);
     return { ran: true, result };
   }
 }

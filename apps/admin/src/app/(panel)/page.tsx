@@ -1,10 +1,13 @@
 import Link from 'next/link';
 import {
+  getActiveProvider,
   getDashboardStats,
+  getEmergencyMode,
   getPaymentDetails,
   listStuckGatewayPayments,
   listWalletResolvedDeliveries,
 } from '@levelup/db';
+import type { ProviderName } from '@levelup/provider';
 import { getDb } from '../../lib/db';
 import { requireSession } from '../../lib/session';
 import { getProvider } from '../../lib/provider';
@@ -13,6 +16,11 @@ import { dismissStuckGatewayPaymentAction, dismissWalletResolvedDeliveryAction }
 
 export const dynamic = 'force-dynamic';
 
+const PROVIDER_LABEL: Record<ProviderName, string> = {
+  recargas_america: 'RecargasAmérica',
+  central_one: 'Central One',
+};
+
 /**
  * Read live, never cached — this is the same number `getBalance()` reports to
  * the worker's low-balance alert, and a client once worried it had gone
@@ -20,9 +28,9 @@ export const dynamic = 'force-dynamic';
  * to just look at it themselves. Null means the provider could not be
  * reached just now, not that the balance is zero — never conflate the two.
  */
-async function providerBalanceUsd(): Promise<number | null> {
+async function providerBalanceUsd(name: ProviderName): Promise<number | null> {
   try {
-    return (await getProvider().getBalance()) / 10_000;
+    return (await getProvider(name).getBalance()) / 10_000;
   } catch {
     return null;
   }
@@ -30,12 +38,24 @@ async function providerBalanceUsd(): Promise<number | null> {
 
 export default async function DashboardPage() {
   await requireSession();
-  const [stats, payTo, balanceUsd, stuckGatewayPayments, walletResolvedDeliveries] = await Promise.all([
+  const [
+    stats,
+    payTo,
+    raBalanceUsd,
+    centralOneBalanceUsd,
+    activeProvider,
+    stuckGatewayPayments,
+    walletResolvedDeliveries,
+    emergencyMode,
+  ] = await Promise.all([
     getDashboardStats(getDb()),
     getPaymentDetails(getDb()),
-    providerBalanceUsd(),
+    providerBalanceUsd('recargas_america'),
+    providerBalanceUsd('central_one'),
+    getActiveProvider(getDb()),
     listStuckGatewayPayments(getDb()),
     listWalletResolvedDeliveries(getDb()),
+    getEmergencyMode(getDb()),
   ]);
   const lowBalanceThreshold = Number(process.env.RA_LOW_BALANCE_USD ?? 100);
   const METHOD_NAME: Record<string, string> = { oxxo: 'OXXO', spei: 'SPEI' };
@@ -48,6 +68,20 @@ export default async function DashboardPage() {
 
       {/* All of these mean money is not being made right now, so they sit
           above the numbers rather than below them. */}
+      {emergencyMode.enabled && (
+        // Above even `!payTo` — this is the one state the owner must not
+        // forget is on, since every new order silently stops at "Requieren
+        // revisión" instead of being delivered automatically.
+        <div className="alert bad">
+          <strong>Modo de emergencia activo.</strong> Los pedidos nuevos no se están entregando
+          automáticamente — quedan en revisión para que los entregues tú a mano.{' '}
+          <Link href="/ajustes" style={{ textDecoration: 'underline' }}>
+            Desactivarlo en Ajustes
+          </Link>
+          .
+        </div>
+      )}
+
       {!payTo && (
         // First, because it is the only one that stops every sale outright.
         // The storefront will not show payment details it does not have, so
@@ -189,13 +223,26 @@ export default async function DashboardPage() {
         </div>
 
         <div className="card">
-          <div className="stat-label">Saldo del proveedor</div>
+          <div className="stat-label">
+            Saldo {PROVIDER_LABEL.recargas_america}
+            {activeProvider.provider === 'recargas_america' ? ' · activo' : ''}
+          </div>
           <div
             className={`stat-value${
-              balanceUsd === null || balanceUsd < lowBalanceThreshold ? ' bad' : ' ok'
+              raBalanceUsd === null || raBalanceUsd < lowBalanceThreshold ? ' bad' : ' ok'
             }`}
           >
-            {balanceUsd === null ? 'No disponible' : usd(balanceUsd.toFixed(2))}
+            {raBalanceUsd === null ? 'No disponible' : usd(raBalanceUsd.toFixed(2))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="stat-label">
+            Saldo {PROVIDER_LABEL.central_one}
+            {activeProvider.provider === 'central_one' ? ' · activo' : ''}
+          </div>
+          <div className={`stat-value${centralOneBalanceUsd === null ? ' bad' : ''}`}>
+            {centralOneBalanceUsd === null ? 'No disponible' : usd(centralOneBalanceUsd.toFixed(2))}
           </div>
         </div>
       </div>
