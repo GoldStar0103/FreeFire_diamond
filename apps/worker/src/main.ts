@@ -98,10 +98,18 @@ async function fallBackToEmergencyMode(
  * Fires when `wrapWithHealthMonitor` sees RecargasAmérica misbehave, per
  * Jose's own 3 trigger conditions (2026-11-03). Tries the real middle tier
  * first — switching to Central One, reusing whatever it last synced in the
- * background — and only falls back to manual-hold emergency mode if that
- * does not actually move anything (Central One not ready, or the switch
- * itself errors). `activateProvider` sends its own alert on a real or partial
- * switch, so this only alerts again when nothing happened at all.
+ * background — and only falls back to manual-hold emergency mode if Central
+ * One is not actually serving anything (not ready, or the switch itself
+ * errors). `activateProvider` sends its own alert on a real or partial
+ * switch, so this only alerts again when nothing is on Central One at all.
+ *
+ * `checkWallet` reads RA's balance every sweep regardless of which provider
+ * is active (so the dashboard tile stays current), so this fires repeatedly
+ * for as long as RA stays down — every single time must correctly recognise
+ * "Central One is already active, nothing to do" as success. Checking only
+ * `switched.length` got this wrong: once nothing was LEFT to switch (already
+ * fully on Central One), it fell through to emergency mode on every one of
+ * those repeats, overriding any manual "off" within the next sweep.
  */
 async function handleRaHealthTrigger(
   db: Database,
@@ -120,7 +128,10 @@ async function handleRaHealthTrigger(
       },
       'central_one',
     );
-    if (result.switched.length > 0) return;
+    // Central One is serving at least something — whether this call just
+    // switched it there or it already was. Only a complete failure (nothing
+    // switched, nothing already active) falls through below.
+    if (result.switched.length > 0 || result.alreadyActive.length > 0) return;
   } catch (err) {
     console.error(`[worker] Could not switch to Central One: ${String(err)}`);
   }
