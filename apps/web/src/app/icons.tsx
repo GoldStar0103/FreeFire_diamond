@@ -278,3 +278,22 @@ export function BellIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function PercentIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="7.5" cy="7.5" r="2.2" />
+      <circle cx="16.5" cy="16.5" r="2.2" />
+      <path d="M17.5 6.5 6.5 17.5" />
+    </svg>
+  );
+}
+
+/** WhatsApp mark for the VIP join button — filled brand glyph, not an outline chat bubble. */
+export function WhatsAppIcon({ className }: IconProps) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" className={className} viewBox="0 0 24 24">
+      <path d="M12.04 2.5A9.45 9.45 0 0 0 2.6 11.9c0 1.67.44 3.29 1.27 4.73L2.5 21.5l5.03-1.32a9.45 9.45 0 0 0 4.51 1.15h.01a9.45 9.45 0 0 0 9.45-9.43 9.4 9.4 0 0 0-9.46-9.4Zm5.52 13.37c-.23.65-1.35 1.24-1.87 1.32-.48.07-1.09.1-1.76-.11-.4-.13-.92-.3-1.58-.59-2.78-1.2-4.58-4-4.72-4.18-.13-.18-1.1-1.46-1.1-2.79 0-1.32.69-1.97.94-2.24.25-.27.54-.34.72-.34h.52c.17 0 .39-.06.61.47.23.54.77 1.88.84 2.02.07.13.11.3.02.48-.09.18-.13.3-.27.46-.13.16-.28.36-.4.48-.13.13-.27.27-.12.53.16.27.7 1.15 1.5 1.86 1.03.91 1.9 1.2 2.17 1.33.27.13.43.11.59-.07.16-.18.68-.79.86-1.06.18-.27.36-.22.61-.13.25.09 1.58.74 1.85.88.27.13.45.2.52.31.07.11.07.65-.16 1.3Z" />
+    </svg>
+  );
+}

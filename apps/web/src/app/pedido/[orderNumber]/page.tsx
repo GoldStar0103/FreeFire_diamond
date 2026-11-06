@@ -6,6 +6,7 @@ import { getCustomerSession } from '../../../lib/customer-session';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { AutoRefresh, PurchasePixel } from './live';
+import { VipGroupPopup } from './vip-group-popup';
 import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
 import { supportUrl } from '../../../lib/support';
@@ -250,6 +251,7 @@ export default async function OrderPage({
   return (
     <main className="page narrow">
       {refreshing && <AutoRefresh everyMs={5_000} />}
+      {vipUrl && <VipGroupPopup groupUrl={vipUrl} orderNumber={order.orderNumber} />}
       {paid && (
         <PurchasePixel
           orderNumber={order.orderNumber}

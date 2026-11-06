@@ -1,6 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { countCompletedOrders, countUniqueCustomers, listTestimonials } from '@levelup/db';
+import {
+  countCompletedOrders,
+  countUniqueCustomers,
+  listStorefront,
+  listTestimonials,
+} from '@levelup/db';
 import { getDb } from '../../lib/server';
 import { initials } from '../../lib/format';
 import { BoltIcon, HeadsetIcon, LockIcon, ShieldIcon } from '../icons';
@@ -29,10 +34,11 @@ function Stars({ rating }: { rating: number }) {
 }
 
 export default async function TrustPage() {
-  const [delivered, customers, testimonials] = await Promise.all([
+  const [delivered, customers, testimonials, campaigns] = await Promise.all([
     countCompletedOrders(getDb()),
     countUniqueCustomers(getDb()),
     listTestimonials(getDb()),
+    listStorefront(getDb()),
   ]);
 
   // Real, not a marketing round figure — same principle as the testimonials
@@ -44,6 +50,14 @@ export default async function TrustPage() {
     rated.length >= 3
       ? (rated.reduce((sum, t) => sum + (t.rating ?? 0), 0) / rated.length).toFixed(1)
       : null;
+
+  // Same 110-diamond trust pack the homepage hero uses — "Ver la oferta" should
+  // open that checkout, not dump the visitor back on Inicio.
+  const trustOffer =
+    campaigns
+      .flatMap((campaign) => campaign.combos)
+      .find((combo) => combo.advertisedDiamonds === 110) ?? null;
+  const trustOfferHref = trustOffer ? `/comprar/${trustOffer.key}` : '/promociones';
 
   return (
     <main className="page narrow">
@@ -159,7 +173,7 @@ export default async function TrustPage() {
           Prueba con la oferta de confianza: 110 diamantes x $15. Es la forma más barata de
           comprobar que somos reales, y por eso la tenemos.
         </p>
-        <Link href="/" className="btn primary wide" style={{ marginTop: 12 }}>
+        <Link href={trustOfferHref} className="btn primary wide" style={{ marginTop: 12 }}>
           Ver la oferta
         </Link>
       </section>

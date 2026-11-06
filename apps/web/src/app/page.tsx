@@ -181,20 +181,24 @@ export default async function HomePage() {
       </header>
 
       {top3.length > 0 && (
-        <Link href="/ranking" className="hm-season">
-          <div className="hm-season-label">
+        <section className="hm-season" aria-label="Top de jugadores de la temporada">
+          <Link href="/ranking" className="hm-season-label">
             <CrownIcon className="icon" />
             <span>
               Temporada {top50.season?.seasonNumber ?? 1}
               <em>Top de jugadores</em>
             </span>
-          </div>
+          </Link>
           <div className="hm-season-players">
             {top3.map((player) => {
               const name = player.displayName ?? 'Jugador';
               const url = avatarUrl(player.avatarAssetUrl);
               return (
-                <div key={player.playerProfileId} className={`hm-season-player hm-season-r${player.rank}`}>
+                <Link
+                  key={player.playerProfileId}
+                  href={`/jugador/${player.playerProfileId}`}
+                  className={`hm-season-player hm-season-r${player.rank}`}
+                >
                   <span className="hm-season-rank" aria-hidden="true">
                     {player.rank}
                   </span>
@@ -207,12 +211,14 @@ export default async function HomePage() {
                     </div>
                   )}
                   <span className="hm-season-name">{name}</span>
-                </div>
+                </Link>
               );
             })}
           </div>
-          <span className="hm-season-more">Ver tabla completa →</span>
-        </Link>
+          <Link href="/ranking" className="hm-season-more">
+            Ver tabla completa →
+          </Link>
+        </section>
       )}
 
       {featured && (
