@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { supportUrl } from '../../lib/support';
 import { legalIdentity } from '../../lib/legal';
 import { getStripe } from '../../lib/stripe';
-import { AlertIcon, ChatIcon, ClockIcon, HeadsetIcon, MailIcon, MoonIcon, UserIcon } from '../icons';
+import { AlertIcon, ChatIcon, ClockIcon, MailIcon, MoonIcon, UserIcon } from '../icons';
 
 export const metadata: Metadata = {
   title: 'Soporte',
@@ -30,10 +30,14 @@ export default function SupportPage() {
 
   return (
     <main className="page narrow">
-      <h1 className="page-title">
-        <HeadsetIcon className="icon" /> Soporte
-      </h1>
-      <p className="page-sub">¿Necesitas ayuda? Estamos aquí para ti.</p>
+      <header className="phead">
+        <span className="eyebrow">
+          <i />
+          Soporte
+        </span>
+        <h1 className="page-title">Soporte</h1>
+        <p className="page-sub">¿Necesitas ayuda? Estamos aquí para ti.</p>
+      </header>
 
       {chatUrl ? (
         <a href={chatUrl} target="_blank" rel="noreferrer" className="card support-cta">

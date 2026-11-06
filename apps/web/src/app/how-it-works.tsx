@@ -1,10 +1,10 @@
 import { BoltIcon, CardIcon, ClipboardIcon, GiftIcon } from './icons';
 
 const STEPS = [
-  { icon: GiftIcon, title: 'Elige tu paquete', text: 'Selecciona la cantidad de diamantes que quieras.' },
-  { icon: ClipboardIcon, title: 'Ingresa tu ID', text: 'Coloca tu ID de Free Fire y confírmalo.' },
-  { icon: CardIcon, title: 'Realiza tu pago', text: 'Elige tu método de pago favorito.' },
-  { icon: BoltIcon, title: 'Recibe tus diamantes', text: '¡Listo! Los diamantes se reflejan en tu cuenta.' },
+  { icon: GiftIcon, title: 'Elige tu paquete', text: 'Selecciona el juego y la cantidad que quieres recargar.' },
+  { icon: ClipboardIcon, title: 'Ingresa tu ID', text: 'Escribe tu ID de jugador; verificamos antes de cobrar.' },
+  { icon: CardIcon, title: 'Realiza tu pago', text: 'Tarjeta, SPEI u OXXO; el precio vigente lo confirma el servidor.' },
+  { icon: BoltIcon, title: 'Recibe recarga', text: 'Te avisamos cuando la entrega queda confirmada.' },
 ] as const;
 
 /** Shared between the homepage and every /promocion page — same 4 steps, same order. */

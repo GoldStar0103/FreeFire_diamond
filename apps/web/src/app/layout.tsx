@@ -96,6 +96,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es-MX" className={outfit.className}>
       <body>
+        <div className="appbg" aria-hidden="true">
+          <i className="cap" />
+          <i className="cap" />
+          <i className="cap" />
+          <i className="cap" />
+        </div>
         {metaId && <MetaPixel pixelId={metaId} />}
         {tiktokId && <TikTokPixel pixelId={tiktokId} />}
         {channelUrl && <WhatsappChannelPopup channelUrl={channelUrl} />}
@@ -115,21 +121,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             />
             <span>LEVELUP STORE</span>
           </div>
-          <div className="footer-links">
-            <a href="/">Inicio</a>
-            <a href="/cuenta">Mi cuenta</a>
-            <a href="/ranking">Ranking</a>
-            <a href="/pedidos">Mis pedidos</a>
-            <a href="/confianza">Confianza</a>
-            {/* A real page now (see /soporte) rather than jumping straight to
-                WhatsApp — the client's own complaint was that support offered
-                nothing but a redirect. WhatsApp is still the fastest way to
-                actually reach someone; it is one tap away on that page. */}
-            <a href="/soporte">Soporte</a>
-          </div>
-          <div className="footer-links small">
-            <a href="/legal/terminos">Términos y Condiciones</a>
-            <a href="/legal/privacidad">Aviso de Privacidad</a>
+          <div className="footer-cols">
+            <div>
+              <h4>Navegación</h4>
+              <a href="/">Inicio</a>
+              <a href="/promociones">Promociones</a>
+              <a href="/cuenta">Mi cuenta</a>
+              <a href="/pedidos">Pedidos</a>
+              <a href="/confianza">Confianza</a>
+              <a href="/soporte">Soporte</a>
+            </div>
+            <div>
+              <h4>Legal</h4>
+              <a href="/legal/terminos">Términos y condiciones</a>
+              <a href="/legal/privacidad">Privacidad</a>
+            </div>
           </div>
           <div className="footer-note">
             No afiliado a Garena. Free Fire es marca de sus respectivos dueños.

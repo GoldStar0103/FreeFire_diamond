@@ -14,8 +14,8 @@ import { diamonds, initials, mxn, roundDownSignificant } from '../lib/format';
 import { avatarUrl, flyerUrl } from '../lib/assets';
 import { socialLinks } from '../lib/social';
 import logo from '../assets/logo.webp';
-import heroAnnounce from '../assets/mascot/hero-announce.webp';
-import heroStars from '../assets/mascot/hero-stars.webp';
+import heroLuchador from '../assets/mascot/hero-luchador.webp';
+import promoStill from '../assets/mascot/promo-still.webp';
 import mascotIdle from '../assets/mascot/idle.webp';
 import chestDiamonds from '../assets/mascot/chest-diamonds.png';
 import giftBox from '../assets/mascot/gift-box.png';
@@ -46,25 +46,25 @@ const WHY_US = [
     icon: BoltIcon,
     tone: 'purple',
     title: 'Recargas automáticas',
-    text: 'Diamantes directo a tu cuenta. Sin esperar, sin complicaciones.',
+    text: 'Tu pedido se procesa en segundos; la entrega ocurre al confirmarse.',
   },
   {
     icon: ShieldIcon,
     tone: 'cyan',
     title: 'Pago 100% seguro',
-    text: 'Métodos de pago confiables. Tu compra protegida.',
+    text: 'Tus datos viajan cifrados y no guardamos tu tarjeta.',
   },
   {
     icon: InfinityIcon,
     tone: 'green',
     title: 'Garantía de por vida',
-    text: 'Nuestros diamantes son libres de baneo o reembolso.',
+    text: 'Si algo falla, lo revisamos y lo resolvemos contigo.',
   },
   {
     icon: HeadsetIcon,
     tone: 'pink',
     title: 'Soporte LevelUp',
-    text: 'Estamos contigo antes y después de tu recarga.',
+    text: 'Atención real por WhatsApp en horario de tienda.',
   },
 ] as const;
 
@@ -242,6 +242,12 @@ export default async function HomePage() {
                 Mejor precio
               </li>
             </ul>
+            <ul className="hm-hero-pays" aria-label="Métodos de pago aceptados">
+              <li>Tarjeta</li>
+              <li>SPEI</li>
+              <li>OXXO</li>
+              <li>Mercado Pago</li>
+            </ul>
             <span className="hm-hero-cta">
               <CartIcon className="icon" />
               Comprar ahora →
@@ -249,7 +255,7 @@ export default async function HomePage() {
           </div>
           <div className="hm-hero-art" aria-hidden="true">
             <img className="hm-hero-chest" src={chestDiamonds.src} alt="" decoding="async" />
-            <img className="hm-hero-mascot" src={heroStars.src} alt="" decoding="async" />
+            <img className="hm-hero-mascot" src={heroLuchador.src} alt="" decoding="async" />
             <p className="hm-hero-aside">Más diamantes, más victorias</p>
           </div>
         </Link>
@@ -258,7 +264,7 @@ export default async function HomePage() {
       <Link href="/promociones" className="hm-promo">
         <div className="hm-promo-art" aria-hidden="true">
           <div className="hx-mascot-glow" />
-          <img className="hm-promo-mascot" src={heroAnnounce.src} alt="" decoding="async" />
+          <img className="hm-promo-mascot" src={promoStill.src} alt="" decoding="async" />
         </div>
         <div className="hm-promo-copy">
           <h2>
@@ -299,6 +305,10 @@ export default async function HomePage() {
               <span>clientes satisfechos</span>
             </div>
           )}
+          <div className="hm-live-stat">
+            <strong>1 min</strong>
+            <span>entrega promedio</span>
+          </div>
           <img className="hm-live-mascot" src={mascotIdle.src} alt="" decoding="async" />
         </section>
       )}
@@ -314,6 +324,8 @@ export default async function HomePage() {
           <div className="hm-ofertas">
             {rail.map((campaign) => {
               const flyer = flyerUrl(campaign.flyerAssetUrl);
+              const prices = campaign.combos.map((combo) => combo.priceMxnCents);
+              const from = prices.length > 0 ? Math.min(...prices) : null;
               return (
                 <Link key={campaign.key} href={`/promocion/${campaign.key}`} className="hm-offer">
                   {flyer ? (
@@ -321,6 +333,13 @@ export default async function HomePage() {
                   ) : (
                     <div className="hm-offer-flyer hm-offer-empty">{campaign.name}</div>
                   )}
+                  <span className="hm-offer-meta">
+                    <b>{campaign.name}</b>
+                    <em>
+                      {campaign.combos.length} {campaign.combos.length === 1 ? 'combo' : 'combos'}
+                    </em>
+                    {from !== null && <span>Desde {mxn(from)}</span>}
+                  </span>
                 </Link>
               );
             })}
@@ -332,9 +351,17 @@ export default async function HomePage() {
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>
       )}
 
+      <Link href="/soporte" className="hm-support">
+        <span className="hm-support-kicker">Soporte</span>
+        <strong>¿Tuviste algún problema con tu compra?</strong>
+        <span>Escríbenos por el chat y lo resolvemos.</span>
+        <em>Hablar con soporte →</em>
+      </Link>
+
       <section>
         <h2 className="section-title-lg center">
           ¿Por qué elegir <span className="grad">LevelUp Store</span>?
+          <span className="section-kicker">La tienda que está contigo, sin límites.</span>
         </h2>
         <div className="why-grid">
           {WHY_US.map(({ icon: Icon, tone, title, text }) => (

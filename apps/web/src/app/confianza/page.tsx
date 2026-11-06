@@ -47,12 +47,18 @@ export default async function TrustPage() {
 
   return (
     <main className="page narrow">
-      <h1 className="page-title">
-        Tu confianza es <span className="grad">nuestro nivel</span>
-      </h1>
-      <p className="page-sub">
-        Sabemos que comprar diamantes en internet da desconfianza. Así trabajamos.
-      </p>
+      <header className="phead">
+        <span className="eyebrow">
+          <i />
+          Confianza
+        </span>
+        <h1 className="page-title">
+          Tu confianza es <em>nuestro nivel</em>
+        </h1>
+        <p className="page-sub">
+          Sabemos que comprar diamantes en internet da desconfianza. Así trabajamos.
+        </p>
+      </header>
 
       {(delivered > 0 || customers > 0 || avgRating) && (
         <div className="stats-row">

@@ -27,8 +27,16 @@ export default async function PromocionesPage() {
 
   return (
     <main className="page">
-      <h1 className="page-title">Promociones del mes</h1>
-      <p className="page-sub">Todo lo que tenemos activo ahora mismo, en un solo lugar.</p>
+      <header className="phead">
+        <span className="eyebrow">
+          <i />
+          Promociones
+        </span>
+        <h1 className="page-title">
+          Promociones <em>del mes</em>
+        </h1>
+        <p className="page-sub">Todo lo que tenemos activo ahora mismo, en un solo lugar.</p>
+      </header>
 
       {campaigns.length === 0 && (
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>
