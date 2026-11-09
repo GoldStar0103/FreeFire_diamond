@@ -217,14 +217,14 @@ const groupCard = (card: string): string => card.replace(/(\d{4})(?=\d)/g, '$1 '
 function Stepper({ step }: { step: Step }) {
   const current = STEPS.findIndex((s) => s.key === step);
   return (
-    <ol className="checkout-stepper">
+    <ol className="stepper" aria-label="Pasos de la compra">
       {STEPS.map((s, i) => (
         <li
           key={s.key}
-          className={`checkout-step-item ${i < current ? 'done' : i === current ? 'active' : 'pending'}`}
+          className={`step ${i < current ? 'done' : i === current ? 'on' : ''}`}
         >
-          <span className="checkout-step-dot">{i < current ? '✓' : i + 1}</span>
-          <span className="checkout-step-label">{s.label}</span>
+          <i aria-hidden="true">{i < current ? '✓' : i + 1}</i>
+          <span>{s.label}</span>
         </li>
       ))}
     </ol>
@@ -275,19 +275,25 @@ function PayOptionCard({
   ctaLabel: string;
   onClick: () => void;
 }) {
+  const kind = tone === 'purple' ? 'tarjeta' : tone === 'blue' ? 'spei' : 'oxxo';
+  const estadoRojo = tone === 'red' && Boolean(badge?.includes('24'));
   return (
-    <div className={`pay-option ${tone}`}>
-      <div className="pay-option-head">
-        <Icon className="icon pay-option-icon" />
-        {badge && <span className="pay-option-badge">{badge}</span>}
+    <section className={`pago ${kind}`}>
+      <div className="head">
+        <span className="ic" aria-hidden="true">
+          <Icon className="icon" />
+        </span>
+        <h3>{title}</h3>
+        {badge && (
+          <span className={`estado${estadoRojo ? ' rojo' : ''}`}>{badge.replace(/^⚡\s*/, '')}</span>
+        )}
       </div>
-      <div className="pay-option-title">{title}</div>
       {/* Same label on every method: card is instant, and transfer/OXXO still
           land the diamonds automatically once the comprobante is approved.
           First-time buyers read this as "my diamonds arrive by themselves",
           which is the promise the owner wants on the whole comparison screen. */}
-      <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>
-      <ul className="pay-option-features">
+      <span className="badge-auto">Recarga automática</span>
+      <ul>
         {features.map((f) => (
           <li key={f}>
             <span aria-hidden="true">✓</span> {f}
@@ -295,10 +301,10 @@ function PayOptionCard({
         ))}
       </ul>
       {extra}
-      <button type="button" className={`btn wide pay-option-cta ${tone}`} onClick={onClick}>
+      <button type="button" className="btn-primary" onClick={onClick}>
         {ctaLabel}
       </button>
-    </div>
+    </section>
   );
 }
 
@@ -457,92 +463,107 @@ export function Checkout({
   );
 
   const identityRow = (
-    <div className="row confirmed" style={{ marginBottom: 16 }}>
-      <div>
-        <div className="confirm-name">{validation.nickname ?? 'Cuenta verificada'}</div>
-        <div className="hint mono">ID {validation.playerId}</div>
+    <div className="ck-top" style={{ marginBottom: 14 }}>
+      <div className="ck-user" style={{ marginLeft: 0 }}>
+        <span className="av" aria-hidden="true">
+          {(validation.nickname ?? validation.playerId ?? '?').slice(0, 1).toUpperCase()}
+        </span>
+        <div>
+          <b>{validation.nickname ?? 'Cuenta verificada'}</b>
+          <span>ID {validation.playerId}</span>
+        </div>
+        <button type="button" className="cambiar" onClick={() => setStep('datos')}>
+          Cambiar
+        </button>
       </div>
-      <div className="spacer" />
-      <button type="button" className="btn ghost sm" onClick={() => setStep('datos')}>
-        Cambiar
-      </button>
     </div>
   );
 
   return (
-    <div className="checkout">
-      <div className="summary card">
-        {vaultOfferId && <div className="pay-option-badge">🔓 Precio de la Bóveda</div>}
-        <div className="summary-name">{comboName}</div>
-        <div className="summary-diamonds">{diamonds} 💎</div>
-        <div className="summary-price">
-          {publicPrice && (
-            <s className="hint" style={{ marginRight: 8 }}>
-              {publicPrice}
-            </s>
-          )}
-          {price}
+    <div className="ck">
+      {step === 'datos' && (
+        <div className="resumen">
+          <div className="txt">
+            <b>
+              {diamonds} diamantes
+              {vaultOfferId ? ' · Precio de la Bóveda' : ''}
+            </b>
+            <span>
+              {comboName}
+              {publicPrice ? ` · antes ${publicPrice}` : ' · entrega automática'}
+            </span>
+          </div>
+          <div className="pr">
+            {price.replace(/\s*MXN$/i, '')} <small>MXN</small>
+          </div>
         </div>
-      </div>
+      )}
 
       <Stepper step={step} />
 
-      {!isLoggedIn && (
-        <div className="alert warn" style={{ marginBottom: 12 }}>
-          Estás comprando como invitado.{' '}
-          <a href="/cuenta">Crea tu cuenta Mi LevelUp</a> — cualquier ID que recargues con la
-          cuenta suma al Level Pass y La Bóveda. El ranking usa un solo ID.
-        </div>
+      {!isLoggedIn && step === 'datos' && (
+        <p className="aviso">
+          Estás comprando <b>como invitado</b>. Crea tu cuenta Mi LevelUp — cualquier ID que
+          recargues con la cuenta suma al Level Pass y La Bóveda. El ranking usa un solo ID.
+        </p>
       )}
 
       {cancelledNotice && <div className="alert warn">{cancelledNotice}</div>}
 
       {/* Step 1 — identity */}
       {step === 'datos' && (
-        <section className="card step">
-          <div className="step-head">
-            <span className="step-num">1</span>
-            <h2>Tu ID de Free Fire</h2>
-          </div>
+        <section className={`paso${found ? ' confirmado' : ''}`}>
+          <h2>
+            <span className="n" aria-hidden="true">
+              1
+            </span>
+            Tu ID de Free Fire
+          </h2>
+          <p className="ayuda">Lo encuentras en tu perfil dentro del juego, debajo de tu nombre.</p>
 
           <form action={validateAction}>
-            <input
-              name="playerId"
-              inputMode="numeric"
-              pattern="\d*"
-              placeholder="Ej. 123456789"
-              defaultValue={validation.playerId ?? ''}
-              required
-              autoFocus
-              disabled={validating}
-            />
-            <p className="hint">
-              Lo encuentras en tu perfil dentro del juego, debajo de tu nombre.
-            </p>
+            <label className="campo">
+              <input
+                name="playerId"
+                inputMode="numeric"
+                pattern="\d*"
+                placeholder="Ej. 123456789"
+                defaultValue={validation.playerId ?? ''}
+                required
+                autoFocus
+                disabled={validating}
+                aria-label="ID de Free Fire"
+              />
+            </label>
 
             {validation.message && (
-              <div className={validation.status === 'error' ? 'alert bad' : 'alert warn'}>
+              <div
+                className={validation.status === 'error' ? 'alert bad' : 'alert warn'}
+                style={{ marginTop: 12 }}
+              >
                 {validation.message}
               </div>
             )}
 
             {found ? (
-              <div className="confirm">
-                <div className="confirm-q">¿Eres tú?</div>
-                <div className="confirm-name">{validation.nickname ?? 'Cuenta verificada'}</div>
-                <div className="row">
-                  <button type="submit" className="btn ghost" disabled={validating}>
+              <div className="eres">
+                <p>¿Eres tú?</p>
+                <b>{validation.nickname ?? 'Cuenta verificada'}</b>
+                <div className="fila">
+                  <button type="submit" className="btn-ghost" disabled={validating}>
                     No, cambiar ID
                   </button>
-                  <button type="button" className="btn primary" onClick={confirmIdentity}>
+                  <button type="button" className="btn-primary" onClick={confirmIdentity}>
                     Sí, soy yo
                   </button>
                 </div>
               </div>
             ) : (
-              <button className="btn primary wide" type="submit" disabled={validating}>
-                {validating ? 'Buscando…' : 'Buscar mi cuenta'}
-              </button>
+              <div style={{ marginTop: 12 }}>
+                <button className="btn-primary" type="submit" disabled={validating}>
+                  {validating ? 'Buscando…' : 'Buscar mi cuenta'}
+                </button>
+              </div>
             )}
           </form>
         </section>
@@ -550,20 +571,22 @@ export function Checkout({
 
       {/* Step 2 — payment method */}
       {step === 'pago' && (
-        <section className="card step">
-          <div className="step-head">
-            <span className="step-num">2</span>
-            <h2>
-              {payView === 'choose'
-                ? 'Selecciona tu método de pago'
-                : payView === 'tarjeta'
+        <section className={payView === 'choose' ? undefined : 'paso'}>
+          {payView !== 'choose' && (
+            <>
+              <h2>
+                <span className="n" aria-hidden="true">
+                  2
+                </span>
+                {payView === 'tarjeta'
                   ? 'Paga tu recarga'
                   : `Datos para tu ${payView === 'oxxo' ? 'depósito' : 'transferencia'}`}
-            </h2>
-            {payView !== 'choose' && (
-              <span className="pay-option-manual">RECARGA AUTOMÁTICA</span>
-            )}
-          </div>
+              </h2>
+              <span className="badge-auto" style={{ marginBottom: 12 }}>
+                Recarga automática
+              </span>
+            </>
+          )}
 
           {identityRow}
 
@@ -580,7 +603,7 @@ export function Checkout({
               </p>
               {supportNumber && (
                 <a
-                  className="btn primary wide"
+                  className="btn-primary"
                   style={{ marginTop: 12 }}
                   href={`https://wa.me/${supportNumber}?text=${encodeURIComponent(
                     `Hola, quiero comprar ${comboName} (${price}) y no aparecen los datos de pago.`,
@@ -594,7 +617,7 @@ export function Checkout({
             </div>
           ) : payView === 'choose' ? (
             <>
-              <div className="pay-compare">
+              <div className="pagos">
                 {cardOption && (
                   <PayOptionCard
                     tone="purple"
@@ -678,8 +701,10 @@ export function Checkout({
                     />
                   ))}
               </div>
-              <p className="hint center">
-                🛡️ Pagos 100% seguros. Revisamos tu comprobante y la recarga entra automáticamente.
+              <p className="aviso" style={{ marginTop: 16 }}>
+                Los pagos se procesan con la pasarela de la tienda. LevelUp no guarda los datos de
+                tu tarjeta. El estado de tu pedido se actualiza solo cuando el pago queda
+                verificado.
               </p>
             </>
           ) : payView === 'tarjeta' ? (
@@ -694,7 +719,7 @@ export function Checkout({
                   <strong>{price}</strong>
                 </div>
               </div>
-              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+              <button className="btn-primary" type="button" onClick={() => setStep('confirmacion')}>
                 Continuar →
               </button>
               <p className="hint center">🔒 Pagos 100% seguros. Nunca vemos ni guardamos tu tarjeta.</p>
@@ -710,7 +735,7 @@ export function Checkout({
               <p className="hint center">
                 🏪 Al continuar, te damos la referencia para depositar en cualquier OXXO.
               </p>
-              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+              <button className="btn-primary" type="button" onClick={() => setStep('confirmacion')}>
                 Continuar →
               </button>
             </>
@@ -725,7 +750,7 @@ export function Checkout({
               <p className="hint center">
                 🏦 Al continuar, te damos la cuenta CLABE para tu transferencia SPEI.
               </p>
-              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+              <button className="btn-primary" type="button" onClick={() => setStep('confirmacion')}>
                 Continuar →
               </button>
             </>
@@ -757,7 +782,7 @@ export function Checkout({
                 🕐 Tu comprobante será revisado por nuestro equipo. Puede tomar de{' '}
                 <strong>5 minutos hasta 3 horas</strong> en aprobarse y procesar la recarga.
               </div>
-              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+              <button className="btn-primary" type="button" onClick={() => setStep('confirmacion')}>
                 Ya deposité, continuar →
               </button>
             </>
@@ -788,7 +813,7 @@ export function Checkout({
                 <li>💲 Usa el monto exacto para agilizar la validación</li>
                 <li>📤 Después sube tu comprobante</li>
               </ul>
-              <button className="btn primary wide" type="button" onClick={() => setStep('confirmacion')}>
+              <button className="btn-primary" type="button" onClick={() => setStep('confirmacion')}>
                 Ya transferí, continuar →
               </button>
               <p className="hint center">
@@ -799,7 +824,7 @@ export function Checkout({
           ) : null}
 
           {payView !== 'choose' && optionCount > 1 && (
-            <button type="button" className="btn ghost wide" onClick={() => setPayView('choose')}>
+            <button type="button" className="btn-ghost" onClick={() => setPayView('choose')}>
               ← Elegir otro método
             </button>
           )}
@@ -808,24 +833,36 @@ export function Checkout({
 
       {/* Step 3 — review and confirm */}
       {step === 'confirmacion' && !noPaymentConfigured && (
-        <section className="card step">
-          <div className="step-head">
-            <span className="step-num">3</span>
-            <h2>Revisa tu pedido</h2>
-          </div>
+        <section className="paso">
+          <h2>
+            <span className="n" aria-hidden="true">
+              3
+            </span>
+            Revisa tu pedido
+          </h2>
 
-          <dl className="kv" style={{ marginBottom: 16 }}>
-            <dt>Paquete</dt>
-            <dd>{comboName}</dd>
-            <dt>Diamantes</dt>
-            <dd>{diamonds} 💎</dd>
-            <dt>Precio</dt>
-            <dd>{price}</dd>
-            <dt>ID de jugador</dt>
-            <dd className="mono">{validation.playerId}</dd>
-            <dt>Método de pago</dt>
-            <dd>{methodLabel}</dd>
-          </dl>
+          <div className="datos" style={{ marginTop: 12 }}>
+            <div className="fila">
+              <span className="k">Paquete</span>
+              <span className="v">{comboName}</span>
+            </div>
+            <div className="fila">
+              <span className="k">Diamantes</span>
+              <span className="v">{diamonds}</span>
+            </div>
+            <div className="fila">
+              <span className="k">ID</span>
+              <span className="v mono">{validation.playerId}</span>
+            </div>
+            <div className="fila">
+              <span className="k">Método</span>
+              <span className="v">{methodLabel}</span>
+            </div>
+            <div className="fila">
+              <span className="k">Total</span>
+              <span className="v total">{price}</span>
+            </div>
+          </div>
 
           {payView === 'tarjeta' ? (
             <form
@@ -845,7 +882,7 @@ export function Checkout({
 
               {card.error && <div className="alert bad">{card.error}</div>}
 
-              <button className="btn primary wide" type="submit" disabled={redirecting}>
+              <button className="btn-primary" type="submit" disabled={redirecting}>
                 {redirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
               </button>
               <p className="hint center">
@@ -870,7 +907,7 @@ export function Checkout({
 
               {mpOxxo.error && <div className="alert bad">{mpOxxo.error}</div>}
 
-              <button className="btn primary wide" type="submit" disabled={mpOxxoRedirecting}>
+              <button className="btn-primary" type="submit" disabled={mpOxxoRedirecting}>
                 {mpOxxoRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
               </button>
               <p className="hint center">🔒 Te damos tu referencia de depósito OXXO al continuar.</p>
@@ -893,7 +930,7 @@ export function Checkout({
 
               {stripeOxxo.error && <div className="alert bad">{stripeOxxo.error}</div>}
 
-              <button className="btn primary wide" type="submit" disabled={oxxoRedirecting}>
+              <button className="btn-primary" type="submit" disabled={oxxoRedirecting}>
                 {oxxoRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
               </button>
               <p className="hint center">🔒 Stripe te da tu referencia de depósito OXXO al continuar.</p>
@@ -916,7 +953,7 @@ export function Checkout({
 
               {mpSpei.error && <div className="alert bad">{mpSpei.error}</div>}
 
-              <button className="btn primary wide" type="submit" disabled={mpSpeiRedirecting}>
+              <button className="btn-primary" type="submit" disabled={mpSpeiRedirecting}>
                 {mpSpeiRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
               </button>
               <p className="hint center">🔒 Te damos tu cuenta CLABE para SPEI al continuar.</p>
@@ -939,7 +976,7 @@ export function Checkout({
 
               {stripeSpei.error && <div className="alert bad">{stripeSpei.error}</div>}
 
-              <button className="btn primary wide" type="submit" disabled={speiRedirecting}>
+              <button className="btn-primary" type="submit" disabled={speiRedirecting}>
                 {speiRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
               </button>
               <p className="hint center">🔒 Stripe te da tu cuenta CLABE para SPEI al continuar.</p>
@@ -967,7 +1004,7 @@ export function Checkout({
 
               {transfer.error && <div className="alert bad">{transfer.error}</div>}
 
-              <button className="btn primary wide" type="submit" disabled={placing}>
+              <button className="btn-primary" type="submit" disabled={placing}>
                 {placing ? 'Enviando…' : 'Confirmar pedido'}
               </button>
               <p className="hint center">
@@ -976,7 +1013,7 @@ export function Checkout({
             </form>
           )}
 
-          <button type="button" className="btn ghost wide" onClick={() => setStep('pago')}>
+          <button type="button" className="btn-ghost" onClick={() => setStep('pago')}>
             ← Volver
           </button>
         </section>

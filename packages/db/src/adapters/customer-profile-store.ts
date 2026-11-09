@@ -263,6 +263,8 @@ export async function setFeaturedBadges(
 
 export interface MyOrderRow {
   orderNumber: string;
+  /** Free Fire player ID the order was placed for — required on `/pedido/...` URLs. */
+  playerId: string;
   comboName: string;
   priceMxnCents: number;
   status: string;
@@ -283,6 +285,7 @@ export async function listMyOrders(
   const rows = await db
     .select({
       orderNumber: orders.orderNumber,
+      playerId: orders.playerId,
       comboSnapshot: orders.comboSnapshot,
       priceMxnCents: orders.priceMxnCents,
       status: orders.status,
@@ -299,6 +302,7 @@ export async function listMyOrders(
     const snapshot = r.comboSnapshot as { name?: string };
     return {
       orderNumber: r.orderNumber,
+      playerId: r.playerId,
       comboName: snapshot.name ?? 'Recarga',
       priceMxnCents: r.priceMxnCents,
       status: r.status,

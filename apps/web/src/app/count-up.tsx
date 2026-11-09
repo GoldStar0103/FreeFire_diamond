@@ -57,7 +57,9 @@ export function CountUp({ value, decimals = 0, suffix = '', tiles = false, padDi
     maximumFractionDigits: decimals,
   });
   if (padDigits && padDigits > 0) {
-    core = String(Math.round(display)).padStart(padDigits, '0');
+    // Design odometer: fixed-width digits with a thousands dot (169.357).
+    const raw = String(Math.round(display)).padStart(padDigits, '0');
+    core = raw.length > 3 ? `${raw.slice(0, -3)}.${raw.slice(-3)}` : raw;
   }
   const formatted = `${core}${suffix}`;
 

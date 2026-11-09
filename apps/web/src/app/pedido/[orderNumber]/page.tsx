@@ -6,9 +6,11 @@ import { getCustomerSession } from '../../../lib/customer-session';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { AutoRefresh, PurchasePixel } from './live';
+import { VipGroupPopup } from './vip-group-popup';
 import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
 import { supportUrl } from '../../../lib/support';
+import { SiteHeader } from '../../site-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -247,9 +249,15 @@ export default async function OrderPage({
   const vipUrl = order.status === 'completado' ? vipGroupUrl() : null;
   const session = await getCustomerSession();
 
+  const delivered = order.status === 'completado' || Boolean(order.completedAt);
+  const revisando = !delivered;
+
   return (
     <main className="page narrow">
+      <SiteHeader />
       {refreshing && <AutoRefresh everyMs={5_000} />}
+      {/* Jose: VIP invite popup only after diamonds are delivered — nowhere else. */}
+      {vipUrl && <VipGroupPopup groupUrl={vipUrl} orderNumber={order.orderNumber} />}
       {paid && (
         <PurchasePixel
           orderNumber={order.orderNumber}
@@ -259,141 +267,179 @@ export default async function OrderPage({
         />
       )}
 
-      <div className={`card status-card ${status.tone}`}>
-        <div className="status-label">{status.label}</div>
-        <p className="status-detail">{status.detail}</p>
-        {order.status === 'cancelado' && order.cancelReason && (
-          <p className="status-detail">Motivo: {order.cancelReason}</p>
-        )}
+      <div className="ck">
+        <div className="ck-top">
+          <Link href="/" className="ck-back">
+            ← Volver a la tienda
+          </Link>
+        </div>
 
-        {voucherUrl && (
-          <a className="btn primary wide" href={voucherUrl} target="_blank" rel="noreferrer">
-            Ver mi ficha OXXO
-          </a>
-        )}
+        <ol className="stepper" aria-label="Pasos de la compra">
+          <li className="step done">
+            <i aria-hidden="true">✓</i>
+            <span>Datos</span>
+          </li>
+          <li className="step done">
+            <i aria-hidden="true">✓</i>
+            <span>Pago</span>
+          </li>
+          <li className="step on">
+            <i aria-hidden="true">3</i>
+            <span>Confirmación</span>
+          </li>
+        </ol>
 
-        {bankTransfer && (
-          <div className="pay-box" style={{ marginTop: 12 }}>
-            {bankTransfer.clabe && (
-              <div className="pay-row">
-                <span>CLABE</span>
-                <strong className="mono">{bankTransfer.clabe}</strong>
-              </div>
+        {revisando ? (
+          <div className="estado-card revisando" role="status">
+            <div className="spin" aria-hidden="true" />
+            <h2>{status.label}</h2>
+            <p>{status.detail}</p>
+            {order.status === 'cancelado' && order.cancelReason && (
+              <p style={{ marginTop: 8 }}>Motivo: {order.cancelReason}</p>
             )}
-            {bankTransfer.bankName && (
-              <div className="pay-row">
-                <span>Banco</span>
-                <strong>{bankTransfer.bankName}</strong>
-              </div>
-            )}
-            {bankTransfer.reference && (
-              <div className="pay-row">
-                <span>Referencia</span>
-                <strong className="mono">{bankTransfer.reference}</strong>
-              </div>
-            )}
-            {bankTransfer.hostedInstructionsUrl && (
+            {voucherUrl && (
               <a
-                className="btn primary wide"
-                style={{ marginTop: 12 }}
-                href={bankTransfer.hostedInstructionsUrl}
+                className="btn-primary"
+                style={{ marginTop: 14 }}
+                href={voucherUrl}
                 target="_blank"
                 rel="noreferrer"
               >
-                Ver instrucciones de transferencia
+                Ver mi ficha OXXO
               </a>
             )}
+            {bankTransfer && (
+              <div className="pay-box" style={{ marginTop: 12, textAlign: 'left' }}>
+                {bankTransfer.clabe && (
+                  <div className="pay-row">
+                    <span>CLABE</span>
+                    <strong className="mono">{bankTransfer.clabe}</strong>
+                  </div>
+                )}
+                {bankTransfer.bankName && (
+                  <div className="pay-row">
+                    <span>Banco</span>
+                    <strong>{bankTransfer.bankName}</strong>
+                  </div>
+                )}
+                {bankTransfer.reference && (
+                  <div className="pay-row">
+                    <span>Referencia</span>
+                    <strong className="mono">{bankTransfer.reference}</strong>
+                  </div>
+                )}
+                {bankTransfer.hostedInstructionsUrl && (
+                  <a
+                    className="btn-primary"
+                    style={{ marginTop: 12 }}
+                    href={bankTransfer.hostedInstructionsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Ver instrucciones de transferencia
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="estado-card ok" role="status">
+            <span className="ok-check" aria-hidden="true">
+              <i className="rayo r1" />
+              <i className="rayo r2" />
+              <i className="rayo r3" />
+              <i className="rayo r4" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2">
+                <path d="M4.5 12.5 9.5 17.5 20 6.5" />
+              </svg>
+            </span>
+            <h2>{status.label}</h2>
+            <p>{status.detail}</p>
           </div>
         )}
-      </div>
 
-      <div className="card">
-        <ol className="tracker">
+        <div className="timeline">
           {TRACKER_LABELS.map((label, i) => {
             const state = trackerStates(order.status, order.completedAt)[i];
+            const tlClass =
+              state === 'done' ? 'hecho' : state === 'active' ? 'activo' : state === 'error' ? 'activo' : 'pendiente';
             return (
-              <li key={label} className={`tracker-step ${state}`}>
-                <span className="tracker-dot">
-                  {state === 'done' ? '✓' : state === 'error' ? '✕' : ''}
+              <div key={label} className={`tl ${tlClass}`}>
+                <span className="dot" aria-hidden="true">
+                  {state === 'done' ? '✓' : state === 'error' ? '✕' : i + 1}
                 </span>
-                <div className="tracker-text">
-                  <div className="tracker-label">{label}</div>
-                  {i === 0 && <div className="tracker-time">{WHEN.format(order.createdAt)}</div>}
+                <div className="cuerpo">
+                  <b>{label}</b>
+                  {i === 0 && <small>{WHEN.format(order.createdAt)}</small>}
+                  {i === 1 && order.status === 'pago_en_revision' && (
+                    <small>En revisión · suele tardar de 1 a 5 minutos</small>
+                  )}
                   {i === 2 && order.status === 'procesando' && (
-                    <div className="tracker-time">
-                      {diamonds(order.deliveredDiamonds)} de {diamonds(order.advertisedDiamonds)} 💎 (
+                    <small>
+                      {diamonds(order.deliveredDiamonds)} de {diamonds(order.advertisedDiamonds)} (
                       {Math.round(pct)}%)
-                    </div>
+                    </small>
                   )}
-                  {i === 3 && order.completedAt && (
-                    <div className="tracker-time">{WHEN.format(order.completedAt)}</div>
-                  )}
+                  {i === 3 && order.completedAt && <small>{WHEN.format(order.completedAt)}</small>}
                 </div>
-              </li>
+              </div>
             );
           })}
-        </ol>
-      </div>
-
-      <div className="card">
-        <dl className="kv">
-          <dt>Pedido</dt>
-          <dd className="mono">{order.orderNumber}</dd>
-          <dt>Paquete</dt>
-          <dd>{order.comboName}</dd>
-          <dt>Diamantes</dt>
-          <dd>{diamonds(order.advertisedDiamonds)} 💎</dd>
-          <dt>Cuenta</dt>
-          <dd>
-            {order.playerNickname ?? '—'}
-            <div className="hint mono">ID {order.playerId}</div>
-          </dd>
-          <dt>Total</dt>
-          <dd>{mxn(order.priceMxnCents)}</dd>
-        </dl>
-      </div>
-
-      {/* Support appears only when an order actually needs a human. The client
-          does not want a floating WhatsApp button in a market full of curious
-          children — this is the one place it shows up. */}
-      {order.needsSupport && helpUrl && (
-        <a className="btn primary wide" href={helpUrl} target="_blank" rel="noreferrer">
-          Escríbenos por WhatsApp
-        </a>
-      )}
-
-      {!session && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h2 className="mini-title">Crea tu cuenta Mi LevelUp</h2>
-          <p className="hint">
-            Las próximas recargas con tu cuenta — en cualquier ID — suman al Level Pass y La
-            Bóveda. El ranking usa el ID que ligues en tu perfil.
-          </p>
-          <Link className="btn primary wide" href="/cuenta">
-            Crear mi cuenta
-          </Link>
         </div>
-      )}
 
-      {vipUrl && (
-        <div className="card vip">
-          <div className="vip-title">🎁 Únete al grupo VIP</div>
-          <p className="vip-text">
-            Promos exclusivas, sorteos y los combos nuevos antes que nadie. Solo para clientes
-            que ya compraron.
-          </p>
-          <a className="btn primary wide" href={vipUrl} target="_blank" rel="noreferrer">
-            Entrar al grupo VIP
+        <div className="datos">
+          <div className="fila">
+            <span className="k">Pedido</span>
+            <span className="v mono">{order.orderNumber}</span>
+          </div>
+          <div className="fila">
+            <span className="k">Paquete</span>
+            <span className="v">{order.comboName}</span>
+          </div>
+          <div className="fila">
+            <span className="k">Diamantes</span>
+            <span className="v">{diamonds(order.advertisedDiamonds)}</span>
+          </div>
+          <div className="fila">
+            <span className="k">Cuenta</span>
+            <span className="v">
+              {order.playerNickname ?? '—'}
+              <br />
+              <small style={{ fontWeight: 600, color: '#8f97b8' }}>ID {order.playerId}</small>
+            </span>
+          </div>
+          <div className="fila">
+            <span className="k">Total</span>
+            <span className="v total">{mxn(order.priceMxnCents)}</span>
+          </div>
+        </div>
+
+        {/* Support appears only when an order actually needs a human. The client
+            does not want a floating WhatsApp button in a market full of curious
+            children — this is the one place it shows up. */}
+        {order.needsSupport && helpUrl && (
+          <a className="btn-primary" href={helpUrl} target="_blank" rel="noreferrer">
+            Escríbenos por WhatsApp
           </a>
-        </div>
-      )}
+        )}
 
-      <p className="hint center">
-        Guarda este enlace para volver a consultar tu pedido.
-      </p>
-      <Link href="/" className="back center">
-        ← Volver a la tienda
-      </Link>
+        {!session && (
+          <section className="crear">
+            <h3>Crea tu cuenta Mi LevelUp</h3>
+            <p>
+              Las próximas recargas con tu cuenta —en cualquier ID— suman al Level Pass y La
+              Bóveda. El ranking usa el ID que ligues a tu perfil.
+            </p>
+            <Link className="btn-primary" href="/cuenta">
+              Crear mi cuenta
+            </Link>
+          </section>
+        )}
+
+        <p className="hint center" style={{ marginTop: 16 }}>
+          Guarda este enlace para volver a consultar tu pedido.
+        </p>
+      </div>
     </main>
   );
 }

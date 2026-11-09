@@ -14,6 +14,7 @@ import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago } from '../../../lib/mercadopago';
 import { diamonds, mxn } from '../../../lib/format';
 import { supportNumber } from '../../../lib/support';
+import { SiteHeader } from '../../site-header';
 import { Checkout } from './checkout';
 
 export const dynamic = 'force-dynamic';
@@ -166,30 +167,35 @@ export default async function BuyPage({
 
   return (
     <main className="page narrow">
-      <Link href="/" className="back">
-        ← Volver
-      </Link>
+      <SiteHeader />
+      <div className="ck">
+        <div className="ck-top">
+          <Link href="/promociones" className="ck-back">
+            ← Volver
+          </Link>
+        </div>
 
-      <Checkout
-        comboKey={combo.key}
-        comboName={combo.name}
-        price={mxn(priceMxnCents)}
-        priceMxn={priceMxnCents / 100}
-        diamonds={diamonds(combo.advertisedDiamonds)}
-        vaultOfferId={vaultPriceMxnCents !== null ? (oferta ?? null) : null}
-        publicPrice={vaultPriceMxnCents !== null ? mxn(combo.priceMxnCents) : null}
-        payTo={payTo}
-        cardEnabled={stripe !== null && methodsEnabled.card}
-        cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
-        cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
-        mercadoPagoOxxoEnabled={mercadoPago?.supportedMethods.includes('oxxo') ?? false}
-        mercadoPagoSpeiEnabled={mercadoPago?.supportedMethods.includes('spei') ?? false}
-        transferEnabled={methodsEnabled.transfer}
-        oxxoEnabled={methodsEnabled.oxxo}
-        cancelledNotice={cancelledNotice}
-        supportNumber={supportNumber() ?? ''}
-        isLoggedIn={session !== null}
-      />
+        <Checkout
+          comboKey={combo.key}
+          comboName={combo.name}
+          price={mxn(priceMxnCents)}
+          priceMxn={priceMxnCents / 100}
+          diamonds={diamonds(combo.advertisedDiamonds)}
+          vaultOfferId={vaultPriceMxnCents !== null ? (oferta ?? null) : null}
+          publicPrice={vaultPriceMxnCents !== null ? mxn(combo.priceMxnCents) : null}
+          payTo={payTo}
+          cardEnabled={stripe !== null && methodsEnabled.card}
+          cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
+          cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
+          mercadoPagoOxxoEnabled={mercadoPago?.supportedMethods.includes('oxxo') ?? false}
+          mercadoPagoSpeiEnabled={mercadoPago?.supportedMethods.includes('spei') ?? false}
+          transferEnabled={methodsEnabled.transfer}
+          oxxoEnabled={methodsEnabled.oxxo}
+          cancelledNotice={cancelledNotice}
+          supportNumber={supportNumber() ?? ''}
+          isLoggedIn={session !== null}
+        />
+      </div>
     </main>
   );
 }

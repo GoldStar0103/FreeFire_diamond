@@ -5,9 +5,14 @@ import { getCustomerSession } from '../../lib/customer-session.js';
 import { getDb } from '../../lib/server.js';
 import { avatarUrl } from '../../lib/assets.js';
 import { diamonds, initials, mxn } from '../../lib/format.js';
-import mascot from '../../assets/mascot.webp';
+import { CartIcon, ClockIcon, CrownIcon, DiamondIcon, LockIcon } from '../icons';
+import { MascotMedia } from '../mascot-media';
+import { SiteHeader } from '../site-header';
+import { CuentaBg } from './cuenta-bg';
+import { CuentaDemoEstados } from './cuenta-demo-estados';
 import { CuentaForm } from './cuenta-form';
 import { logout } from './profile-actions';
+import cuentaStill from '../../assets/mascot/cuenta-still.webp';
 
 export const metadata: Metadata = {
   title: 'Mi LevelUp',
@@ -30,6 +35,13 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   refunded: 'Reembolsado',
 };
 
+/** Matches the mockup's 3-tone order treatment: green done, amber in flight, red stalled. */
+function orderTone(status: string): 'ok' | 'o' | 'e' {
+  if (status === 'completed') return 'ok';
+  if (['payment_expired', 'cancelled', 'refunded'].includes(status)) return 'e';
+  return 'o';
+}
+
 function daysRemaining(endsAt: Date): number {
   return Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000));
 }
@@ -39,26 +51,43 @@ export default async function CuentaPage() {
 
   if (!session) {
     return (
-      <main className="page narrow">
-        <section className="hx-hero" style={{ minHeight: 280, marginLeft: 0, marginRight: 0 }}>
-          <div className="hx-hero-copy hx-rise">
-            <p className="hx-kicker">Mi cuenta</p>
-            <h1>
-              Tu temporada, <span className="grad">en un solo lugar</span>
-            </h1>
-            <p className="hx-hero-lead">
-              Entra con tu correo — sin contraseña. Un ID para el ranking. Cualquier recarga con
-              tu cuenta suma al Level Pass y La Bóveda.
-            </p>
-          </div>
-          <div className="hx-mascot hx-rise-2" aria-hidden="true">
-            <div className="hx-mascot-glow" />
-            <img src={mascot.src} alt="" decoding="async" />
-          </div>
-        </section>
-        <div className="hx-rise-3">
-          <CuentaForm />
-        </div>
+      <main className="page mc">
+        <CuentaBg />
+        <SiteHeader />
+        <CuentaDemoEstados
+          login={
+            <>
+              <section className="mc-head" aria-labelledby="mc-titulo">
+                <div className="mc-txt">
+                  <span className="mc-eyebrow">
+                    <CrownIcon className="icon" />
+                    Mi cuenta
+                  </span>
+                  <h1 id="mc-titulo">
+                    Tu temporada,
+                    <br />
+                    <em>en un solo lugar</em>
+                  </h1>
+                  <p>
+                    Entra con tu correo — sin contraseña. Un ID para el ranking. Cualquier recarga con
+                    tu cuenta suma al Level Pass y La Bóveda.
+                  </p>
+                </div>
+                <div className="mc-hero">
+                  <span className="mc-halo" aria-hidden="true" />
+                  <MascotMedia
+                    className="mc-hero-mascot"
+                    webm="/mascot/mi-cuenta-luchador.webm"
+                    animWebp="/mascot/mi-cuenta-luchador-anim.webp"
+                    stillSrc={cuentaStill.src}
+                    alt="Luchador de LevelUp sosteniendo un diamante"
+                  />
+                </div>
+              </section>
+              <CuentaForm />
+            </>
+          }
+        />
       </main>
     );
   }
@@ -72,7 +101,9 @@ export default async function CuentaPage() {
 
   if (!profile) {
     return (
-      <main className="page narrow">
+      <main className="page mc">
+        <CuentaBg />
+        <SiteHeader />
         <h1 className="page-title">Mi LevelUp</h1>
         <p className="page-sub">Tu sesión ya no es válida. Inicia sesión de nuevo.</p>
         <CuentaForm />
@@ -93,66 +124,76 @@ export default async function CuentaPage() {
   const pct = nextCheckpoint ? Math.max(0, Math.min(100, ((overview.lp - prevLp) / span) * 100)) : 100;
 
   return (
-    <main className="page narrow">
-      <div className="card hx-pass hx-rise">
-        <div className="hx-profile-hero">
-          <div className="me-avatar-ring">
+    <main className="page mc">
+      <CuentaBg />
+      <SiteHeader />
+
+      <section className="jugador">
+        <div className="jg-top">
+          <span className="mc-avatar" aria-hidden="true">
             {avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatar} alt="" width={84} height={84} style={{ borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+              <img src={avatar} alt="" width={64} height={64} />
             ) : (
-              <div className="avatar" aria-hidden="true" style={{ width: 84, height: 84, fontSize: 28 }}>
-                {initials(name)}
-              </div>
+              <DiamondIcon className="icon diam" />
             )}
-          </div>
+            <span className="corona">
+              <CrownIcon className="icon" />
+            </span>
+          </span>
           <div>
-            <p className="me-kicker grad">¡Hola de nuevo!</p>
-            <h1 className="page-title" style={{ marginBottom: 4 }}>
-              {name}
-            </h1>
-            <p className="hint mono" style={{ margin: 0 }}>
-              ID de temporada {profile.playerId}
-            </p>
-            <div className="me-pills">
-              {overview.season && overview.rank && <span className="season-pill">Posición #{overview.rank}</span>}
-              {seasonDays !== null && (
-                <span className="season-pill">
-                  {seasonDays} día{seasonDays === 1 ? '' : 's'}
-                </span>
-              )}
-              <span className={`season-pill${overview.vault.unlocked ? ' unlocked-gold' : ' locked'}`}>
-                {overview.vault.unlocked ? 'Bóveda abierta' : 'Bóveda cerrada'}
-              </span>
+            <div className="jg-name">
+              <b>{name}</b>
+              <Link href="/cuenta/perfil" className="edit" aria-label="Editar nombre">
+                ✎
+              </Link>
             </div>
+            <span className="jg-id">ID de temporada {profile.playerId}</span>
           </div>
         </div>
-        <div className="row" style={{ marginTop: 14 }}>
-          <Link href="/cuenta/perfil" className="btn ghost sm">
-            Editar perfil
-          </Link>
-          <p className="hint" style={{ margin: 0 }}>
-            Recargas a otros IDs también suman LP y La Bóveda.
-          </p>
+        <div className="jg-pills">
+          {overview.season && overview.rank && <span className="pill">Posición #{overview.rank}</span>}
+          {seasonDays !== null && (
+            <span className="pill">
+              {seasonDays} día{seasonDays === 1 ? '' : 's'}
+            </span>
+          )}
+          <span className="pill lock">
+            <LockIcon className="icon" />
+            {overview.vault.unlocked ? 'Bóveda abierta' : 'Bóveda cerrada'}
+          </span>
+        </div>
+        <Link href="/cuenta/perfil" className="btn-edit">
+          Editar perfil
+        </Link>
+        <p className="jg-nota">Recargas a otros IDs también suman LP y La Bóveda.</p>
+      </section>
+
+      <div className="stats3">
+        <div className="stat">
+          <span className="ic">
+            <DiamondIcon className="icon" />
+          </span>
+          <b>{diamonds(profile.lifetimeDiamondsPurchased)}</b>
+          <span>diamantes históricos</span>
+        </div>
+        <div className="stat">
+          <span className="ic">
+            <CartIcon className="icon" />
+          </span>
+          <b>{profile.lifetimeRechargeCount}</b>
+          <span>recargas</span>
+        </div>
+        <div className="stat lp">
+          <span className="ic lp-ic">
+            <b>LP</b>
+          </span>
+          <b>{overview.lp}</b>
+          <span>LP esta temporada</span>
         </div>
       </div>
 
-      <div className="card hx-statbar hx-rise-2">
-        <div className="counter">
-          <div className="counter-value">{diamonds(profile.lifetimeDiamondsPurchased)}</div>
-          <div className="counter-label">diamantes históricos</div>
-        </div>
-        <div className="counter">
-          <div className="counter-value">{profile.lifetimeRechargeCount}</div>
-          <div className="counter-label">recargas</div>
-        </div>
-        <div className="counter">
-          <div className="counter-value">{overview.lp}</div>
-          <div className="counter-label">LP esta temporada</div>
-        </div>
-      </div>
-
-      {overview.featuredBadges.length > 0 && (
+      {overview.featuredBadges.length > 0 ? (
         <div className="row" style={{ marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
           {overview.featuredBadges.map((b) => (
             <span key={b.ownershipId} className="badge-pill" title={b.title}>
@@ -163,46 +204,60 @@ export default async function CuentaPage() {
             Ver todas →
           </Link>
         </div>
-      )}
-      {overview.featuredBadges.length === 0 && (
-        <p className="hint">
-          <Link href="/cuenta/insignias">Elige tus insignias destacadas →</Link>
-        </p>
+      ) : (
+        <Link href="/cuenta/insignias" className="insignias">
+          Elige tus insignias destacadas
+          <span className="arw">→</span>
+        </Link>
       )}
 
-      <Link href="/cuenta/level-pass" className="card hx-pass hx-rise-3" style={{ display: 'block' }}>
-        <div className="hx-pass-head">
-          <div>
-            <h2 className="mini-title" style={{ margin: 0 }}>
-              Level Pass
-            </h2>
-            {overview.season ? (
-              <p className="hint" style={{ marginTop: 4 }}>
-                {nextCheckpoint
-                  ? `${overview.lp} / ${nextCheckpoint.lp} LP · siguiente ${diamonds(nextCheckpoint.rewardDiamonds)} 💎`
-                  : 'Pass completado'}
-              </p>
-            ) : (
-              <p className="hint">Todavía no hay una temporada activa.</p>
-            )}
-          </div>
-          <span className="hint">Ver →</span>
+      <Link href="/cuenta/level-pass" className="lp-card">
+        <div className="lp-head">
+          <span className="lp-badge">
+            <b>LP</b>
+          </span>
+          <h3>Level Pass</h3>
+          <span className="ver">
+            Ver<span className="arw">→</span>
+          </span>
         </div>
+        {overview.season ? (
+          <p className="lp-sub">
+            <b>{overview.lp}</b> / {nextCheckpoint ? nextCheckpoint.lp : overview.lp} LP
+            {nextCheckpoint ? ` · siguiente ${diamonds(nextCheckpoint.rewardDiamonds)} 💎` : ' · Pass completado'}
+          </p>
+        ) : (
+          <p className="lp-sub">Todavía no hay una temporada activa.</p>
+        )}
         {overview.season && (
-          <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${pct}%` }} />
+          <div className="barra" role="img" aria-label={`Nivel de pase: ${overview.lp} de ${nextCheckpoint?.lp ?? overview.lp} LP`}>
+            <i style={{ width: `${pct}%` }} />
           </div>
         )}
       </Link>
 
-      <div className="card">
-        <h2 className="mini-title">Temporada</h2>
+      <div className="temp">
+        <h3>
+          <span className="ic">
+            <ClockIcon className="icon" />
+          </span>
+          Temporada
+        </h3>
         {overview.season ? (
           <>
-            <p className="hint">{diamonds(overview.seasonalDiamonds)} 💎 en tu ID ligado</p>
-            <p className="hint">{daysRemaining(overview.season.endsAt)} días restantes</p>
-            <Link href="/ranking" className="hint">
-              Ver ranking →
+            <ul>
+              <li>
+                <DiamondIcon className="icon" />
+                <b>{diamonds(overview.seasonalDiamonds)}</b>&nbsp;en tu ID ligado
+              </li>
+              <li>
+                <ClockIcon className="icon" />
+                <b>{daysRemaining(overview.season.endsAt)}</b>&nbsp;días restantes
+              </li>
+            </ul>
+            <Link href="/ranking" className="btn-rank">
+              Ver ranking de la temporada
+              <span className="arw">→</span>
             </Link>
           </>
         ) : (
@@ -210,46 +265,60 @@ export default async function CuentaPage() {
         )}
       </div>
 
-      <Link href="/cuenta/boveda" className="hx-vault-banner" style={{ display: 'flex', marginBottom: 14 }}>
-        <span className="hx-node-icon" aria-hidden="true">
-          {overview.vault.unlocked ? '🔓' : '🔒'}
-        </span>
-        <span>
-          <strong>La Bóveda</strong>
-          <p className="hint" style={{ margin: '2px 0 0' }}>
-            {overview.vault.unlocked
-              ? `${overview.vault.offers.length} ofertas exclusivas`
-              : 'Completa el Level Pass para abrir precios de temporada'}
-          </p>
-        </span>
-        <span className="spacer" />
-        <span className="hint">Ver →</span>
+      <Link href="/cuenta/boveda" className="boveda" data-estado={overview.vault.unlocked ? 'abierta' : 'cerrada'}>
+        <div className="in">
+          <span className="cofre" aria-hidden="true">
+            <LockIcon className="icon" />
+          </span>
+          <div className="txt">
+            <h3>
+              La Bóveda{' '}
+              <span className="chip-estado">{overview.vault.unlocked ? 'Desbloqueada' : 'Bloqueada'}</span>
+            </h3>
+            <p>
+              {overview.vault.unlocked
+                ? `${overview.vault.offers.length} ofertas exclusivas`
+                : 'Completa el Level Pass para abrir precios de temporada'}
+            </p>
+          </div>
+          <span className="ver">Ver→</span>
+        </div>
       </Link>
 
       {orders.length > 0 && (
-        <section>
-          <h2 className="section-title">Tus pedidos recientes</h2>
+        <section className="pedidos">
+          <div className="cab">
+            <i aria-hidden="true" />
+            <h2>Tus pedidos recientes</h2>
+          </div>
           {orders.map((o) => (
-            <div key={o.orderNumber} className="card" style={{ marginBottom: 8 }}>
-              <div className="row">
-                <span className="mono">{o.orderNumber}</span>
-                <div className="spacer" />
-                <span>{mxn(o.priceMxnCents)}</span>
+            <Link
+              key={o.orderNumber}
+              href={`/pedido/${o.orderNumber}?id=${encodeURIComponent(o.playerId)}`}
+              className={`pedido ${orderTone(o.status)}`}
+            >
+              <span className="carro">
+                <CartIcon className="icon" />
+              </span>
+              <div className="datos">
+                <div className="id">{o.orderNumber}</div>
+                <span className="det">{o.comboName}</span>
               </div>
-              <div className="row" style={{ marginTop: 4 }}>
-                <span className="hint">{o.comboName}</span>
-                <div className="spacer" />
-                <span className="hint">{ORDER_STATUS_LABELS[o.status] ?? o.status}</span>
-                {o.lpEarned !== null && <span className="hint">+{o.lpEarned} LP</span>}
+              <div className="der">
+                <div className="monto">{mxn(o.priceMxnCents)}</div>
+                <span className="est">{ORDER_STATUS_LABELS[o.status] ?? o.status}</span>
+                {o.lpEarned !== null && <span className="lp">+{o.lpEarned} LP</span>}
               </div>
-            </div>
+              <span className="arw">→</span>
+            </Link>
           ))}
         </section>
       )}
 
-      <form action={logout} style={{ marginTop: 20 }}>
-        <button className="btn ghost" type="submit">
+      <form action={logout} style={{ marginTop: orders.length > 0 ? 0 : 20 }}>
+        <button className="cerrar" type="submit">
           Cerrar sesión
+          <span className="arw">→</span>
         </button>
       </form>
     </main>

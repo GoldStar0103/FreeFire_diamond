@@ -1,5 +1,5 @@
 /**
- * Social profile links for the homepage header.
+ * Social profile links for the site header (`.hm-bar` / mockup `.socials`).
  *
  * Configuration, same reasoning as `legal.ts`: an icon that links to the wrong
  * (or no) profile is worse than not showing it. Any URL left unset simply

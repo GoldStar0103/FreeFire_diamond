@@ -261,7 +261,12 @@ describe.skipIf(!PG_AVAILABLE)('listMyOrders', () => {
 
     const list = await listMyOrders(db, '100001');
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ orderNumber: 'LU-1', comboName: 'Combo Uno', lpEarned: null });
+    expect(list[0]).toMatchObject({
+      orderNumber: 'LU-1',
+      playerId: '100001',
+      comboName: 'Combo Uno',
+      lpEarned: null,
+    });
   });
 });
 

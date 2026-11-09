@@ -5,11 +5,12 @@ import { siteOrigin } from '../lib/site';
 import { metaPixelId, tiktokPixelId } from '../lib/pixel-ids';
 import { MetaPixel } from './meta-pixel';
 import { TikTokPixel } from './tiktok-pixel';
+import { AppBg } from './app-bg';
 import { BottomNav } from './bottom-nav';
+import { SiteFooter } from './site-footer';
+import { ViewportBack } from './viewport-back';
 import { WhatsappChannelPopup } from './whatsapp-channel-popup';
 import { whatsappChannelUrl } from '../lib/whatsapp-channel';
-import { legalIdentity, pending } from '../lib/legal';
-import logo from '../assets/logo.webp';
 import './globals.css';
 
 const outfit = Outfit({ subsets: ['latin'], display: 'swap' });
@@ -96,49 +97,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es-MX" className={outfit.className}>
       <body>
+        <AppBg />
+        <ViewportBack />
         {metaId && <MetaPixel pixelId={metaId} />}
         {tiktokId && <TikTokPixel pixelId={tiktokId} />}
         {channelUrl && <WhatsappChannelPopup channelUrl={channelUrl} />}
         {children}
-        <footer className="site-footer">
-          {/* The logo on every page, not just the home hero: a buyer who lands
-              straight on a shared /comprar link should still see whose store
-              this is. Decorative here — the name sits right beside it. */}
-          <div className="footer-brand">
-            <img
-              src={logo.src}
-              width={36}
-              height={36}
-              alt=""
-              loading="lazy"
-              decoding="async"
-            />
-            <span>LEVELUP STORE</span>
-          </div>
-          <div className="footer-links">
-            <a href="/">Inicio</a>
-            <a href="/cuenta">Mi cuenta</a>
-            <a href="/ranking">Ranking</a>
-            <a href="/pedidos">Mis pedidos</a>
-            <a href="/confianza">Confianza</a>
-            {/* A real page now (see /soporte) rather than jumping straight to
-                WhatsApp — the client's own complaint was that support offered
-                nothing but a redirect. WhatsApp is still the fastest way to
-                actually reach someone; it is one tap away on that page. */}
-            <a href="/soporte">Soporte</a>
-          </div>
-          <div className="footer-links small">
-            <a href="/legal/terminos">Términos y Condiciones</a>
-            <a href="/legal/privacidad">Aviso de Privacidad</a>
-          </div>
-          <div className="footer-note">
-            No afiliado a Garena. Free Fire es marca de sus respectivos dueños.
-          </div>
-          <div className="footer-note">
-            Operado por {pending(legalIdentity().legalName, 'razón social')}.
-          </div>
-          <div className="footer-note">Juega más. Domina más.</div>
-        </footer>
+        <SiteFooter />
         <BottomNav />
       </body>
     </html>

@@ -55,6 +55,16 @@ export function LockIcon({ className }: IconProps) {
   );
 }
 
+/** Key glyph used on Confianza “Sin contraseñas” (design sample). */
+export function KeyIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="8" cy="12" r="3.2" />
+      <path d="M11.2 12H21M18 12v3M15 12v2.5" />
+    </svg>
+  );
+}
+
 export function HeadsetIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
@@ -179,6 +189,26 @@ export function MoonIcon({ className }: IconProps) {
   );
 }
 
+/** Dual-arrow refresh used on Soporte “Atención 24/7” (design sample). */
+export function RefreshIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M20 14.5A8 8 0 0 0 9.5 4 8 8 0 0 0 4 9.5" />
+      <path d="M4 4v5.5h5.5" />
+      <path d="M4 9.5A8 8 0 0 0 14.5 20 8 8 0 0 0 20 14.5" />
+      <path d="M20 20v-5.5h-5.5" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} strokeWidth={3}>
+      <path d="M4 12l5 5L20 6" />
+    </svg>
+  );
+}
+
 export function ChatIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
@@ -270,11 +300,62 @@ export function CrownIcon({ className }: IconProps) {
   );
 }
 
+/** Filled crown from the approved home mockup (`.rk-head svg`). */
+export function CrownSolidIcon({ className }: IconProps) {
+  return (
+    <svg
+      width={24}
+      height={24}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z" />
+    </svg>
+  );
+}
+
+/** Tiny gold crown that sits on the #1 rank ring in the home ranking bar. */
+export function RankCrownIcon({ className }: IconProps) {
+  return (
+    <svg
+      width={10}
+      height={8}
+      viewBox="0 0 10 8"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M1.1 6.6 0.4 1.8l2.3 1.7L5 0.6l2.3 2.9 2.3-1.7-.7 4.8H1.1zm7.5 1.2c0 .3-.2.5-.5.5H1.9c-.3 0-.5-.2-.5-.5V7h7.2v.8z" />
+    </svg>
+  );
+}
+
 export function BellIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
       <path d="M6 16.5h12l-1.2-2.2V10a4.8 4.8 0 0 0-9.6 0v4.3L6 16.5Z" />
       <path d="M10 16.5a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
+export function PercentIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="7.5" cy="7.5" r="2.2" />
+      <circle cx="16.5" cy="16.5" r="2.2" />
+      <path d="M17.5 6.5 6.5 17.5" />
+    </svg>
+  );
+}
+
+/** WhatsApp mark for the VIP join button — filled brand glyph. */
+export function WhatsAppIcon({ className }: IconProps) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" className={className} viewBox="0 0 24 24">
+      <path d="M12.04 2.5A9.45 9.45 0 0 0 2.6 11.9c0 1.67.44 3.29 1.27 4.73L2.5 21.5l5.03-1.32a9.45 9.45 0 0 0 4.51 1.15h.01a9.45 9.45 0 0 0 9.45-9.43 9.4 9.4 0 0 0-9.46-9.4Zm5.52 13.37c-.23.65-1.35 1.24-1.87 1.32-.48.07-1.09.1-1.76-.11-.4-.13-.92-.3-1.58-.59-2.78-1.2-4.58-4-4.72-4.18-.13-.18-1.1-1.46-1.1-2.79 0-1.32.69-1.97.94-2.24.25-.27.54-.34.72-.34h.52c.17 0 .39-.06.61.47.23.54.77 1.88.84 2.02.07.13.11.3.02.48-.09.18-.13.3-.27.46-.13.16-.28.36-.4.48-.13.13-.27.27-.12.53.16.27.7 1.15 1.5 1.86 1.03.91 1.9 1.2 2.17 1.33.27.13.43.11.59-.07.16-.18.68-.79.86-1.06.18-.27.36-.22.61-.13.25.09 1.58.74 1.85.88.27.13.45.2.52.31.07.11.07.65-.16 1.3Z" />
     </svg>
   );
 }

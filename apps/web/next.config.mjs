@@ -10,6 +10,10 @@ loadRootEnv();
 const nextConfig = {
   reactStrictMode: true,
 
+  // Hide Next's circular "N" badge so the design's ← Propuestas pill can
+  // occupy the same top-left corner without fighting it.
+  devIndicators: false,
+
   /**
    * Next's Server Actions default to a 1MB request body, which is smaller
    * than a single phone photo — checkout's own comprobante upload validates

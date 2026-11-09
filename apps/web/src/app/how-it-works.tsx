@@ -7,23 +7,37 @@ const STEPS = [
   { icon: BoltIcon, title: 'Recibe tus diamantes', text: '¡Listo! Los diamantes se reflejan en tu cuenta.' },
 ] as const;
 
-/** Shared between the homepage and every /promocion page — same 4 steps, same order. */
-export function HowItWorks() {
+/**
+ * Shared between the homepage and every /promocion page — same 4 steps, same
+ * order. `mascot` is optional and only the homepage passes one, so /promocion
+ * pages render exactly as before.
+ */
+export function HowItWorks({ mascot }: { mascot?: React.ReactNode } = {}) {
   return (
     <section>
-      <div className="row" style={{ marginBottom: 12 }}>
+      {/* Same 1fr | auto head as the mockup `.steps-head` and the why-section
+          monkey: title (+ sub) on the left, mascot pinned to the right. */}
+      <div className={mascot ? 'hm-steps-head' : 'row'} style={mascot ? undefined : { marginBottom: 12 }}>
         <h2 className="section-title-lg" style={{ margin: 0 }}>
           ¿Cómo <span className="grad">funciona</span>?
+          {mascot ? (
+            <span className="hm-steps-sub">Tu recarga en 4 simples pasos</span>
+          ) : null}
         </h2>
-        <div className="spacer" />
-        <span className="hint" style={{ margin: 0 }}>
-          Tu recarga en 4 simples pasos
-        </span>
+        {mascot ? (
+          mascot
+        ) : (
+          <>
+            <div className="spacer" />
+            <span className="hint" style={{ margin: 0 }}>
+              Tu recarga en 4 simples pasos
+            </span>
+          </>
+        )}
       </div>
       <div className="steps-grid">
-        {STEPS.map(({ icon: Icon, title, text }, i) => (
+        {STEPS.map(({ icon: Icon, title, text }) => (
           <div key={title} className="card step-card">
-            <div className="step-card-num">{i + 1}</div>
             <div className="step-card-icon">
               <Icon className="icon" />
             </div>
