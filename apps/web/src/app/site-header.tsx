@@ -7,36 +7,44 @@ import { HmBar } from './hm-bar';
 
 /**
  * Sticky top bar (social · brand · bell/account) matching the approved
- * redesign header — TikTok / Instagram / Facebook chips on the left (same
- * placement as the mockup `.socials`), wordmark center, account actions right.
+ * redesign header — wordmark center, account actions right. TikTok /
+ * Instagram / Facebook chips on the left only on the homepage (`showSocial`).
  * Pass `fadeOnScroll` on the homepage so the bar dissolves while browsing
  * and only returns at the very top.
  */
-export async function SiteHeader({ fadeOnScroll = false }: { fadeOnScroll?: boolean } = {}) {
-  const social = socialLinks();
+export async function SiteHeader({
+  fadeOnScroll = false,
+  showSocial = false,
+}: {
+  fadeOnScroll?: boolean;
+  showSocial?: boolean;
+} = {}) {
+  const social = showSocial ? socialLinks() : null;
   const session = await getCustomerSession();
 
   return (
     <HmBar fadeOnScroll={fadeOnScroll}>
       <div className="hm-bar-in">
         <div className="hm-bar-side hm-bar-social">
-          <div className="social-links">
-            {social.tiktok && (
-              <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
-                <TikTokIcon className="icon" />
-              </a>
-            )}
-            {social.instagram && (
-              <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
-                <InstagramIcon className="icon" />
-              </a>
-            )}
-            {social.facebook && (
-              <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
-                <FacebookIcon className="icon" />
-              </a>
-            )}
-          </div>
+          {social && (
+            <div className="social-links">
+              {social.tiktok && (
+                <a href={social.tiktok} target="_blank" rel="noreferrer" aria-label="TikTok">
+                  <TikTokIcon className="icon" />
+                </a>
+              )}
+              {social.instagram && (
+                <a href={social.instagram} target="_blank" rel="noreferrer" aria-label="Instagram">
+                  <InstagramIcon className="icon" />
+                </a>
+              )}
+              {social.facebook && (
+                <a href={social.facebook} target="_blank" rel="noreferrer" aria-label="Facebook">
+                  <FacebookIcon className="icon" />
+                </a>
+              )}
+            </div>
+          )}
         </div>
         <Link href="/" className="hm-bar-brand">
           <img src={logo.src} width={34} height={34} alt="" decoding="async" />

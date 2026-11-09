@@ -143,7 +143,7 @@ export default async function HomePage() {
 
   return (
     <main className="page hm">
-      <SiteHeader fadeOnScroll />
+      <SiteHeader fadeOnScroll showSocial />
       {channelUrl && <WaFab />}
 
       <div className="hm-layout">
