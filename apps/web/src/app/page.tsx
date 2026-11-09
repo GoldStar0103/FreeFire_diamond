@@ -264,7 +264,7 @@ export default async function HomePage() {
                   <span className="hm-metric-lbl">En vivo</span>
                 </div>
                 <div className="hm-metric-odo">
-                  <CountUp value={liveCount} padDigits={liveCount < 1000 ? 3 : undefined} />
+                  <CountUp value={liveCount} {...(liveCount < 1000 ? { padDigits: 3 } : {})} />
                   <small>+</small>
                 </div>
                 <span className="hm-metric-sub">{liveCountIsToday ? 'recargas hoy' : 'recargas'}</span>

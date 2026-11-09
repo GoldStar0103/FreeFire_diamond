@@ -6053,8 +6053,8 @@ a.pv-back:hover {
   }
 }
 
-/* ── CHECKOUT REDESIGN (scoped .ck) — from LevelUp_Rediseno checkout.css ── */
-   LEVELUP STORE Â· CHECKOUT (4 pantallas) â€” rev. P1 Â· 2026-10-26
+/* ── CHECKOUT REDESIGN (scoped .ck) — from LevelUp_Rediseno checkout.css ──
+   LEVELUP STORE · CHECKOUT (4 pantallas) — rev. P1 · 2026-10-26
    Estructura del sitio actual (brief del cliente, paginas 04 a 07 del PDF):
    resumen del paquete, stepper Datos/Pago/Confirmacion, aviso de invitado,
    campo de ID, metodos de pago y comprobante con seguimiento.
@@ -6084,12 +6084,11 @@ a.pv-back:hover {
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .ck .resumen .pr small{display:block;font-size:8.5px;font-weight:700;color:#6f7899;letter-spacing:.08em}
 
-   empujaban las columnas, los circulos ya no caian en 16,6 / 50 / 83,3 % y la linea
-   se veia sobrada a la izquierda del circulo 1 (anotacion del cliente 2026-10-28). */
+/* Stepper track: left/right sit on the first/last circle centers (16.66% /
+   83.33% with 3 steps). No gap/padding on the ol — those shoved the columns
+   and made the track overrun past circle 1. */
 .ck .stepper{display:grid;grid-template-columns:repeat(3,1fr);align-items:flex-start;margin:16px 0 14px;
   padding:0;list-style:none;position:relative}
-   ultimo (16,66 % y 83,33 % con 3 pasos): antes empezaba en 14 % y el paso 1
-   parecia corrido a la derecha (anotacion del cliente 2026-10-26). */
 .ck .stepper::before{content:"";position:absolute;left:16.66%;right:16.66%;top:13px;height:2px;border-radius:2px;
   background:linear-gradient(90deg,rgba(74,222,128,.65),rgba(139,92,246,.45) 42%,rgba(34,211,238,.35) 72%,rgba(255,255,255,.08))}
 .ck .step{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;z-index:1;min-width:0}
