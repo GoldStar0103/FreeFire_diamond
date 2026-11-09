@@ -5810,9 +5810,11 @@ a.pv-back:hover {
   border-color: rgba(139, 92, 246, 0.6);
   color: #e8ecfb;
 }
-/* Keep header social chips clear of the fixed ← Inicio pill on subpages. */
-.page:not(.hm) .hm-bar {
-  padding-left: 118px;
+/* Subpages no longer show header social chips, so do not offset the bar —
+   that left padding pulled the brand off-center. The fixed ← Inicio pill
+   sits over the empty left column of the 1fr / auto / 1fr header grid. */
+.page:not(.hm) .hm-bar-brand {
+  justify-self: center;
 }
 @media (prefers-reduced-motion: reduce) {
   .appbg-caps i,

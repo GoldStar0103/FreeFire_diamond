@@ -126,14 +126,14 @@ export default async function HomePage() {
     packs[0] ??
     null;
 
-  // Homepage podium matches the approved mockup bar (TURA / NEO / KANU).
-  // Real season leaders still power /ranking; this strip is the design bar.
-  const top3 = [
-    { rank: 1, displayName: 'TURA', seasonalDiamonds: 15_110, key: 'sample-1' },
-    { rank: 2, displayName: 'NEO', seasonalDiamonds: 12_450, key: 'sample-2' },
-    { rank: 3, displayName: 'KANU', seasonalDiamonds: 9_880, key: 'sample-3' },
-  ] as const;
-  const hasRanking = true;
+  // Live season leaders (same source as /ranking), not design-sample names.
+  const top3 = top50.rows.slice(0, 3).map((row) => ({
+    rank: row.rank,
+    displayName: row.displayName ?? 'Jugador',
+    seasonalDiamonds: row.seasonalDiamonds,
+    key: row.playerProfileId,
+  }));
+  const hasRanking = top3.length > 0;
   const offers = assignFlyerSlots(campaigns, featured?.campaign.key ?? null);
   const liveCount = today > 0 ? today : delivered;
   const liveCountIsToday = today > 0;
