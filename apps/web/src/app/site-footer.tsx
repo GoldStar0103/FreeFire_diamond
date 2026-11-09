@@ -6,8 +6,7 @@ import logo from '../assets/logo.webp';
 
 /**
  * Site-wide footer matching the approved redesign `.foot` grid: brand blurb,
- * navigation, legal, social — then a base row with copyright + operator and
- * the cyan `rev. R` status stamp from the home mockup.
+ * navigation, legal, social — then a base row with copyright + operator.
  */
 export function SiteFooter() {
   const social = socialLinks();
@@ -101,10 +100,6 @@ export function SiteFooter() {
       <div className="foot-base">
         <span>© {year} LevelUp Store. Todos los derechos reservados.</span>
         <span>Operado por {pending(legalIdentity().legalName, 'razón social')}.</span>
-      </div>
-      <div className="foot-revstamp">
-        <b>rev. R</b>
-        <span>24 oct 2026 · prototipo de revision</span>
       </div>
     </footer>
   );

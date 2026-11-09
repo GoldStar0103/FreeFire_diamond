@@ -3015,27 +3015,6 @@ body > .wa-overlay,
   font-size: 10px;
   color: var(--faint, #6f7899);
 }
-/* Mockup `.revstamp` — cyan pill + uppercase status line. */
-.foot-revstamp {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 0 6px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #8b93b5;
-}
-.foot-revstamp b {
-  color: #7ce7f7;
-  background: rgba(34, 211, 238, 0.12);
-  border: 1px solid rgba(34, 211, 238, 0.35);
-  padding: 3px 8px;
-  border-radius: 999px;
-  font-weight: 900;
-}
 @media (min-width: 760px) {
   .foot-grid { grid-template-columns: 1.4fr repeat(3, 1fr); }
   .foot-brand { grid-column: auto; }
