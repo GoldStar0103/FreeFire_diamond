@@ -44,7 +44,7 @@ export default async function RankingPage({
   const days = season ? daysRemaining(season.endsAt) : null;
 
   return (
-    <main className="page narrow">
+    <main className="page narrow rk">
       <div className="hx-rise">
         <p className="hx-kicker">Temporada {season?.seasonNumber ?? '—'}</p>
         <h1 className="page-title" style={{ fontSize: 40, letterSpacing: '-0.04em' }}>

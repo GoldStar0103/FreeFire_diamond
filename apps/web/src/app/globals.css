@@ -5593,7 +5593,14 @@ body > .wa-overlay,
 }
 
 /* ── /ranking: Top 50 tabs, podium, pagination, Salón de la Fama ─────────── */
-
+/* No site header here — leave room under the fixed ← Inicio pill so the
+   gold Temporada kicker is fully visible below it. */
+.page.rk {
+  padding-top: 52px;
+}
+.page.rk > .hx-rise:first-child .hx-kicker {
+  margin-top: 4px;
+}
 .rk-tabs {
   display: flex;
   gap: 6px;
@@ -5763,7 +5770,8 @@ body::before {
 body > *:not(.appbg):not(.pv-back):not(.bottom-nav):not(.wa-overlay):not(.wa-fab) { position: relative; z-index: 1; }
 a.pv-back {
   position: fixed;
-  top: 10px;
+  /* Sit above page kickers (e.g. ranking Temporada) instead of covering them. */
+  top: max(4px, env(safe-area-inset-top, 0px));
   left: 10px;
   z-index: 200;
   display: inline-flex;
