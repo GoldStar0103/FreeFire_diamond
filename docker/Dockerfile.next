@@ -62,9 +62,11 @@ WORKDIR /app
 # self-contained tree, so there is no node_modules and no package manager here.
 COPY --from=build /repo/apps/${APP}/.next/standalone ./
 # Static assets and the public dir are deliberately excluded from the trace and
-# have to be copied separately. Forgetting this is the classic standalone bug:
-# the site boots, serves HTML, and every stylesheet and script 404s.
+# have to be copied separately. Forgetting either is the classic standalone bug:
+# the site boots, serves HTML, and every stylesheet, script, or /design|/mascot
+# asset 404s. Public must land next to server.js (apps/${APP}/public).
 COPY --from=build /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
+COPY --from=build /repo/apps/${APP}/public ./apps/${APP}/public
 
 # The mount point for the `uploads` volume (docker-compose.prod.yml), created
 # here so Docker's first-mount copy-up gives the fresh named volume this
