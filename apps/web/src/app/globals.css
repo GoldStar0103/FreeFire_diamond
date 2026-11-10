@@ -3778,21 +3778,36 @@ body > .wa-overlay,
   display: block;
 }
 /* Promo media sizing is owned by the `.hm-promo-mascot .mm-*` rules below. */
+/* Match sample `.why-head` / `.why-mascot`: title left, luchador right. */
 .hm-why-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
   gap: 10px;
-  margin-bottom: 8px;
+  margin: 12px 0 10px;
+}
+.hm-why-head .section-title-lg {
+  margin: 0;
+  text-align: left;
+  line-height: 1.15;
 }
 .hm-why-mascot {
-  width: 64px;
+  width: 96px;
   flex: none;
+  margin-bottom: -10px;
+  justify-self: end;
+  filter:
+    drop-shadow(0 12px 20px rgba(0, 0, 0, 0.6))
+    drop-shadow(0 0 14px rgba(34, 211, 238, 0.3));
 }
 .hm-why-mascot .mm-live,
 .hm-why-mascot .mm-anim,
-.hm-why-mascot .mm-still { width: 100%; height: auto; }
-/* Mockup `.steps-head`: title block left, mascot right — mirrors why-head. */
+.hm-why-mascot .mm-still {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* Match sample `.steps-head` / `.steps-mascot` (138px after Jose clip adjust). */
 .hm-steps-head {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -3801,6 +3816,8 @@ body > .wa-overlay,
   margin: 12px 0 10px;
 }
 .hm-steps-head .section-title-lg {
+  margin: 0;
+  text-align: left;
   line-height: 1.15;
 }
 .hm-steps-sub {
@@ -3814,15 +3831,26 @@ body > .wa-overlay,
   -webkit-text-fill-color: var(--muted);
 }
 .hm-steps-mascot {
-  width: 112px;
+  width: 138px;
   flex: none;
   justify-self: end;
+  filter:
+    drop-shadow(0 12px 20px rgba(0, 0, 0, 0.6))
+    drop-shadow(0 0 14px rgba(34, 211, 238, 0.3));
 }
 .hm-steps-mascot .mm-live,
 .hm-steps-mascot .mm-anim,
-.hm-steps-mascot .mm-still { width: 100%; height: auto; }
-@media (min-width: 720px) {
-  .hm-steps-mascot { width: 140px; }
+.hm-steps-mascot .mm-still {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+@media (min-width: 1024px) {
+  .hm-why-mascot {
+    width: 112px;
+    margin-bottom: -14px;
+  }
+  .hm-steps-mascot { width: 160px; }
 }
 
 /* Hero offer — approved mockup `.neon.hero`: magenta→cyan frame, near-black
