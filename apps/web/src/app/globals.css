@@ -849,7 +849,8 @@ body:has(.page.cf) .appbg-caps {
   background-clip: text;
   color: transparent;
 }
-.cf-counter span {
+/* Label after the number — exclude `.cf-counter-dot` (also a span). */
+.cf-counter > b + span {
   position: relative;
   display: block;
   margin-top: 4px;
@@ -858,7 +859,7 @@ body:has(.page.cf) .appbg-caps {
   color: #9aa2c4;
   font-weight: 600;
 }
-.cf-counter-dot {
+.cf-counter .cf-counter-dot {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -1102,7 +1103,7 @@ body:has(.page.cf) .appbg-caps {
 @media (min-width: 600px) {
   .cf-stats-row { gap: 14px; }
   .cf-counter b { font-size: 26px; }
-  .cf-counter span { font-size: 10px; }
+  .cf-counter > b + span { font-size: 10px; }
   .cf-trust-grid { grid-template-columns: repeat(2, 1fr); }
   .cf-rev { flex-basis: 60%; }
 }
