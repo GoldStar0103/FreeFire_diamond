@@ -3468,11 +3468,10 @@ body > .wa-overlay,
   .hm-rk-in { padding: 12px 14px; gap: 10px 14px; }
 }
 
-/* Support banner — mockup `.supt`: teal glass, left mascot spill, dots, foot counter. */
+/* Support banner — mockup `.supt`: absolute left mascot spill, text padded right. */
 .hm-supt {
   position: relative;
-  /* Was 30px — halved so promo→soporte gap matches the tighter mockup spacing. */
-  margin-top: 15px;
+  margin-top: 30px;
   overflow: visible;
   border: 0;
   background: none;
@@ -3487,7 +3486,8 @@ body > .wa-overlay,
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 14px 34px -14px rgba(0, 0, 0, 0.7);
-  overflow: hidden;
+  /* Sample `.supt-card`: visible so the luchador can spill the frame. */
+  overflow: visible;
 }
 .hm-supt-deco {
   position: absolute;
@@ -3517,44 +3517,40 @@ body > .wa-overlay,
 .hm-supt-main {
   position: relative;
   z-index: 2;
-  display: grid;
-  grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
-  grid-template-areas: 'art side';
-  align-items: center;
-  column-gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
   width: 100%;
   text-align: left;
-  padding: 12px 14px 12px 10px;
+  padding: 16px 12px 14px 118px;
   border: 0;
   background: none;
   cursor: pointer;
   border-radius: 16px 16px 0 0;
-  min-height: 156px;
+  min-height: 0;
 }
 .hm-supt-art {
-  grid-area: art;
-  position: relative;
-  z-index: 2;
-  display: block;
-  width: 100%;
-  max-width: 112px;
-  height: 118px;
-  justify-self: center;
-  align-self: center;
-  overflow: hidden;
+  position: absolute;
+  z-index: 3;
+  left: -10px;
+  bottom: -8px;
+  width: 84px;
+  height: auto;
+  aspect-ratio: 185 / 300;
+  max-width: none;
+  overflow: visible;
+  pointer-events: none;
   filter:
-    drop-shadow(0 10px 18px rgba(0, 0, 0, 0.55))
-    drop-shadow(0 0 14px rgba(37, 211, 102, 0.16));
+    drop-shadow(0 12px 24px rgba(0, 0, 0, 0.6))
+    drop-shadow(0 0 18px rgba(37, 211, 102, 0.18));
 }
 .hm-supt-mascot {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
+  position: relative;
   display: block;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  filter: none;
 }
 .hm-supt-mascot .mm-live,
 .hm-supt-mascot .mm-anim,
@@ -3564,28 +3560,24 @@ body > .wa-overlay,
   width: 100%;
   height: 100%;
   max-width: none;
-  object-fit: contain;
-  object-position: 50% 50%;
+  object-fit: cover;
+  object-position: 50% 100%;
   transform: none;
 }
 .hm-supt-side {
-  grid-area: side;
   position: relative;
   z-index: 2;
   min-width: 0;
-  width: max-content;
-  max-width: 100%;
-  justify-self: start;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 9px;
 }
 .hm-supt-copy {
   min-width: 0;
-  width: max-content;
-  max-width: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -3631,9 +3623,9 @@ body > .wa-overlay,
   justify-content: center;
   gap: 6px;
   flex: none;
-  align-self: center;
-  margin: 0 auto;
-  padding: 8px 12px;
+  align-self: flex-start;
+  margin: 0;
+  padding: 8px 11px;
   border-radius: 10px;
   background: var(--wa, #25d366);
   color: #04120a;
@@ -3748,26 +3740,24 @@ body > .wa-overlay,
   .hm-supt-cta { padding: 9px; }
 }
 @media (max-width: 430px) {
-  .hm-supt-main {
-    padding: 12px 12px 12px 8px;
-    min-height: 152px;
-    column-gap: 6px;
-  }
-  .hm-supt-art {
-    max-width: 100px;
-    height: 108px;
-  }
+  .hm-supt-main { padding: 14px 10px 12px 106px; }
+  .hm-supt-art { width: 80px; left: -2px; }
   .hm-supt-copy b { font-size: 12.5px; }
+}
+/* Sample mobile (≤1023): slightly larger mascot, closer to copy. */
+@media (max-width: 1023px) {
+  .hm-supt-art { width: 96px; left: -2px; }
+  .hm-supt-main { padding-left: 106px; }
 }
 @media (min-width: 1024px) {
   .hm-supt-main {
-    padding: 14px 18px 14px 12px;
-    min-height: 168px;
-    column-gap: 12px;
+    padding: 16px 16px 16px 164px;
+    gap: 11px;
   }
   .hm-supt-art {
-    max-width: 124px;
-    height: 132px;
+    width: 118px;
+    left: -16px;
+    bottom: -24px;
   }
   .hm-supt-copy b { font-size: 15.5px; }
   .hm-supt-copy small { font-size: 11.5px; }
@@ -3787,13 +3777,7 @@ body > .wa-overlay,
 .hm-steps-mascot {
   display: block;
 }
-.hm-promo-mascot .mm-live,
-.hm-promo-mascot .mm-anim,
-.hm-promo-mascot .mm-still {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
+/* Promo media sizing is owned by the `.hm-promo-mascot .mm-*` rules below. */
 .hm-why-head {
   display: flex;
   align-items: flex-end;
@@ -4325,13 +4309,12 @@ body > .wa-overlay,
   .hm-hero-chev b { animation: none !important; }
 }
 
-/* Promo card — mockup `.neon.promo`: magenta→cyan frame, corner brackets,
-   left mascot + copy, full-width cyan→violet CTA. No chest art. */
+/* Promo card — mockup `.neon.promo`: left mascot spills up; copy + CTA on right. */
 .hm-promo {
   display: block;
   position: relative;
   z-index: 2;
-  /* Was 14px — halved with .hm-supt margin so the promo→soporte gap tightens. */
+  margin-top: 32px;
   margin-bottom: 7px;
   padding: 1px;
   overflow: visible;
@@ -4346,16 +4329,17 @@ body > .wa-overlay,
 .hm-promo-in {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
   grid-template-areas: 'art side';
   align-items: center;
   column-gap: 8px;
-  row-gap: 0;
-  min-height: 176px;
-  padding: 12px 14px 12px 10px;
+  row-gap: 9px;
+  min-height: 0;
+  padding: 16px 13px 15px;
   border-radius: 15px;
   background: linear-gradient(110deg, #2a1250, #17103a 60%, #0e1030);
-  overflow: hidden;
+  /* Sample `.promo .in`: visible so the luchador can spill past the top edge. */
+  overflow: visible;
 }
 .hm-promo-frm {
   position: absolute;
@@ -4409,14 +4393,15 @@ body > .wa-overlay,
   position: relative;
   z-index: 2;
   display: block;
-  width: 100%;
-  max-width: 158px;
-  height: 148px;
+  width: calc(100% + 34px);
+  max-width: none;
+  height: auto;
+  aspect-ratio: 1.22;
   justify-self: center;
-  align-self: center;
-  margin: 0;
+  align-self: start;
+  margin: -48px 0 0;
   background: transparent;
-  overflow: hidden;
+  overflow: visible;
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
 }
 .hm-promo-mascot {
@@ -4431,31 +4416,39 @@ body > .wa-overlay,
   filter: none;
   animation: none;
 }
-/* Fit the full luchador inside the left guide square (crop empty air only). */
+/* Sample crop: video/anim cover at 63% so diamond + cape stay framed. */
 .hm-promo-mascot .mm-live,
-.hm-promo-mascot .mm-anim,
+.hm-promo-mascot .mm-anim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  object-position: 63% 50%;
+  transform: none;
+}
 .hm-promo-mascot .mm-still {
-  position: absolute !important;
-  left: 50% !important;
-  top: 50% !important;
-  width: 142% !important;
-  height: 142% !important;
-  max-width: none !important;
-  object-fit: contain !important;
-  object-position: 58% 50% !important;
-  transform: translate(-50%, -50%) !important;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  object-position: 50% 50%;
+  transform: none;
 }
 .hm-promo-side {
   grid-area: side;
   position: relative;
   z-index: 2;
   min-width: 0;
-  width: max-content;
+  width: 100%;
   max-width: 100%;
-  justify-self: start;
+  justify-self: stretch;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   gap: 10px;
 }
@@ -4504,12 +4497,12 @@ body > .wa-overlay,
   align-items: center;
   justify-content: center;
   gap: 7px;
-  width: auto;
+  width: 100%;
   max-width: 100%;
   flex: none;
-  align-self: center;
-  margin: 0 auto;
-  padding: 10px 18px;
+  align-self: stretch;
+  margin: 0;
+  padding: 11px 10px;
   border-radius: 999px;
   overflow: hidden;
   background: linear-gradient(100deg, #8be9fb 0%, #22d3ee 42%, #a855f7 100%);
@@ -4853,21 +4846,10 @@ body > .wa-overlay,
     height: auto;
   }
   .hm-hero-tab { top: -14px; padding: 5px 12px 6px; }
-  .hm-promo-in {
-    grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
-    grid-template-areas: 'art side';
-    min-height: 168px;
-    padding: 10px 12px 10px 8px;
-    column-gap: 6px;
-  }
-  .hm-promo-art {
-    max-width: 148px;
-    height: 138px;
-  }
-  .hm-promo-copy strong { font-size: 16.5px; }
+  .hm-promo-copy strong { font-size: 16.5px; line-height: 1.15; }
   .hm-promo-copy b { font-size: 10px; letter-spacing: 0.12em; }
-  .hm-promo-copy small { font-size: 10.5px; }
-  .hm-promo-cta { padding: 9px 16px; font-size: 12px; }
+  .hm-promo-copy small { font-size: 10.5px; line-height: 1.45; }
+  .hm-promo-cta { padding: 11px 10px; font-size: 12.5px; width: 100%; }
   .hm-live-digit { min-width: 1.15em; height: 1.4em; font-size: 15px; }
 }
 
@@ -4888,6 +4870,46 @@ body > .wa-overlay,
     max-width: 560px;
   }
   .hm-hero-cta-wrap { padding: 0 0 26px 38px; }
+  /* Sample desktop promo: large absolute mascot spilling the bottom edge. */
+  .hm-promo { margin-top: 58px; }
+  .hm-promo-in {
+    display: block;
+    padding: 18px 18px 18px 286px;
+    min-height: 112px;
+  }
+  .hm-promo-main { display: block; position: relative; min-height: 112px; }
+  .hm-promo-art {
+    position: absolute;
+    left: 6px;
+    top: auto;
+    bottom: -26px;
+    width: 274px;
+    height: auto;
+    aspect-ratio: auto;
+    margin: 0;
+    justify-self: auto;
+    align-self: auto;
+  }
+  .hm-promo-mascot { position: relative; inset: auto; width: 100%; height: auto; }
+  .hm-promo-mascot .mm-live,
+  .hm-promo-mascot .mm-anim,
+  .hm-promo-mascot .mm-still {
+    position: relative;
+    inset: auto;
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    object-position: center;
+  }
+  .hm-promo-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    width: auto;
+  }
+  .hm-promo-cta { width: auto; align-self: flex-start; padding: 10px 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
