@@ -1358,6 +1358,9 @@ body:has(.page.sp) .appbg-caps {
 }
 .sp-mini {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding: 13px 8px 12px;
   border-radius: 14px;
   text-align: center;
@@ -1368,6 +1371,7 @@ body:has(.page.sp) .appbg-caps {
   transition: transform 0.25s ease, border-color 0.25s ease;
 }
 .sp-mini-ic {
+  flex: none;
   width: 30px;
   height: 30px;
   margin: 0 auto 8px;
@@ -1378,9 +1382,23 @@ body:has(.page.sp) .appbg-caps {
   background: linear-gradient(160deg, rgba(139, 92, 246, 0.26), rgba(34, 211, 238, 0.12));
 }
 .sp-mini-ic .icon { width: 15px; height: 15px; color: #dbe0f6; }
-.sp-mini b { display: block; font-size: 10.5px; font-weight: 800; line-height: 1.25; }
+/* Reserve two title lines so wrapped labels (e.g. Asesoría personalizada)
+   do not push the value row out of alignment with the other cards. */
+.sp-mini b {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: calc(1.25em * 2);
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-wrap: balance;
+}
 .sp-mini span {
   display: block;
+  width: 100%;
   margin-top: 3px;
   font-size: 9.5px;
   color: #9aa2c4;
