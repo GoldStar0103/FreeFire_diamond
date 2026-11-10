@@ -6315,7 +6315,8 @@ a.pv-back:hover {
   .mc-bgvid{display:none}
 }
 
-/* Mi cuenta background video (approved redesign) */
+/* Mi cuenta neon fondo (Jose Klickpin clip) — poster always paints so the
+   pattern stays visible when prefers-reduced-motion hides the video. */
 body:has(.page.mc) .appbg {
   background: #06070e;
 }
@@ -6330,7 +6331,10 @@ body:has(.page.mc) .appbg-caps {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  background: #06070e;
+  background:
+    #06070e
+    url('/mascot/cuenta-fondo-poster.webp')
+    center / cover no-repeat;
 }
 .mc-bgvid {
   position: absolute;
@@ -6339,15 +6343,16 @@ body:has(.page.mc) .appbg-caps {
   height: 100%;
   object-fit: cover;
   object-position: 50% 50%;
-  opacity: 0.74;
-  filter: saturate(1.08);
+  opacity: 0.92;
+  filter: saturate(1.15);
 }
 .mc-bg::after {
   content: "";
   position: absolute;
   inset: 0;
+  /* Lighter veil than the sample so the neon streaks read like Jose's shot. */
   background:
-    radial-gradient(72% 55% at 50% 28%, rgba(9, 11, 22, 0.22), rgba(9, 11, 22, 0.66) 80%),
-    linear-gradient(180deg, rgba(9, 11, 22, 0.38) 0%, rgba(9, 11, 22, 0.58) 55%, rgba(9, 11, 22, 0.82) 100%);
+    radial-gradient(72% 55% at 50% 28%, rgba(9, 11, 22, 0.08), rgba(9, 11, 22, 0.42) 80%),
+    linear-gradient(180deg, rgba(9, 11, 22, 0.18) 0%, rgba(9, 11, 22, 0.36) 55%, rgba(9, 11, 22, 0.62) 100%);
 }
 
