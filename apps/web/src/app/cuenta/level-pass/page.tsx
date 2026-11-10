@@ -131,7 +131,7 @@ export default async function LevelPassPage() {
           <span className="ic">
             <GemMark className="icon" />
           </span>
-          <b>Desbloquea recompensas</b>
+          <b>Desbloquea</b>
         </div>
         <div className="gana">
           <span className="ic">

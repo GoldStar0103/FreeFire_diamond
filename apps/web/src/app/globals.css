@@ -5201,15 +5201,18 @@ body > .wa-overlay,
    removing; this page's richer real status logic — granted/pending/
    reversed/locked, plus the rewards-history list below — is unchanged,
    only its visual chrome is new). */
-.lp-hero { position: relative; padding: 6px 0 4px; }
+.lp-hero { position: relative; padding: 2px 0 0; }
 /* Sample stacks ← Mi cuenta above the Level Pass eyebrow (explicit <br> in mockup). */
 .lp-hero .txt {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  position: relative;
+  z-index: 2;
 }
 .lp-hero .lp-back {
-  display: inline-flex;
+  /* Phone shot already has fixed ← Inicio; show the in-page back only on desktop. */
+  display: none;
   align-items: center;
   gap: 6px;
   font-size: 11px;
@@ -5227,7 +5230,7 @@ body > .wa-overlay,
 }
 .lp-hero .mc-eyebrow { margin-bottom: 0; }
 .lp-hero h1 {
-  margin: 12px 0 8px;
+  margin: 8px 0 6px;
   font-size: 29px;
   line-height: 1.05;
   font-weight: 900;
@@ -5241,27 +5244,28 @@ body > .wa-overlay,
   background-clip: text;
   color: transparent;
 }
-.lp-hero p { margin: 0; font-size: 12.5px; color: #a9b1d0; line-height: 1.6; max-width: 30ch; }
-/* Sample `.lp-hero .ia-live` mobile size — was blowing up as inline. */
+.lp-hero p { margin: 0; font-size: 12.5px; color: #a9b1d0; line-height: 1.55; max-width: 30ch; }
+/* Match approved phone shot: mascot ~half the viewport between copy and cards. */
 .lp-hero .mc-hero-mascot {
   display: block;
   position: relative;
-  width: min(212px, 62%);
+  width: min(320px, 88%);
   aspect-ratio: 432 / 560;
-  margin: 2px auto 0;
+  margin: -6px auto -18px;
+  z-index: 1;
 }
 .lp-hero .mc-halo {
   left: 50%;
   top: auto;
-  bottom: 6%;
+  bottom: 18%;
   transform: translateX(-50%);
-  width: min(300px, 86%);
+  width: min(340px, 92%);
 }
 .chip-dias {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: 10px;
   padding: 6px 11px;
   border-radius: var(--r-pill, 999px);
   font-size: 10.5px;
@@ -5272,7 +5276,7 @@ body > .wa-overlay,
 }
 .chip-dias .icon { width: 12px; height: 12px; color: var(--accent-2); }
 
-.ganas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 0; }
+.ganas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 0; position: relative; z-index: 2; }
 .gana {
   position: relative;
   display: flex;
@@ -5404,11 +5408,13 @@ body > .wa-overlay,
     padding-top: 14px;
   }
   .lp-hero .txt { order: 1; }
+  .lp-hero .lp-back { display: inline-flex; }
   .lp-hero .mc-hero-mascot {
     order: 2;
-    width: 300px;
+    width: 320px;
     margin: 0 auto;
   }
+  .lp-hero .mc-halo { bottom: 6%; width: min(340px, 92%); }
   .lp-hero h1 { font-size: 38px; max-width: 14ch; }
   .lp-hero p { font-size: 14px; max-width: 34ch; }
   .ganas { margin-top: 16px; gap: 10px; }
