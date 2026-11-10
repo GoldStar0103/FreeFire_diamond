@@ -1599,15 +1599,17 @@ body:has(.page.sp) .appbg-caps {
   position: relative;
   display: grid;
   place-items: center;
-  margin: 4px auto 0;
+  margin: 6px auto 0;
   width: 100%;
+  /* Reserve the marked hero band so the login card starts below the luchador. */
+  min-height: min(420px, 52vh);
 }
 .mc-halo {
   position: absolute;
   left: 50%;
   top: 52%;
   transform: translate(-50%, -50%);
-  width: min(240px, 88%);
+  width: min(360px, 94%);
   aspect-ratio: 1;
   border-radius: 999px;
   pointer-events: none;
@@ -1621,7 +1623,8 @@ body:has(.page.sp) .appbg-caps {
 }
 .mc-hero-mascot {
   display: block;
-  width: min(176px, 46%);
+  /* Fill the annotated red hero band (~half viewport), matching Level Pass scale. */
+  width: min(340px, 92%);
   aspect-ratio: 432 / 560;
   z-index: 1;
   margin: 0 auto;
@@ -1641,7 +1644,13 @@ body:has(.page.sp) .appbg-caps {
   50% { transform: translateY(-7px); }
 }
 
-/* Login card — approved `.login` / `.campo` / `.btn-codigo` */
+/* Login card — approved `.login` / `.campo` / `.btn-codigo`.
+   Sit fully below the enlarged luchador (no feet-over-card overlap). */
+.page.mc .login {
+  position: relative;
+  z-index: 2;
+  margin: 28px 0 0;
+}
 .login {
   position: relative;
   margin: 9px 0 0;
@@ -2078,9 +2087,10 @@ a.btn-edit:hover {
   }
   .mc-head h1 { font-size: 40px; max-width: 20ch; margin: 13px 0 8px; }
   .mc-head p { font-size: 14px; max-width: 44ch; margin: 0; }
-  .mc-hero { margin: 0; }
-  .mc-hero-mascot { width: 300px; }
-  .mc-halo { width: 340px; }
+  .mc-hero { margin: 0; min-height: 0; }
+  .mc-hero-mascot { width: 340px; }
+  .mc-halo { width: 380px; }
+  .page.mc .login { margin-top: 32px; }
   .login { margin-top: 16px; padding: 18px; }
   .login label { margin-bottom: 7px; }
   .login input { padding: 14px 14px 14px 38px; }
