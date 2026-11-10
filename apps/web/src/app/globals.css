@@ -1601,15 +1601,18 @@ body:has(.page.sp) .appbg-caps {
   to { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
 }
 .mc-hero-mascot {
+  display: block;
   width: min(176px, 46%);
   aspect-ratio: 432 / 560;
   z-index: 1;
+  margin: 0 auto;
   animation: mcFloaty 6s ease-in-out infinite;
   filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.6));
 }
 .mc-hero-mascot .mm-live,
 .mc-hero-mascot .mm-anim,
 .mc-hero-mascot .mm-still {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -5168,7 +5171,13 @@ body > .wa-overlay,
    reversed/locked, plus the rewards-history list below — is unchanged,
    only its visual chrome is new). */
 .lp-hero { position: relative; padding: 6px 0 4px; }
-.lp-back {
+/* Sample stacks ← Mi cuenta above the Level Pass eyebrow (explicit <br> in mockup). */
+.lp-hero .txt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.lp-hero .lp-back {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5179,9 +5188,21 @@ body > .wa-overlay,
   border-radius: 9px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  letter-spacing: 0;
 }
-.lp-hero h1 { margin: 12px 0 8px; font-size: 25px; line-height: 1.1; font-weight: 900; letter-spacing: -0.02em; }
+.lp-hero .mc-eyebrow { margin-bottom: 0; }
+.lp-hero h1 {
+  margin: 12px 0 8px;
+  font-size: 29px;
+  line-height: 1.05;
+  font-weight: 900;
+  letter-spacing: -0.025em;
+  max-width: 12ch;
+}
 .lp-hero h1 em {
   font-style: normal;
   background: linear-gradient(100deg, #c4b5fd, #67e8f9 55%, var(--accent-2));
@@ -5190,6 +5211,21 @@ body > .wa-overlay,
   color: transparent;
 }
 .lp-hero p { margin: 0; font-size: 12.5px; color: #a9b1d0; line-height: 1.6; max-width: 30ch; }
+/* Sample `.lp-hero .ia-live` mobile size — was blowing up as inline. */
+.lp-hero .mc-hero-mascot {
+  display: block;
+  position: relative;
+  width: min(212px, 62%);
+  aspect-ratio: 432 / 560;
+  margin: 2px auto 0;
+}
+.lp-hero .mc-halo {
+  left: 50%;
+  top: auto;
+  bottom: 6%;
+  transform: translateX(-50%);
+  width: min(300px, 86%);
+}
 .chip-dias {
   display: inline-flex;
   align-items: center;
@@ -5329,8 +5365,20 @@ body > .wa-overlay,
 .banda .dato.dias .ic { color: #6ee7a8; border-color: rgba(34, 197, 94, 0.45); background: radial-gradient(circle at 40% 30%, rgba(34, 197, 94, 0.3), rgba(11, 13, 24, 0.9) 70%); }
 
 @media (min-width: 1024px) {
-  .lp-hero { display: grid; grid-template-columns: 1.15fr 0.85fr; align-items: center; gap: 16px; padding-top: 14px; }
-  .lp-hero h1 { font-size: 34px; }
+  .lp-hero {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    align-items: center;
+    gap: 16px;
+    padding-top: 14px;
+  }
+  .lp-hero .txt { order: 1; }
+  .lp-hero .mc-hero-mascot {
+    order: 2;
+    width: 300px;
+    margin: 0 auto;
+  }
+  .lp-hero h1 { font-size: 38px; max-width: 14ch; }
   .lp-hero p { font-size: 14px; max-width: 34ch; }
   .ganas { margin-top: 16px; gap: 10px; }
   .gana { padding: 16px 10px 17px; gap: 10px; }
