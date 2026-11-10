@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MascotMedia } from './mascot-media';
@@ -8,6 +9,11 @@ import popupStill from '../assets/mascot/popup-still.webp';
 const STORAGE_KEY = 'levelup_whatsapp_popup_hide_until';
 /** Dispatched by the homepage FAB so the modal can reopen after a dismiss. */
 export const WA_POPUP_OPEN_EVENT = 'levelup:wa-popup-open';
+
+/** Order status / “final” page — Jose: only the VIP invite here, not this channel popup. */
+function isPedidoPage(pathname: string | null): boolean {
+  return Boolean(pathname?.startsWith('/pedido/'));
+}
 
 export function openWhatsappChannelPopup() {
   if (typeof window === 'undefined') return;
@@ -51,21 +57,34 @@ const TILES = [
  * per Mexico City day per browser — `localStorage`, not a cookie, since
  * nothing here needs the server to know about it.
  *
+ * Never auto-opens (or reopens) on `/pedido/...`: that page already owns the
+ * VIP group invite after a completed top-up, and Jose asked that only the VIP
+ * popup appear there.
+ *
  * Portaled to `document.body` so it stays a true viewport-fixed overlay
  * (same as the approved redesign mockup), not a block that lands in the
  * page flow above the footer when body stacking rules fight `position:fixed`.
  */
 export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
+  const pathname = usePathname();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    if (isPedidoPage(pathname)) {
+      setVisible(false);
+      return;
+    }
+
     let hideUntil: string | null = null;
     try {
       hideUntil = localStorage.getItem(STORAGE_KEY);
     } catch {
       /* Private browsing or blocked storage — fall through and show it. */
     }
-    const open = () => setVisible(true);
+    const open = () => {
+      if (isPedidoPage(window.location.pathname)) return;
+      setVisible(true);
+    };
     window.addEventListener(WA_POPUP_OPEN_EVENT, open);
 
     // Auto-show once per day — skipped when the visitor already dismissed
@@ -81,7 +100,7 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
       window.removeEventListener(WA_POPUP_OPEN_EVENT, open);
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (!visible) return;
@@ -92,7 +111,7 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
     };
   }, [visible]);
 
-  if (!visible) return null;
+  if (!visible || isPedidoPage(pathname)) return null;
 
   const dismiss = () => setVisible(false);
   const dismissForToday = () => {
