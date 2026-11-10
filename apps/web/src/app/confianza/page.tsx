@@ -1,7 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { listStorefront } from '@levelup/db';
+import {
+  countCompletedOrders,
+  countUniqueCustomers,
+  listStorefront,
+  listTestimonials,
+} from '@levelup/db';
 import { getDb } from '../../lib/server';
+import { initials } from '../../lib/format';
 import { BoltIcon, HeadsetIcon, KeyIcon, ShieldIcon } from '../icons';
 import { MascotMedia } from '../mascot-media';
 import { SiteHeader } from '../site-header';
@@ -16,83 +22,6 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
-/** Design-sample testimonials from confianza.html (rev. P3). */
-const SAMPLE_REVIEWS = [
-  {
-    author: 'Irvin Salas',
-    initials: 'IS',
-    rating: 5,
-    quote:
-      'Mi compa level nunca falla, llevo meses con el y más aún con esta nueva etapa con la nueva web. 100% recomendado',
-    tag: 'Pack Súper Prime',
-  },
-  {
-    author: 'Juanpa',
-    initials: 'J',
-    rating: 5,
-    quote: 'Mis diamantes llegaron al instante!! Todo chido la verdad',
-  },
-  {
-    author: 'LGANG Gugy',
-    initials: 'LG',
-    rating: 5,
-    quote:
-      'Probé la oferta de $15 pesos y todo chido llegó rápido después compré la de 3000 mil diamantes y llegó igual rápido, lo recomiendo todo correcto',
-    tag: '3000 diamantes · Lluvia de diamantes',
-  },
-  {
-    author: 'Hugo FO',
-    initials: 'HF',
-    rating: 5,
-    quote: 'Todo chido con mi papi levelup 🫡 dense sin miedo',
-  },
-  {
-    author: 'Andrés Pal.',
-    initials: 'AP',
-    rating: 5,
-    quote: 'Llegó todo bien, los recomendaré 👌🏻',
-    tag: 'Pack huesito · 1160 diamantes',
-  },
-  {
-    author: 'INS iZasop',
-    initials: 'II',
-    rating: 5,
-    quote: 'Confiable y su atención al cliente muy amable. La verdad lo recomiendo, es súper chido level',
-    tag: '18300 diamantes · Mega Packs',
-  },
-  {
-    author: 'Pepoyaas',
-    initials: 'P',
-    rating: 4,
-    quote:
-      'Había comprado una recarga y me tardó en llegar una media hora aproximadamente. Si llegan, pero esa vez sí tardó la recarga',
-    tag: '8600 diamantes · Pack Insano',
-  },
-  {
-    author: 'Alexis GTR',
-    initials: 'AG',
-    rating: 5,
-    quote: 'Ricos Dimas para mi cuenta, gracias level como siempre 🫡',
-    tag: '6160 diamantes · Oferta relámpago',
-  },
-  {
-    author: 'Jesús Nájera',
-    initials: 'JN',
-    rating: 5,
-    quote:
-      'Gran página para recargar, la verdad 👌🏻 tenía miedo la primera vez que compré pero ya llevo meses con ellos y nunca me han fallado',
-  },
-  {
-    author: 'Santana',
-    initials: 'S',
-    rating: 5,
-    quote: 'Los conocí en Facebook y de ahí no me he despegado de ellos, son muy buenos sus precios 🫡',
-    tag: 'Pack huesito · 1160 diamantes',
-  },
-] as const;
-
-const REVIEW_COUNT_LABEL = 21;
-
 function Stars({ rating }: { rating: number }) {
   return (
     <div className="cf-stars" aria-label={`${rating} de 5 estrellas`}>
@@ -106,7 +35,20 @@ function Stars({ rating }: { rating: number }) {
 }
 
 export default async function TrustPage() {
-  const campaigns = await listStorefront(getDb());
+  const db = getDb();
+  const [campaigns, delivered, customers, testimonials] = await Promise.all([
+    listStorefront(db),
+    countCompletedOrders(db),
+    countUniqueCustomers(db),
+    listTestimonials(db),
+  ]);
+
+  const rated = testimonials.filter((t) => t.rating);
+  const avgRating =
+    rated.length >= 3 ? rated.reduce((sum, t) => t.rating! + sum, 0) / rated.length : null;
+  const reviewCount = testimonials.length;
+  const ratingLabel = avgRating !== null ? `${avgRating.toFixed(1)}/5` : '—';
+
   const trustCombo =
     campaigns.flatMap((c) => c.combos).find((c) => c.advertisedDiamonds === 110) ?? null;
   const offerHref = trustCombo ? `/comprar/${trustCombo.key}` : '/promociones';
@@ -139,7 +81,7 @@ export default async function TrustPage() {
       <div className="cf-stats-row" role="list" aria-label="Números de la tienda">
         <div className="cf-counter" role="listitem">
           <span className="cf-counter-dot" aria-hidden="true" />
-          <b>3,432</b>
+          <b>{delivered.toLocaleString('es-MX')}</b>
           <span>
             recargas
             <br />
@@ -147,7 +89,7 @@ export default async function TrustPage() {
           </span>
         </div>
         <div className="cf-counter" role="listitem">
-          <b>1,429</b>
+          <b>{customers.toLocaleString('es-MX')}</b>
           <span>
             jugadores
             <br />
@@ -155,9 +97,9 @@ export default async function TrustPage() {
           </span>
         </div>
         <div className="cf-counter" role="listitem">
-          <b>4.8/5</b>
+          <b>{ratingLabel}</b>
           <span>
-            {REVIEW_COUNT_LABEL}
+            {reviewCount.toLocaleString('es-MX')}
             <br />
             reseñas
           </span>
@@ -207,28 +149,32 @@ export default async function TrustPage() {
         </article>
       </div>
 
-      <div className="cf-titulo-bloque">
-        <h2>Lo que dicen nuestros clientes</h2>
-        <span className="cf-line" aria-hidden="true" />
-        <span className="cf-count">{REVIEW_COUNT_LABEL} reseñas</span>
-      </div>
-      <ReviewsCarousel count={SAMPLE_REVIEWS.length}>
-        {SAMPLE_REVIEWS.map((t) => (
-          <article className="cf-rev" key={t.author}>
-            <div className="cf-rev-top">
-              <span className="cf-rev-av" aria-hidden="true">
-                {t.initials}
-              </span>
-              <div className="cf-rev-who">
-                <b>{t.author}</b>
-                <Stars rating={t.rating} />
-              </div>
-            </div>
-            <blockquote>&ldquo;{t.quote}&rdquo;</blockquote>
-            {'tag' in t && t.tag ? <span className="cf-rev-tag">{t.tag}</span> : null}
-          </article>
-        ))}
-      </ReviewsCarousel>
+      {reviewCount > 0 && (
+        <>
+          <div className="cf-titulo-bloque">
+            <h2>Lo que dicen nuestros clientes</h2>
+            <span className="cf-line" aria-hidden="true" />
+            <span className="cf-count">{reviewCount.toLocaleString('es-MX')} reseñas</span>
+          </div>
+          <ReviewsCarousel count={reviewCount}>
+            {testimonials.map((t) => (
+              <article className="cf-rev" key={`${t.author}-${t.quote.slice(0, 24)}`}>
+                <div className="cf-rev-top">
+                  <span className="cf-rev-av" aria-hidden="true">
+                    {initials(t.author)}
+                  </span>
+                  <div className="cf-rev-who">
+                    <b>{t.author}</b>
+                    {t.rating ? <Stars rating={t.rating} /> : null}
+                  </div>
+                </div>
+                <blockquote>&ldquo;{t.quote}&rdquo;</blockquote>
+                {t.combo ? <span className="cf-rev-tag">{t.combo}</span> : null}
+              </article>
+            ))}
+          </ReviewsCarousel>
+        </>
+      )}
 
       <section className="cf-primera">
         <h2>¿Primera vez?</h2>
