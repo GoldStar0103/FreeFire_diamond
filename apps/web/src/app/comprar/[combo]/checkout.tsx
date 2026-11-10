@@ -265,6 +265,7 @@ function PayOptionCard({
   extra,
   ctaLabel,
   onClick,
+  showAutoBadge = true,
 }: {
   tone: 'blue' | 'red' | 'purple';
   icon: (props: { className?: string }) => React.ReactElement;
@@ -274,6 +275,8 @@ function PayOptionCard({
   extra?: React.ReactNode;
   ctaLabel: string;
   onClick: () => void;
+  /** Jose: credit card must not show the Automático / Recarga automática chip. */
+  showAutoBadge?: boolean;
 }) {
   const kind = tone === 'purple' ? 'tarjeta' : tone === 'blue' ? 'spei' : 'oxxo';
   const estadoRojo = tone === 'red' && Boolean(badge?.includes('24'));
@@ -288,11 +291,7 @@ function PayOptionCard({
           <span className={`estado${estadoRojo ? ' rojo' : ''}`}>{badge.replace(/^⚡\s*/, '')}</span>
         )}
       </div>
-      {/* Same label on every method: card is instant, and transfer/OXXO still
-          land the diamonds automatically once the comprobante is approved.
-          First-time buyers read this as "my diamonds arrive by themselves",
-          which is the promise the owner wants on the whole comparison screen. */}
-      <span className="badge-auto">Recarga automática</span>
+      {showAutoBadge && <span className="badge-auto">Recarga automática</span>}
       <ul>
         {features.map((f) => (
           <li key={f}>
@@ -582,9 +581,11 @@ export function Checkout({
                   ? 'Paga tu recarga'
                   : `Datos para tu ${payView === 'oxxo' ? 'depósito' : 'transferencia'}`}
               </h2>
-              <span className="badge-auto" style={{ marginBottom: 12 }}>
-                Recarga automática
-              </span>
+              {payView !== 'tarjeta' && (
+                <span className="badge-auto" style={{ marginBottom: 12 }}>
+                  Recarga automática
+                </span>
+              )}
             </>
           )}
 
@@ -623,11 +624,8 @@ export function Checkout({
                     tone="purple"
                     icon={CardIcon}
                     title="Tarjeta de crédito/débito"
-                    features={[
-                      'Pago instantáneo',
-                      'Visa · Mastercard · Amex',
-                      'Recarga automática al confirmarse',
-                    ]}
+                    showAutoBadge={false}
+                    features={['Pago instantáneo', 'Visa · Mastercard · Amex']}
                     ctaLabel="Pagar con tarjeta →"
                     onClick={() => setPayView('tarjeta')}
                   />
