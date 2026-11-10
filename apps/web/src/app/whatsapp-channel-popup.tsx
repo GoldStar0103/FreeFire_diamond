@@ -166,11 +166,11 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
 
           <div className="wa-actions">
             <a href={channelUrl} target="_blank" rel="noreferrer" className="btn btn-wa btn-block" onClick={dismiss}>
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
                 <path d="M12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.4A10 10 0 1 0 12 2z" />
               </svg>
               Unirme al canal
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true" width="16" height="16">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
                 <path d="M5 12h13M12 5l7 7-7 7" />
               </svg>
             </a>

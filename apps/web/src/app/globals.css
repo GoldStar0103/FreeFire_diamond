@@ -2884,6 +2884,12 @@ body > .wa-overlay,
   justify-content: center;
   gap: 9px;
 }
+/* Without an explicit size the WA icon SVG fills the flex row as a black slab. */
+.wa-actions .btn svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
 .wa-skip {
   background: none;
   border: 0;
