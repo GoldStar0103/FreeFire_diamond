@@ -2877,7 +2877,13 @@ body > .wa-overlay,
   100% { left: 135%; opacity: 1; }
 }
 .btn-ghost { height: 42px; border-radius: 13px; background: #151122; border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text); }
-.btn-block { width: 100%; display: flex; }
+.btn-block {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
 .wa-skip {
   background: none;
   border: 0;
