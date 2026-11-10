@@ -4,14 +4,25 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * Full-bleed midnight neon-network fondo for Mi cuenta / Level Pass.
- * Portaled to `document.body` so it sits with AppBg as a viewport-fixed
- * layer. Uses the Figma still (`cuenta-fondo-midnight.jpg`).
+ * Figma midnight neon-network fondo for Mi cuenta / Level Pass.
+ * Portaled to `document.body` beside AppBg; the same still is also painted
+ * on `.appbg` via CSS so the background is visible before hydration.
  */
 export function CuentaBg() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
-  return createPortal(<div className="mc-bg" aria-hidden="true" />, document.body);
+  return createPortal(
+    <div className="mc-bg" aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="mc-bg__img"
+        src="/mascot/cuenta-fondo-midnight.jpg"
+        alt=""
+        decoding="async"
+      />
+    </div>,
+    document.body,
+  );
 }

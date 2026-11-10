@@ -5825,7 +5825,7 @@ body::before {
 /* Keep fixed chrome (back pill, bottom nav, WA modal) out of this —
    `position: relative` here would override their `position: fixed` and let
    them scroll away / sit in document flow (WA popup landed above the footer). */
-body > *:not(.appbg):not(.pv-back):not(.bottom-nav):not(.wa-overlay):not(.wa-fab) { position: relative; z-index: 1; }
+body > *:not(.appbg):not(.mc-bg):not(.pv-back):not(.bottom-nav):not(.wa-overlay):not(.wa-fab) { position: relative; z-index: 1; }
 a.pv-back {
   position: fixed;
   /* Sit above page kickers (e.g. ranking Temporada) instead of covering them. */
@@ -6320,9 +6320,23 @@ a.pv-back:hover {
   .ck .estado-card.revisando .spin{animation:none;border-top-color:rgba(245,200,76,.6)}
 }
 
-/* Mi cuenta fondo — Figma midnight neon network still. */
-body:has(.page.mc) .appbg {
+/* Mi cuenta fondo — Figma “midnight neon network” still (Website Background.zip).
+   Painted on .appbg so it shows before hydration; CuentaBg img mirrors the
+   Figma Make structure as a same-layer cover. */
+body:has(.page.mc) {
   background: #050817;
+}
+body:has(.page.mc)::before {
+  opacity: 0;
+}
+body:has(.page.mc) .appbg {
+  background:
+    #050817
+    url('/mascot/cuenta-fondo-midnight.jpg')
+    center / cover no-repeat;
+}
+body:has(.page.mc) .appbg::after {
+  background: none;
 }
 body:has(.page.mc) .appbg-gems,
 body:has(.page.mc) .appbg-sparks,
@@ -6337,15 +6351,11 @@ body:has(.page.mc) .appbg-caps {
   overflow: hidden;
   background: #050817;
 }
-.mc-bg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    url('/mascot/cuenta-fondo-midnight.jpg')
-    center / cover no-repeat;
-}
-.mc-bg::after {
-  content: none;
+.mc-bg__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
