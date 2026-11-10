@@ -3367,9 +3367,9 @@ body > .wa-overlay,
 }
 .hm-rk-list {
   grid-area: list;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   width: 100%;
   margin: 0;
@@ -3380,9 +3380,12 @@ body > .wa-overlay,
   display: flex;
   align-items: center;
   gap: 5px;
-  flex: 1 1 0;
   min-width: 0;
 }
+/* 1 left · 2 centered · 3 flush right (aligns with Ver ranking completo). */
+.hm-rk-list .hm-rk-r1 { justify-self: start; }
+.hm-rk-list .hm-rk-r2 { justify-self: center; }
+.hm-rk-list .hm-rk-r3 { justify-self: end; }
 .hm-rk-badge {
   position: relative;
   display: grid;
