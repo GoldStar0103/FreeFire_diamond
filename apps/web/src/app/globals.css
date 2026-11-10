@@ -1712,46 +1712,6 @@ body:has(.page.sp) .appbg-caps {
 }
 .login .alert { margin-top: 10px; }
 
-/* Prototype view switcher from mi-cuenta.html (design sample only).
-   Must be positioned — otherwise `.mc-bg` (fixed, z-index:0) paints above
-   in-flow content and the panel is invisible under the background video. */
-.demo-estados {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
-  margin: 20px 0 4px;
-  padding: 9px 11px;
-  border-radius: 11px;
-  border: 1px dashed rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.02);
-}
-.demo-estados span {
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #6b7396;
-}
-.demo-estados button {
-  font-size: 10px;
-  font-weight: 800;
-  padding: 5px 9px;
-  border-radius: 7px;
-  cursor: pointer;
-  color: #c9d0e8;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  font-family: inherit;
-}
-.demo-estados button[aria-pressed='true'] {
-  color: #04121a;
-  background: linear-gradient(160deg, #a5f3fc, #22d3ee);
-  border-color: transparent;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .mc-halo,
   .mc-hero-mascot,

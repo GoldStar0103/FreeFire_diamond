@@ -4,12 +4,11 @@ import { getMyLevelUpOverview, getMyProfile, listMyOrders } from '@levelup/db';
 import { getCustomerSession } from '../../lib/customer-session.js';
 import { getDb } from '../../lib/server.js';
 import { avatarUrl } from '../../lib/assets.js';
-import { diamonds, initials, mxn } from '../../lib/format.js';
+import { diamonds, mxn } from '../../lib/format.js';
 import { CartIcon, ClockIcon, CrownIcon, DiamondIcon, LockIcon } from '../icons';
 import { MascotMedia } from '../mascot-media';
 import { SiteHeader } from '../site-header';
 import { CuentaBg } from './cuenta-bg';
-import { CuentaDemoEstados } from './cuenta-demo-estados';
 import { CuentaForm } from './cuenta-form';
 import { logout } from './profile-actions';
 import cuentaStill from '../../assets/mascot/cuenta-still.webp';
@@ -54,40 +53,34 @@ export default async function CuentaPage() {
       <main className="page mc">
         <CuentaBg />
         <SiteHeader />
-        <CuentaDemoEstados
-          login={
-            <>
-              <section className="mc-head" aria-labelledby="mc-titulo">
-                <div className="mc-txt">
-                  <span className="mc-eyebrow">
-                    <CrownIcon className="icon" />
-                    Mi cuenta
-                  </span>
-                  <h1 id="mc-titulo">
-                    Tu temporada,
-                    <br />
-                    <em>en un solo lugar</em>
-                  </h1>
-                  <p>
-                    Entra con tu correo — sin contraseña. Un ID para el ranking. Cualquier recarga con
-                    tu cuenta suma al Level Pass y La Bóveda.
-                  </p>
-                </div>
-                <div className="mc-hero">
-                  <span className="mc-halo" aria-hidden="true" />
-                  <MascotMedia
-                    className="mc-hero-mascot"
-                    webm="/mascot/mi-cuenta-luchador.webm"
-                    animWebp="/mascot/mi-cuenta-luchador-anim.webp"
-                    stillSrc={cuentaStill.src}
-                    alt="Luchador de LevelUp sosteniendo un diamante"
-                  />
-                </div>
-              </section>
-              <CuentaForm />
-            </>
-          }
-        />
+        <section className="mc-head" aria-labelledby="mc-titulo">
+          <div className="mc-txt">
+            <span className="mc-eyebrow">
+              <CrownIcon className="icon" />
+              Mi cuenta
+            </span>
+            <h1 id="mc-titulo">
+              Tu temporada,
+              <br />
+              <em>en un solo lugar</em>
+            </h1>
+            <p>
+              Entra con tu correo — sin contraseña. Un ID para el ranking. Cualquier recarga con
+              tu cuenta suma al Level Pass y La Bóveda.
+            </p>
+          </div>
+          <div className="mc-hero">
+            <span className="mc-halo" aria-hidden="true" />
+            <MascotMedia
+              className="mc-hero-mascot"
+              webm="/mascot/mi-cuenta-luchador.webm"
+              animWebp="/mascot/mi-cuenta-luchador-anim.webp"
+              stillSrc={cuentaStill.src}
+              alt="Luchador de LevelUp sosteniendo un diamante"
+            />
+          </div>
+        </section>
+        <CuentaForm />
       </main>
     );
   }
