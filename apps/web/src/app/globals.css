@@ -3369,13 +3369,20 @@ body > .wa-overlay,
   grid-area: list;
   display: flex;
   align-items: center;
-  gap: 11px;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
-  flex-wrap: wrap;
 }
-.hm-rk-list li { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.hm-rk-list li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 0;
+  min-width: 0;
+}
 .hm-rk-badge {
   position: relative;
   display: grid;
