@@ -4,10 +4,9 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * Full-bleed neon fondo for Mi cuenta / Level Pass. Portaled to
- * `document.body` so it sits with AppBg as a viewport-fixed layer.
- * Static image (not the old Klickpin video) so the pattern matches the
- * approved neon still and stays visible under reduced-motion.
+ * Full-bleed midnight neon-network fondo for Mi cuenta / Level Pass.
+ * Portaled to `document.body` so it sits with AppBg as a viewport-fixed
+ * layer. Uses the Figma still (`cuenta-fondo-midnight.jpg`).
  */
 export function CuentaBg() {
   const [mounted, setMounted] = useState(false);

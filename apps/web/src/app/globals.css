@@ -6320,9 +6320,9 @@ a.pv-back:hover {
   .ck .estado-card.revisando .spin{animation:none;border-top-color:rgba(245,200,76,.6)}
 }
 
-/* Mi cuenta neon fondo — static cyberpunk still over brand --bg. */
+/* Mi cuenta fondo — Figma midnight neon network still. */
 body:has(.page.mc) .appbg {
-  background: var(--bg);
+  background: #050817;
 }
 body:has(.page.mc) .appbg-gems,
 body:has(.page.mc) .appbg-sparks,
@@ -6335,18 +6335,17 @@ body:has(.page.mc) .appbg-caps {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  background:
-    var(--bg)
-    url('/mascot/cuenta-fondo-neon.webp')
-    center / cover no-repeat;
+  background: #050817;
 }
-.mc-bg::after {
+.mc-bg::before {
   content: "";
   position: absolute;
   inset: 0;
-  /* Soft brand veil so cyan/violet UI still reads over the neon. */
   background:
-    radial-gradient(70% 52% at 50% 30%, rgba(11, 13, 24, 0.12), rgba(11, 13, 24, 0.48) 78%),
-    linear-gradient(180deg, rgba(11, 13, 24, 0.22) 0%, rgba(11, 13, 24, 0.4) 55%, rgba(11, 13, 24, 0.72) 100%);
+    url('/mascot/cuenta-fondo-midnight.jpg')
+    center / cover no-repeat;
+}
+.mc-bg::after {
+  content: none;
 }
 
