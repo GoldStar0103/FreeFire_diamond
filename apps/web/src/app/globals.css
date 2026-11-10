@@ -3787,9 +3787,6 @@ body > .wa-overlay,
 .hm-steps-mascot {
   display: block;
 }
-.hm-hero-mascot .mm-live,
-.hm-hero-mascot .mm-anim,
-.hm-hero-mascot .mm-still,
 .hm-promo-mascot .mm-live,
 .hm-promo-mascot .mm-anim,
 .hm-promo-mascot .mm-still {
@@ -3868,7 +3865,8 @@ body > .wa-overlay,
 .hm-hero-in {
   position: relative;
   border-radius: 19px;
-  overflow: hidden;
+  /* Sample `.hero .in`: visible so the luchador can spill past the frame. */
+  overflow: visible;
   background: linear-gradient(178deg, #0e0820 0%, #100a26 46%, #0a0518 100%);
 }
 .hm-hero-frm {
@@ -3923,7 +3921,7 @@ body > .wa-overlay,
 .hm-hero-body {
   position: relative;
   overflow: visible;
-  min-height: 360px;
+  min-height: 400px;
 }
 .hm-hero-copy {
   position: relative;
@@ -3931,7 +3929,7 @@ body > .wa-overlay,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 60%;
+  max-width: 56%;
   padding: 34px 10px 16px 18px;
 }
 .hm-hero-flag {
@@ -4044,7 +4042,7 @@ body > .wa-overlay,
 .hm-hero-cta-wrap {
   position: relative;
   z-index: 7;
-  padding: 0 12px 12px;
+  padding: 0 14px 26px;
 }
 .hm-hero-cta {
   display: flex;
@@ -4076,139 +4074,74 @@ body > .wa-overlay,
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 46%);
 }
 .hm-hero-cta .icon { width: 18px; height: 18px; position: relative; z-index: 1; }
-/* Art slot = green guide on the right. Mascot fills that panel; soft masks
-   feather mist/character into the rectangle edges. */
+/* Match approved sample `.hero-mascot` cascade (encaje → mobile override). */
 .hm-hero-art {
   position: absolute;
-  top: 8px;
-  right: 0;
-  bottom: 58px;
-  left: 42%;
+  top: auto;
+  right: -7%;
+  bottom: -12%;
+  left: auto;
+  width: 74%;
+  height: auto;
+  max-width: none;
   z-index: 5;
   pointer-events: none;
   overflow: visible;
 }
-.hm-hero-art::before {
+.hm-hero-art::before,
+.hm-hero-art::after {
   content: none;
 }
-/* Soft mist under the feet — fills art box and feathers out to its edges. */
-.hm-hero-art::after {
-  content: '';
-  position: absolute;
-  left: -18%;
-  right: -18%;
-  bottom: -18%;
-  height: 58%;
-  z-index: 1;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse 78% 55% at 50% 68%,
-    rgba(34, 211, 238, 0.28) 0%,
-    rgba(34, 211, 238, 0.14) 28%,
-    rgba(139, 92, 246, 0.1) 48%,
-    rgba(10, 12, 36, 0.12) 68%,
-    transparent 86%
-  );
-  filter: blur(22px);
-}
 .hm-hero-mascot {
-  position: absolute;
-  left: 50%;
-  bottom: -2%;
-  width: 128%;
-  height: 112%;
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
   max-width: none;
   z-index: 5;
-  transform: translateX(-50%);
-  transform-origin: 50% 100%;
+  transform-origin: 50% 96%;
   animation: hmHeroFloat 9s cubic-bezier(0.45, 0, 0.35, 1) infinite;
-  /* Soft edge fade so mist/character blend into the art box bounds. */
-  -webkit-mask-image:
-    linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(0, 0, 0, 0.35) 6%,
-      #000 16%,
-      #000 88%,
-      rgba(0, 0, 0, 0.35) 96%,
-      transparent 100%
-    ),
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      rgba(0, 0, 0, 0.45) 4%,
-      #000 12%,
-      #000 82%,
-      rgba(0, 0, 0, 0.55) 92%,
-      transparent 100%
-    );
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(0, 0, 0, 0.35) 6%,
-      #000 16%,
-      #000 88%,
-      rgba(0, 0, 0, 0.35) 96%,
-      transparent 100%
-    ),
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      rgba(0, 0, 0, 0.45) 4%,
-      #000 12%,
-      #000 82%,
-      rgba(0, 0, 0, 0.55) 92%,
-      transparent 100%
-    );
-  mask-composite: intersect;
-  filter:
-    drop-shadow(0 18px 24px rgba(0, 0, 0, 0.5))
-    drop-shadow(0 6px 14px rgba(34, 211, 238, 0.2));
+  filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.65));
 }
 .hm-hero-mascot::before {
   content: '';
   position: absolute;
-  left: -8%;
-  right: -8%;
-  top: 48%;
-  bottom: -18%;
+  inset: 6% 4% 2%;
   border-radius: 50%;
   z-index: -1;
   background: radial-gradient(
     closest-side,
-    rgba(34, 211, 238, 0.42) 0%,
-    rgba(139, 92, 246, 0.22) 48%,
-    transparent 78%
+    rgba(34, 211, 238, 0.45) 0%,
+    rgba(139, 92, 246, 0.28) 58%,
+    transparent 74%
   );
-  filter: blur(28px);
-  opacity: 0.95;
+  filter: blur(10px);
+  opacity: 0.9;
   animation: hmHeroHalo 3.2s ease-in-out infinite;
 }
 .hm-hero-mascot::after {
   content: none;
 }
 @keyframes hmHeroFloat {
-  0% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(-4px); }
-  100% { transform: translateX(-50%) translateY(0); }
+  0% { transform: translateY(0) rotate(-0.4deg); }
+  50% { transform: translateY(-10px) rotate(0.5deg); }
+  100% { transform: translateY(0) rotate(-0.4deg); }
 }
 @keyframes hmHeroHalo {
-  0%, 100% { opacity: 0.55; transform: scale(0.96); }
-  50% { opacity: 1; transform: scale(1.03); }
+  0%, 100% { opacity: 0.55; transform: scale(0.94); }
+  50% { opacity: 1; transform: scale(1.05); }
 }
 .hm-hero-mascot .mm-live,
 .hm-hero-mascot .mm-anim,
 .hm-hero-mascot .mm-still {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   object-fit: contain;
-  object-position: center 96%;
+  object-position: center bottom;
   filter:
-    drop-shadow(0 0 12px rgba(34, 211, 238, 0.4))
-    drop-shadow(0 0 28px rgba(139, 92, 246, 0.3))
-    drop-shadow(0 10px 18px rgba(0, 0, 0, 0.45));
+    drop-shadow(0 0 14px rgba(34, 211, 238, 0.45))
+    drop-shadow(0 0 34px rgba(139, 92, 246, 0.35));
 }
 .hm-hero-gems {
   position: absolute;
@@ -4909,9 +4842,16 @@ body > .wa-overlay,
   .hm-hero-num { font-size: clamp(46px, 14cqi, 58px); }
   .hm-hero-unit { font-size: 20px; }
   .hm-hero-price { font-size: 22px; }
-  .hm-hero-body { min-height: 340px; }
-  .hm-hero-art { top: 6px; right: 0; bottom: 52px; left: 40%; }
-  .hm-hero-mascot { width: 132%; height: 114%; bottom: -4%; }
+  .hm-hero-body { min-height: 400px; }
+  /* Match sample mobile: 74% wide, flush right, slight bottom spill. */
+  .hm-hero-art {
+    top: auto;
+    right: 0;
+    bottom: -3%;
+    left: auto;
+    width: 74%;
+    height: auto;
+  }
   .hm-hero-tab { top: -14px; padding: 5px 12px 6px; }
   .hm-promo-in {
     grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
@@ -4939,6 +4879,15 @@ body > .wa-overlay,
   .hm-ofertas { gap: 16px; }
   .hm-ofertas-head h2 { font-size: 25px; }
   .hm-offer-obar { font-size: 11px; }
+  .hm-hero-body { min-height: 470px; }
+  .hm-hero-copy { max-width: 54%; padding: 34px 0 16px 38px; }
+  .hm-hero-art {
+    right: -4%;
+    bottom: -9%;
+    width: 58%;
+    max-width: 560px;
+  }
+  .hm-hero-cta-wrap { padding: 0 0 26px 38px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
