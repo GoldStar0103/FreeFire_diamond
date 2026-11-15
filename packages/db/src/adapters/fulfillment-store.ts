@@ -17,7 +17,7 @@ import type {
   OrderStatus,
 } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { baseProducts, orderItems, orders } from '../schema.js';
+import { baseProducts, notifications, orderItems, orders } from '../schema.js';
 import { toNumericString, toOrderRecord } from './mapping.js';
 
 /** States an item may legitimately be dispatched from. */
@@ -128,7 +128,7 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
   }
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
-    await this.db
+    const [order] = await this.db
       .update(orders)
       .set({
         status,
@@ -137,6 +137,29 @@ export class DrizzleFulfillmentStore implements FulfillmentStore {
         // the "entrega en 1-10 minutos" promise gets measured against.
         ...(status === 'completed' ? { completedAt: new Date() } : {}),
       })
-      .where(eq(orders.id, orderId));
+      .where(eq(orders.id, orderId))
+      .returning({ orderNumber: orders.orderNumber, playerId: orders.playerId, playerProfileId: orders.playerProfileId });
+
+    // A fresh arrival at `needs_review` — automatic (insufficient balance,
+    // exhausted retries) or emergency mode's manual hold — is the one point
+    // this status is reachable from that the customer hasn't already been
+    // told about some other way. Worded the same calm way the tracker page
+    // itself does ("con_problema"/`STATUS.con_problema` in `pedido/[orderNumber]`):
+    // a human is already on it, not an alarm. `onConflictDoNothing` is the
+    // idempotency guard — `updateOrderStatus` has no compare-and-set of its
+    // own, so two racing fulfilment runs could otherwise both land here.
+    if (status === 'needs_review' && order?.playerProfileId) {
+      await this.db
+        .insert(notifications)
+        .values({
+          playerProfileId: order.playerProfileId,
+          type: 'order_failed',
+          title: 'Estamos revisando tu pedido',
+          message: `Tu pedido ${order.orderNumber} necesita que lo revisemos a mano. Ya lo estamos atendiendo.`,
+          targetUrl: `/pedido/${order.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+          orderId,
+        })
+        .onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+    }
   }
 }

@@ -12,7 +12,7 @@ import postgres from 'postgres';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { eq, sql as raw } from 'drizzle-orm';
+import { and, eq, sql as raw } from 'drizzle-orm';
 import { createOrder, syncCatalog } from '@levelup/engine';
 import { ProviderSimulator, type ProviderProduct, type UsdTenK } from '@levelup/provider';
 import { createDb, type Database } from '../index.js';
@@ -26,12 +26,14 @@ import {
   financialLedgerEntries,
   levelPassCheckpointEvents,
   levelPassLpTransactions,
+  notifications,
   orderItems,
   orders,
   payments,
   playerProfiles,
   seasonPlayerStats,
   seasons,
+  ticketTransactions,
   vaultEntitlements,
 } from '../schema.js';
 import { DrizzleCatalogSyncStore } from './catalog-sync-store.js';
@@ -266,6 +268,62 @@ describe.skipIf(!PG_AVAILABLE)('reverseCompletedOrder', () => {
     const [row] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, profile.id));
     expect(row?.lifetimeDiamondsPurchased).toBe(0);
     expect(row?.lifetimeRechargeCount).toBe(0);
+  });
+
+  it('unwinds the Golden Tickets this order earned, with a reversal transaction', async () => {
+    const season = await seedSeason();
+    const profile = await seedProfile('100001');
+    // 80 LP -> 80 tickets (floor((80+5)/10)*10).
+    const order = await completedCreditedOrder({
+      seasonId: season.id,
+      playerProfileId: profile.id,
+      playerId: '100001',
+      awardedLp: 80,
+    });
+
+    const [before] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, profile.id));
+    expect(before?.ticketBalance).toBe(80);
+
+    const result = await reverseCompletedOrder(db, {
+      orderId: order.id,
+      adminUserId: adminId,
+      reason: 'Contracargo del banco',
+    });
+    expect(result.ok).toBe(true);
+
+    const [after] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, profile.id));
+    expect(after?.ticketBalance).toBe(0);
+
+    const [reversalRow] = await db
+      .select()
+      .from(ticketTransactions)
+      .where(and(eq(ticketTransactions.orderId, order.id), eq(ticketTransactions.type, 'reversal')));
+    expect(reversalRow).toMatchObject({ amount: -80, resultingBalance: 0 });
+  });
+
+  it('rings the bell with a refund notification', async () => {
+    const season = await seedSeason();
+    const profile = await seedProfile('100001');
+    const order = await completedCreditedOrder({
+      seasonId: season.id,
+      playerProfileId: profile.id,
+      playerId: '100001',
+      awardedLp: 80,
+    });
+
+    const result = await reverseCompletedOrder(db, {
+      orderId: order.id,
+      adminUserId: adminId,
+      reason: 'Contracargo del banco',
+    });
+    expect(result.ok).toBe(true);
+
+    const [notif] = await db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.orderId, order.id), eq(notifications.type, 'refund')));
+    expect(notif?.playerProfileId).toBe(profile.id);
+    expect(notif?.message).toContain('Contracargo del banco');
   });
 
   it('moves the order to refunded and shows the customer the reason', async () => {

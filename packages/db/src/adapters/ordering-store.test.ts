@@ -9,13 +9,14 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { asc, eq, sql as raw } from 'drizzle-orm';
-import { createOrder } from '@levelup/engine';
+import { createOrder, INSTANT_PAYMENT_TTL_MS, MANUAL_PAYMENT_TTL_MS } from '@levelup/engine';
 import { createDb, type Database } from '../index.js';
 import {
   baseProducts,
   campaigns,
   comboItems,
   combos,
+  notifications,
   orderItems,
   orders,
   payments,
@@ -180,6 +181,60 @@ describe.skipIf(!PG_AVAILABLE)('createOrder end to end', () => {
     expect(payment?.method).toBe('transfer_manual');
     expect(payment?.status).toBe('pending');
     expect(payment?.amountExpectedCents).toBe(75_000);
+  });
+
+  it('gives card and SPEI a 2-hour window, and transfer/OXXO 48 hours', async () => {
+    await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+
+    const cases = [
+      { method: 'card' as const, expectedMs: INSTANT_PAYMENT_TTL_MS },
+      { method: 'spei' as const, expectedMs: INSTANT_PAYMENT_TTL_MS },
+      { method: 'oxxo' as const, expectedMs: MANUAL_PAYMENT_TTL_MS },
+      { method: 'transfer_manual' as const, expectedMs: MANUAL_PAYMENT_TTL_MS },
+    ];
+
+    for (const { method, expectedMs } of cases) {
+      const before = Date.now();
+      const playerId = `7${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0')}`;
+      const result = await createOrder({ store: store() }, input({ paymentMethod: method, playerId }));
+      expect(result.ok).toBe(true);
+
+      const [payment] = await db
+        .select({ expiresAt: payments.expiresAt })
+        .from(payments)
+        .innerJoin(orders, eq(orders.id, payments.orderId))
+        .where(eq(orders.playerId, playerId));
+
+      const actualMs = payment!.expiresAt!.getTime() - before;
+      expect(actualMs).toBeGreaterThan(expectedMs - 5_000);
+      expect(actualMs).toBeLessThan(expectedMs + 5_000);
+    }
+  });
+
+  it('rings the bell for the account placing the order, and stays silent for a guest', async () => {
+    await seedCombo({ comboKey: 'mega_prime_48k', advertised: 6160, priceMxn: 750, recipe: [5600] });
+    const [profile] = await db
+      .insert(playerProfiles)
+      .values({ playerId: '7288567050', email: '7288567050@test.levelup' })
+      .returning();
+
+    const withAccount = await createOrder({ store: store() }, input({ buyerProfileId: profile!.id }));
+    expect(withAccount.ok).toBe(true);
+    const [notif] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.orderId, (withAccount as { order: { id: string } }).order.id));
+    expect(notif?.type).toBe('order_created');
+    expect(notif?.playerProfileId).toBe(profile!.id);
+
+    const guest = await createOrder({ store: store() }, input({ playerId: '7288567051' }));
+    expect(guest.ok).toBe(true);
+    expect(
+      await db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.orderId, (guest as { order: { id: string } }).order.id)),
+    ).toHaveLength(0);
   });
 
   it('writes nothing at all when the recipe under-delivers', async () => {

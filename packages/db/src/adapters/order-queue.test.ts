@@ -59,13 +59,14 @@ beforeEach(async () => {
 
 type Status = 'pending_payment' | 'payment_confirmed' | 'processing' | 'partially_delivered' | 'completed' | 'needs_review';
 
-async function seedOrder(orderNumber: string, status: Status, ageSeconds = 0) {
+async function seedOrder(orderNumber: string, status: Status, ageSeconds = 0, orderType: 'diamonds' | 'item' = 'diamonds') {
   const [row] = await db
     .insert(orders)
     .values({
       orderNumber,
       playerId: '7288567050',
-      comboKey: 'mega_prime_48k',
+      orderType,
+      comboKey: orderType === 'diamonds' ? 'mega_prime_48k' : null,
       comboSnapshot: { name: 'Mega Prime 48k' },
       priceMxnCents: 585_000,
       status,
@@ -98,6 +99,18 @@ describe.skipIf(!PG_AVAILABLE)('claimNext', () => {
     await seedOrder('LU-3', 'needs_review');
 
     expect(await new DrizzleOrderQueue(db).claimNext(300_000)).toBeNull();
+  });
+
+  it('never claims an item order — that has no order_items for fulfillOrder to read', async () => {
+    await seedOrder('LU-ITEM-1', 'payment_confirmed', 0, 'item');
+    expect(await new DrizzleOrderQueue(db).claimNext(300_000)).toBeNull();
+  });
+
+  it('still claims a diamond order waiting behind a stuck item order', async () => {
+    await seedOrder('LU-ITEM-1', 'payment_confirmed', 20, 'item');
+    await seedOrder('LU-1', 'payment_confirmed', 10);
+
+    expect((await new DrizzleOrderQueue(db).claimNext(300_000))?.orderNumber).toBe('LU-1');
   });
 
   it('never hands the same order to two workers', async () => {

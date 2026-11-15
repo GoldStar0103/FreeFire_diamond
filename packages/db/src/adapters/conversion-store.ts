@@ -49,12 +49,16 @@ export class DrizzleConversionStore implements ConversionStore {
           lt(orders.capiAttempts, input.maxAttempts),
           isNotNull(orders.userAgent),
           notInArray(orders.status, [...NOT_A_SALE]),
+          // Item orders have no comboKey — CAPI reporting for them isn't
+          // designed yet (see Module 3 of the new-features plan), so they're
+          // excluded here rather than reported with a fabricated content id.
+          isNotNull(orders.comboKey),
         ),
       )
       .orderBy(asc(orders.paidAt))
       .limit(input.limit);
 
-    return rows.map((r) => ({ ...r, paidAt: r.paidAt!, userAgent: r.userAgent! }));
+    return rows.map((r) => ({ ...r, paidAt: r.paidAt!, userAgent: r.userAgent!, comboKey: r.comboKey! }));
   }
 
   async markReported(orderId: string, at: Date): Promise<void> {

@@ -10,6 +10,7 @@ import {
   closeDueSeasons,
   createPendingRewardOrders,
   expireOverduePayments,
+  fulfillItemOrder,
   fulfillOrder,
   grantCompletedRewardOrders,
   holdForManualFulfillment,
@@ -17,9 +18,11 @@ import {
   recoverStalledItems,
   pollPendingOrders,
   reportConversions,
+  sendExpiryReminders,
   summariseSync,
   syncCatalog,
   syncLevelPass,
+  syncRocketPassCatalog,
 } from '@levelup/engine';
 import type {
   Alerter,
@@ -28,11 +31,17 @@ import type {
   CatalogSyncStore,
   ConversionDeps,
   ConversionResult,
+  ExpiryReminderDeps,
+  ExpiryReminderResult,
   ExpiryStore,
+  ItemFulfillmentStore,
   LevelPassSweepResult,
   LevelPassSweepStore,
   RecoveryStore,
   RewardFulfillmentStore,
+  RocketPassOrderClient,
+  RocketPassSyncDeps,
+  RocketPassSyncResult,
   SeasonCloseResult,
   SeasonStore,
   StuckPaymentStore,
@@ -185,6 +194,78 @@ export async function runFulfillmentLoop(
       // Deliberately not marked failed — we do not know what the provider did.
       console.error(`[worker] Order ${claimed.orderNumber} threw: ${String(err)}`);
       await alerter.send('critical', 'Fulfilment threw an unexpected error', {
+        orderNumber: claimed.orderNumber,
+        error: String(err),
+      });
+    }
+  }
+
+  return { processed };
+}
+
+export interface ItemFulfillmentRunnerDeps {
+  queue: { claimNext(staleAfterMs: number): Promise<{ id: string; orderNumber: string; recovered: boolean } | null> };
+  store: ItemFulfillmentStore;
+  client: RocketPassOrderClient;
+  alerter: Alerter;
+  config: { maxAttempts: number; staleOrderMs: number; idlePollMs: number };
+}
+
+/**
+ * RocketPass's own equivalent of `runFulfillmentLoop` — claim and place item
+ * orders until asked to stop. Deliberately not sharing a lock/boundary with
+ * the diamond loop above: RocketPass orders don't touch the diamond wallet
+ * or any other mutable state the two loops could race over, and emergency
+ * mode (about RA/Central One's own health) has nothing to do with RocketPass
+ * being up or down.
+ */
+export async function runItemFulfillmentLoop(
+  deps: ItemFulfillmentRunnerDeps,
+  signal: ShutdownSignal,
+  options: { maxIterations?: number } = {},
+): Promise<{ processed: number }> {
+  const { queue, store, client, alerter, config } = deps;
+  let processed = 0;
+  let iterations = 0;
+
+  while (!signal.requested) {
+    if (options.maxIterations !== undefined && iterations >= options.maxIterations) break;
+    iterations++;
+
+    let claimed;
+    try {
+      claimed = await queue.claimNext(config.staleOrderMs);
+    } catch (err) {
+      console.error(`[worker] Could not claim an item order: ${String(err)}`);
+      await sleep(config.idlePollMs);
+      continue;
+    }
+
+    if (!claimed) {
+      await sleep(config.idlePollMs);
+      continue;
+    }
+
+    if (claimed.recovered) {
+      console.warn(`[worker] Recovered abandoned item order ${claimed.orderNumber}`);
+    }
+
+    try {
+      const outcome = await fulfillItemOrder(
+        { store, client, alerter, config: { maxAttempts: config.maxAttempts } },
+        claimed.id,
+      );
+      processed++;
+      console.log(
+        outcome.kind === 'applied'
+          ? `[worker] item ${claimed.orderNumber} -> ${outcome.decision.itemStatus}`
+          : `[worker] item ${claimed.orderNumber} already placed with RocketPass — leaving for the poller/webhook`,
+      );
+    } catch (err) {
+      // Stays `processing`; the staleness window brings it back — same
+      // reasoning as the diamond loop above.
+      console.error(`[worker] Item order ${claimed.orderNumber} threw: ${String(err)}`);
+      await alerter.send('critical', 'Item fulfilment threw an unexpected error', {
         orderNumber: claimed.orderNumber,
         error: String(err),
       });
@@ -477,6 +558,45 @@ export async function runSeasonClose(deps: { store: SeasonStore }): Promise<Seas
     return result;
   } catch (err) {
     console.error(`[seasons] Sweep failed: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Warn a customer their payment window is about to close. Same "separate
+ * optional dep bundle" shape as `runConversions`/`runSeasonClose` — a failure
+ * here must never hold up a delivery, and this touches nothing fulfilment
+ * needs.
+ */
+export async function runExpiryReminders(deps: ExpiryReminderDeps): Promise<ExpiryReminderResult | null> {
+  try {
+    const result = await sendExpiryReminders(deps);
+    if (result.examined > 0) {
+      console.log(`[expiry-reminders] reminded ${result.reminded}, ${result.failed} failed`);
+    }
+    return result;
+  } catch (err) {
+    console.error(`[expiry-reminders] Sweep failed: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * RocketPass catalog/stock sync. Same "separate optional dep bundle" shape as
+ * `runConversions` — called every sweep tick rather than on its own longer
+ * schedule like the diamond catalog sync: RocketPass's own docs warn against
+ * caching stock more than a few minutes, and one call every 30s is nowhere
+ * near its 60/min rate limit.
+ */
+export async function runRocketPassSync(deps: RocketPassSyncDeps): Promise<RocketPassSyncResult | null> {
+  try {
+    const result = await syncRocketPassCatalog(deps);
+    if (result.synced > 0 || result.skipped > 0) {
+      console.log(`[rocketpass] synced ${result.synced} item(s), skipped ${result.skipped} (level_pass)`);
+    }
+    return result;
+  } catch (err) {
+    console.error(`[rocketpass] Catalog sync failed: ${String(err)}`);
     return null;
   }
 }

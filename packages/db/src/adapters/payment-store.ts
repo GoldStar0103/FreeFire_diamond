@@ -13,7 +13,7 @@
 import { and, desc, eq, ne } from 'drizzle-orm';
 import type { PayableOrder, PaymentStore, PaymentState } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { auditLog, orders, payments } from '../schema.js';
+import { auditLog, notifications, orders, payments } from '../schema.js';
 
 export class DrizzlePaymentStore implements PaymentStore {
   constructor(private readonly db: Database) {}
@@ -83,10 +83,11 @@ export class DrizzlePaymentStore implements PaymentStore {
         );
       }
 
-      await tx
+      const [order] = await tx
         .update(orders)
         .set({ status: 'payment_confirmed', paidAt, updatedAt: paidAt })
-        .where(eq(orders.id, input.orderId));
+        .where(eq(orders.id, input.orderId))
+        .returning({ orderNumber: orders.orderNumber, playerId: orders.playerId, playerProfileId: orders.playerProfileId });
 
       await tx.insert(auditLog).values({
         adminUserId: input.adminUserId,
@@ -99,6 +100,18 @@ export class DrizzlePaymentStore implements PaymentStore {
           reference: input.reference,
         },
       });
+
+      // Only accounts have anything to notify — a guest checkout has no bell.
+      if (order?.playerProfileId) {
+        await tx.insert(notifications).values({
+          playerProfileId: order.playerProfileId,
+          type: 'payment_confirmed',
+          title: 'Confirmamos tu pago',
+          message: `Pedido ${order.orderNumber}: tus diamantes están en camino.`,
+          targetUrl: `/pedido/${order.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+          orderId: input.orderId,
+        }).onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+      }
     });
   }
 
@@ -185,10 +198,22 @@ export class DrizzlePaymentStore implements PaymentStore {
         );
       }
 
-      await tx
+      const [order] = await tx
         .update(orders)
         .set({ status: 'payment_expired', updatedAt: new Date() })
-        .where(eq(orders.id, input.orderId));
+        .where(eq(orders.id, input.orderId))
+        .returning({ orderNumber: orders.orderNumber, playerId: orders.playerId, playerProfileId: orders.playerProfileId });
+
+      if (order?.playerProfileId) {
+        await tx.insert(notifications).values({
+          playerProfileId: order.playerProfileId,
+          type: 'order_expired',
+          title: 'Tu pedido venció',
+          message: `El tiempo para pagar ${order.orderNumber} ya pasó. Puedes hacer un nuevo pedido cuando quieras.`,
+          targetUrl: `/pedido/${order.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+          orderId: input.orderId,
+        }).onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+      }
     });
   }
 }

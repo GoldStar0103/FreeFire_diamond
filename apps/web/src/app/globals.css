@@ -3294,6 +3294,87 @@ body > .wa-overlay,
   border: 2px solid #0d1020;
 }
 
+/* ── Notification bell (real, logged-in only) ─────────────────────────────
+   `.hm-bar-bell` defaults to non-interactive for the decorative logged-out
+   icon above; this re-enables it for the real, clickable version. */
+.nt-wrap { position: relative; }
+.nt-wrap .hm-bar-bell {
+  pointer-events: auto;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.nt-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(340px, 86vw);
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--glass, rgba(13, 16, 32, 0.96));
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--r-lg, 14px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  z-index: 60;
+}
+.nt-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.nt-markall {
+  background: none;
+  border: none;
+  color: var(--accent-2, #22d3ee);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.nt-empty {
+  padding: 22px 14px;
+  text-align: center;
+  color: #8a90ad;
+  font-size: 13px;
+}
+.nt-list { list-style: none; margin: 0; padding: 4px; }
+.nt-item a,
+.nt-item button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.nt-item a:hover,
+.nt-item button:hover { background: rgba(255, 255, 255, 0.06); }
+.nt-item b { font-size: 13px; }
+.nt-item span { font-size: 12px; color: #a7adc9; }
+.nt-item em { font-size: 10.5px; color: #767ba0; font-style: normal; }
+.nt-item.is-unread a,
+.nt-item.is-unread button { background: rgba(139, 92, 246, 0.1); }
+.nt-item.is-unread b::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-2, #22d3ee);
+  margin-right: 6px;
+}
+
 /* ── Desktop rail layout + ranking widget + support card ─────────────────
    Replaces the old `.hm-season` top bar: the ranking widget and the new
    support card now live in `.hm-rail`, which the mockup keeps in page flow

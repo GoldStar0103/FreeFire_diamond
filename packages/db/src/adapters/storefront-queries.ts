@@ -226,10 +226,12 @@ export interface CustomerOrder {
   gatewayChargeId: string | null;
   /** Shared by the browser Pixel's Purchase and the server-side CAPI event. */
   eventId: string;
-  /** The public combo key — already in the storefront URL, so nothing new leaks. */
-  comboKey: string;
+  /** The public combo key — already in the storefront URL, so nothing new leaks. Null for an item order. */
+  comboKey: string | null;
   /** Why a cancelled order was rejected, in the admin's own words — null for any other status. */
   cancelReason: string | null;
+  /** For the browser Purchase pixel's Advanced Matching — same number the server-side CAPI event already hashes. */
+  contactWhatsapp: string | null;
 }
 
 /**
@@ -294,6 +296,7 @@ export async function findCustomerOrder(
       createdAt: orders.createdAt,
       completedAt: orders.completedAt,
       cancelReason: orders.cancelReason,
+      contactWhatsapp: orders.contactWhatsapp,
     })
     .from(orders)
     .where(
@@ -356,6 +359,165 @@ export async function findCustomerOrder(
     eventId: row.eventId,
     comboKey: row.comboKey,
     cancelReason: status === 'cancelado' ? row.cancelReason : null,
+    contactWhatsapp: row.contactWhatsapp,
+  };
+}
+
+/**
+ * The one live payment row behind a pending order, keyed the same way
+ * `findCustomerOrder` is (order number + player ID is the whole authorisation
+ * model) — for the "Continuar pago" / "Cancelar" actions on the order page
+ * and the account page's order list. Deliberately returns the raw
+ * `orders.status`/`payments.status` rather than `CustomerOrderStatus`: those
+ * actions need to tell a gateway-pending payment apart from a manual one and
+ * check its real expiry, which the coarse customer-facing status collapses.
+ */
+export interface PendingOrderForAction {
+  id: string;
+  orderNumber: string;
+  comboKey: string | null;
+  comboName: string;
+  priceMxnCents: number;
+  advertisedDiamonds: number;
+  contactWhatsapp: string | null;
+  paymentMethod: string | null;
+  gateway: string | null;
+  orderStatus: string;
+  paymentStatus: string | null;
+  expiresAt: Date | null;
+}
+
+export async function findPendingOrderForAction(
+  db: Database,
+  orderNumber: string,
+  playerId: string,
+): Promise<PendingOrderForAction | null> {
+  const [row] = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      comboKey: orders.comboKey,
+      comboSnapshot: orders.comboSnapshot,
+      priceMxnCents: orders.priceMxnCents,
+      contactWhatsapp: orders.contactWhatsapp,
+      status: orders.status,
+    })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.orderNumber, orderNumber.trim().toUpperCase()),
+        eq(orders.playerId, playerId.trim()),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  // The latest attempt is the live one, as in `DrizzlePaymentStore.findPayable`.
+  const [payment] = await db
+    .select({
+      method: payments.method,
+      status: payments.status,
+      gateway: payments.gateway,
+      expiresAt: payments.expiresAt,
+    })
+    .from(payments)
+    .where(eq(payments.orderId, row.id))
+    .orderBy(desc(payments.createdAt))
+    .limit(1);
+
+  const snapshot = row.comboSnapshot as { name?: string; advertisedDiamonds?: number };
+
+  return {
+    id: row.id,
+    orderNumber: row.orderNumber,
+    comboKey: row.comboKey,
+    comboName: snapshot.name ?? 'Recarga',
+    priceMxnCents: row.priceMxnCents,
+    advertisedDiamonds: snapshot.advertisedDiamonds ?? 0,
+    contactWhatsapp: row.contactWhatsapp,
+    paymentMethod: payment?.method ?? null,
+    gateway: payment?.gateway ?? null,
+    orderStatus: row.status,
+    paymentStatus: payment?.status ?? null,
+    expiresAt: payment?.expiresAt ?? null,
+  };
+}
+
+/**
+ * The player's own still-genuinely-untouched pending order for this exact
+ * combo — one whose payment nobody has acted on at all yet (`status`
+ * still `'pending'`: no comprobante sent for review, no gateway session ever
+ * completed). Reusing it instead of letting checkout insert a new row is
+ * what stops a re-submitted/retried checkout from leaving two pending orders
+ * for the same combo — the gap `createOrder`'s own doc comment flags.
+ *
+ * Deliberately excludes `'under_review'`/`'amount_mismatch'`: once a human or
+ * a gateway webhook is already looking at a payment, starting a second one on
+ * the same order risks it being paid for twice. Those rare cases fall back to
+ * today's behaviour (a second order), which is not a regression.
+ */
+export interface ResumableOrder {
+  id: string;
+  orderNumber: string;
+  priceMxnCents: number;
+  comboName: string;
+  advertisedDiamonds: number;
+  contactWhatsapp: string | null;
+  paymentMethod: string | null;
+  gateway: string | null;
+}
+
+export async function findResumableOrder(
+  db: Database,
+  input: { playerId: string; comboKey: string },
+): Promise<ResumableOrder | null> {
+  const [row] = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      priceMxnCents: orders.priceMxnCents,
+      comboSnapshot: orders.comboSnapshot,
+      contactWhatsapp: orders.contactWhatsapp,
+    })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.playerId, input.playerId.trim()),
+        eq(orders.comboKey, input.comboKey),
+        eq(orders.status, 'pending_payment'),
+      ),
+    )
+    .orderBy(desc(orders.createdAt))
+    .limit(1);
+
+  if (!row) return null;
+
+  const [payment] = await db
+    .select({
+      method: payments.method,
+      status: payments.status,
+      gateway: payments.gateway,
+      expiresAt: payments.expiresAt,
+    })
+    .from(payments)
+    .where(eq(payments.orderId, row.id))
+    .orderBy(desc(payments.createdAt))
+    .limit(1);
+
+  if (!payment || payment.status !== 'pending') return null;
+  if (payment.expiresAt && payment.expiresAt < new Date()) return null;
+
+  const snapshot = row.comboSnapshot as { name?: string; advertisedDiamonds?: number };
+  return {
+    id: row.id,
+    orderNumber: row.orderNumber,
+    priceMxnCents: row.priceMxnCents,
+    comboName: snapshot.name ?? 'Recarga',
+    advertisedDiamonds: snapshot.advertisedDiamonds ?? 0,
+    contactWhatsapp: row.contactWhatsapp,
+    paymentMethod: payment.method,
+    gateway: payment.gateway,
   };
 }
 

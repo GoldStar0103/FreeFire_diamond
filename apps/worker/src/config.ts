@@ -22,6 +22,17 @@ export interface WorkerConfig {
    * otherwise unaffected. Not required for dry run; the simulator stands in.
    */
   centralOne: { baseUrl: string; apiKey: string } | null;
+  /**
+   * Null unless `ROCKETPASS_API_KEY` is set — the catalog sync and item
+   * fulfillment simply never run without it, same shape as `centralOne` and
+   * `meta`. Use an `rpk_test_...` key until Module 3 is ready to go live —
+   * sandbox returns the same shapes but never charges or ships.
+   */
+  rocketpass: {
+    baseUrl: string;
+    apiKey: string;
+    syncIntervalMs: number;
+  } | null;
   fulfillment: {
     maxAttempts: number;
     /** An order left `processing` longer than this is treated as abandoned. */
@@ -155,6 +166,16 @@ export function loadConfig(): WorkerConfig {
       ? {
           baseUrl: process.env.CENTRALONE_BASE_URL ?? 'https://portal.centraloneglobal.com/api/v1',
           apiKey: process.env.CENTRALONE_API_KEY,
+        }
+      : null,
+    rocketpass: process.env.ROCKETPASS_API_KEY
+      ? {
+          baseUrl: process.env.ROCKETPASS_BASE_URL ?? 'https://rocketpass.store/api/v1',
+          apiKey: process.env.ROCKETPASS_API_KEY,
+          // Stock moves fast and RocketPass's own docs warn against caching
+          // prices more than a few minutes — far shorter than the diamond
+          // catalog's hourly default.
+          syncIntervalMs: number('ROCKETPASS_SYNC_INTERVAL_MS', 5 * 60_000),
         }
       : null,
     fulfillment: {

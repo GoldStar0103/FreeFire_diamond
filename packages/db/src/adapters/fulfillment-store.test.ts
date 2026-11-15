@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
-import { baseProducts, orderItems, orders } from '../schema.js';
+import { baseProducts, notifications, orderItems, orders, playerProfiles } from '../schema.js';
 import { DrizzleFulfillmentStore } from './fulfillment-store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -56,15 +56,18 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
-  await db.execute(raw`TRUNCATE orders, order_items, base_products RESTART IDENTITY CASCADE`);
+  await db.execute(
+    raw`TRUNCATE orders, order_items, base_products, player_profiles, notifications RESTART IDENTITY CASCADE`,
+  );
 });
 
-async function order() {
+async function order(playerProfileId?: string) {
   const [row] = await db
     .insert(orders)
     .values({
       orderNumber: 'LU-260911-FS01',
       playerId: '7288567050',
+      playerProfileId: playerProfileId ?? null,
       comboKey: 'mega_10',
       comboSnapshot: {},
       priceMxnCents: 1_000,
@@ -72,6 +75,14 @@ async function order() {
     })
     .returning();
   return row!;
+}
+
+async function seedProfile(playerId = '100001') {
+  const [profile] = await db
+    .insert(playerProfiles)
+    .values({ playerId, email: `${playerId}@test.levelup` })
+    .returning();
+  return profile!;
 }
 
 describe.skipIf(!PG_AVAILABLE)('loadOrder', () => {
@@ -244,5 +255,44 @@ describe.skipIf(!PG_AVAILABLE)('settleItem', () => {
 
     const [row] = await db.select().from(orderItems).where(eq(orderItems.id, item.id));
     expect(['succeeded', 'unknown']).toContain(row?.status);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('updateOrderStatus', () => {
+  it('rings the bell on a fresh arrival at needs_review, for an order with an account', async () => {
+    const profile = await seedProfile();
+    const o = await order(profile.id);
+    await new DrizzleFulfillmentStore(db).updateOrderStatus(o.id, 'needs_review');
+
+    const [notif] = await db.select().from(notifications).where(eq(notifications.orderId, o.id));
+    expect(notif?.type).toBe('order_failed');
+    expect(notif?.playerProfileId).toBe(profile.id);
+  });
+
+  it('stays silent for a guest order with no account to notify', async () => {
+    const o = await order();
+    await new DrizzleFulfillmentStore(db).updateOrderStatus(o.id, 'needs_review');
+    expect(await db.select().from(notifications).where(eq(notifications.orderId, o.id))).toHaveLength(0);
+  });
+
+  it('never rings the bell for an ordinary status change', async () => {
+    const profile = await seedProfile();
+    const o = await order(profile.id);
+    await new DrizzleFulfillmentStore(db).updateOrderStatus(o.id, 'processing');
+    expect(await db.select().from(notifications).where(eq(notifications.orderId, o.id))).toHaveLength(0);
+  });
+
+  it('never sends a second order_failed notification for the same order', async () => {
+    const profile = await seedProfile();
+    const o = await order(profile.id);
+    const store = new DrizzleFulfillmentStore(db);
+
+    await store.updateOrderStatus(o.id, 'needs_review');
+    // A later call on the same order (e.g. a racing fulfilment run) must not
+    // duplicate the notification — the `(order_id, type)` unique index is
+    // the actual guard; this proves the write path respects it.
+    await store.updateOrderStatus(o.id, 'needs_review');
+
+    expect(await db.select().from(notifications).where(eq(notifications.orderId, o.id))).toHaveLength(1);
   });
 });

@@ -18,10 +18,21 @@ import { orders, paymentEvents, payments } from '../schema.js';
  * has acted on yet. The deadline moves to the session's own, plus grace, so
  * the expiry sweep retires an abandoned card checkout in about an hour
  * instead of holding a Mega Oferta slot for the two days a transfer gets.
+ *
+ * `method` is optional and only passed when resuming an order whose first
+ * attempt used a *different* method (e.g. abandoned OXXO, now paying by
+ * card) — see `findResumableOrder`. Omitted on a fresh order's own first
+ * attachment, where the method is already exactly what was just recorded.
  */
 export async function attachGatewayCharge(
   db: Database,
-  input: { orderId: string; gateway: string; gatewayChargeId: string; expiresAt: Date | null },
+  input: {
+    orderId: string;
+    gateway: string;
+    gatewayChargeId: string;
+    expiresAt: Date | null;
+    method?: 'card' | 'oxxo' | 'spei';
+  },
 ): Promise<boolean> {
   const updated = await db
     .update(payments)
@@ -29,6 +40,7 @@ export async function attachGatewayCharge(
       gateway: input.gateway,
       gatewayChargeId: input.gatewayChargeId,
       ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      ...(input.method ? { method: input.method } : {}),
     })
     .where(and(eq(payments.orderId, input.orderId), eq(payments.status, 'pending')))
     .returning({ id: payments.id });
@@ -41,7 +53,8 @@ export interface GatewayPayment {
   orderId: string;
   orderNumber: string;
   playerId: string;
-  comboKey: string;
+  /** Null for an item order (no combo) — see `orders.orderType`. */
+  comboKey: string | null;
   /** From the combo snapshot taken at order creation — for the sale Telegram alert. */
   comboName: string;
   priceMxnCents: number;

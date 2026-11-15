@@ -3,6 +3,7 @@ import {
   isValidCardNumber,
   isValidClabe,
   paymentDetailsFromEnv,
+  reviewArsRate,
   reviewFxRate,
   reviewPaymentDetails,
 } from './payment-settings.js';
@@ -200,5 +201,25 @@ describe('reviewFxRate', () => {
     // 185 instead of 18.5 would misreport every margin in the panel tenfold.
     expect(reviewFxRate('185').rate).toBeNull();
     expect(reviewFxRate('1.85').rate).toBeNull();
+  });
+});
+
+describe('reviewArsRate', () => {
+  it('accepts a realistic MXN-per-ARS rate', () => {
+    expect(reviewArsRate('0.015')).toEqual({ rate: 0.015, issues: [] });
+  });
+
+  it('accepts a comma as the decimal separator', () => {
+    expect(reviewArsRate('0,02').rate).toBe(0.02);
+  });
+
+  it.each(['', 'abc', '0', '-3'])('rejects %p', (value) => {
+    expect(reviewArsRate(value).rate).toBeNull();
+  });
+
+  it('catches the rate typed the wrong way round (ARS per MXN instead of MXN per ARS)', () => {
+    // ~65 ARS per MXN is the real-world figure — entering that number
+    // directly would misprice every item by a factor of thousands.
+    expect(reviewArsRate('65').rate).toBeNull();
   });
 });

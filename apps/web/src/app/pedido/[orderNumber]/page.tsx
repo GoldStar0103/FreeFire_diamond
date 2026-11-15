@@ -5,7 +5,9 @@ import { findCustomerOrder, type CustomerOrder, type CustomerOrderStatus } from 
 import { getCustomerSession } from '../../../lib/customer-session';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
+import { MERCADOPAGO } from '../../../lib/mercadopago';
 import { AutoRefresh, PurchasePixel } from './live';
+import { CancelOrderButton, ContinuePaymentButton } from './order-actions';
 import { VipGroupPopup } from './vip-group-popup';
 import { diamonds, mxn } from '../../../lib/format';
 import { vipGroupUrl } from '../../../lib/vip';
@@ -239,6 +241,25 @@ export default async function OrderPage({
       ? 0
       : Math.min(100, (order.deliveredDiamonds / order.advertisedDiamonds) * 100);
 
+  // Lost the gateway tab before paying — the only recovery is a fresh session
+  // on this same order. Not shown once a voucher/CLABE is already on screen
+  // (Stripe-only — Mercado Pago orders never reconcile through `reconcileCard`
+  // and so never have one): minting another session there would hand them a
+  // second, different voucher while the first may still be payable.
+  const canContinueGateway =
+    order.status === 'esperando_pago' &&
+    (order.gateway === STRIPE || order.gateway === MERCADOPAGO) &&
+    !voucherUrl &&
+    !bankTransfer;
+  const gatewayLabel = order.gateway === MERCADOPAGO ? 'Mercado Pago' : 'Stripe';
+
+  // A manual-transfer order is cancelable up through the human review step —
+  // a gateway order settles itself from its own webhook and has nothing to
+  // cancel (`rejectPayment` refuses those outright).
+  const canCancelManual =
+    order.paymentMethod === 'transfer_manual' &&
+    (order.status === 'esperando_pago' || order.status === 'pago_en_revision');
+
   const helpUrl = supportUrl(
     `Hola, tengo un problema con mi pedido ${order.orderNumber} (ID ${order.playerId}).`,
   );
@@ -264,6 +285,8 @@ export default async function OrderPage({
           eventId={order.eventId}
           value={order.priceMxnCents / 100}
           comboKey={order.comboKey}
+          playerId={order.playerId}
+          whatsapp={order.contactWhatsapp}
         />
       )}
 
@@ -341,6 +364,14 @@ export default async function OrderPage({
                 )}
               </div>
             )}
+            {canContinueGateway && (
+              <ContinuePaymentButton
+                orderNumber={order.orderNumber}
+                playerId={order.playerId}
+                gatewayLabel={gatewayLabel}
+              />
+            )}
+            {canCancelManual && <CancelOrderButton orderNumber={order.orderNumber} playerId={order.playerId} />}
           </div>
         ) : (
           <div className="estado-card ok" role="status">

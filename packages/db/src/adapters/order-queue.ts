@@ -34,6 +34,11 @@ export class DrizzleOrderQueue {
    * after claiming it sits untouched until it goes stale, then gets picked up
    * again. Item-level state decides what actually still needs sending, so
    * re-running is safe.
+   *
+   * Scoped to `order_type = 'diamonds'` — an item order (`item_order_details`,
+   * no `order_items` rows at all) would make `loadOrder`/`fulfillOrder` throw
+   * ("has no items — it cannot be fulfilled") if this ever claimed one. See
+   * `DrizzleItemOrderQueue` for the RocketPass side's own equivalent.
    */
   async claimNext(staleAfterMs: number): Promise<ClaimedOrder | null> {
     const staleSeconds = staleAfterMs / 1000;
@@ -49,9 +54,10 @@ export class DrizzleOrderQueue {
       WITH candidate AS (
         SELECT o.id, o.status AS prev_status
           FROM orders o
-         WHERE o.status IN ('payment_confirmed', 'partially_delivered')
+         WHERE o.order_type = 'diamonds'
+           AND (o.status IN ('payment_confirmed', 'partially_delivered')
             OR (o.status = 'processing'
-                AND o.updated_at < now() - make_interval(secs => ${staleSeconds}))
+                AND o.updated_at < now() - make_interval(secs => ${staleSeconds})))
          ORDER BY o.created_at ASC
          LIMIT 1
            FOR UPDATE SKIP LOCKED

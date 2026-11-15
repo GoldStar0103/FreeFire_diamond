@@ -10,8 +10,10 @@ import {
 import type {
   AdvisoryLock,
   ExpiryStore,
+  ItemFulfillmentStore,
   OverduePayment,
   RecoveryStore,
+  RocketPassOrderClient,
   StalledItem,
   StoredProduct,
   StuckGatewayPayment,
@@ -25,6 +27,7 @@ import {
   ORDER_BOUNDARY_KEY,
   runCatalogSync,
   runFulfillmentLoop,
+  runItemFulfillmentLoop,
   ShutdownSignal,
   type RunnerDeps,
 } from './runner.js';
@@ -224,6 +227,102 @@ describe('runFulfillmentLoop in emergency mode', () => {
     expect(result.processed).toBe(1);
     expect(provider.deliveryCount).toBe(1);
     error.mockRestore();
+  });
+});
+
+function itemHarness(
+  claims: Array<{ id: string; orderNumber: string; recovered: boolean } | null>,
+  respond: (orderId: string) => Promise<{ order: { orderId: string; status: 'DELIVERED' | 'FAILED' } }>,
+) {
+  const alerter = new MemoryAlerter();
+  const queue = { claimNext: vi.fn(async () => claims.shift() ?? null) };
+  const applied: unknown[] = [];
+  const store: ItemFulfillmentStore = {
+    loadItemOrder: async (id) => ({
+      id,
+      orderNumber: 'LU-ITEM-1',
+      playerId: '7288567050',
+      sku: 'crate',
+      itemName: 'Universal Evo Token Crate',
+      quantity: 1,
+      region: 'SAC',
+      fulfillmentStatus: 'pending',
+      rocketpassOrderId: null,
+      attemptCount: 0,
+    }),
+    markSending: async () => undefined,
+    applyDecision: async (id, decision) => {
+      applied.push({ id, decision });
+    },
+  };
+  const client: RocketPassOrderClient = { createOrder: async (input) => respond(input.targetUid) };
+  const deps = {
+    queue,
+    store,
+    client,
+    alerter,
+    config: { maxAttempts: 3, staleOrderMs: 300_000, idlePollMs: 1 },
+  };
+  return { deps, queue, alerter, applied };
+}
+
+describe('runItemFulfillmentLoop', () => {
+  it('claims and places an item order', async () => {
+    const { deps, applied } = itemHarness(
+      [{ id: 'item-order-1', orderNumber: 'LU-ITEM-1', recovered: false }],
+      async () => ({ order: { orderId: 'ORD-1', status: 'DELIVERED' } }),
+    );
+
+    const result = await runItemFulfillmentLoop(deps, new ShutdownSignal(), { maxIterations: 2 });
+
+    expect(result.processed).toBe(1);
+    expect(applied).toEqual([
+      { id: 'item-order-1', decision: expect.objectContaining({ itemStatus: 'delivered', orderStatus: 'completed' }) },
+    ]);
+  });
+
+  it('idles without error when the queue is empty', async () => {
+    const { deps, queue } = itemHarness([], async () => ({ order: { orderId: 'ORD-1', status: 'DELIVERED' } }));
+
+    const result = await runItemFulfillmentLoop(deps, new ShutdownSignal(), { maxIterations: 3 });
+
+    expect(result.processed).toBe(0);
+    expect(queue.claimNext).toHaveBeenCalledTimes(3);
+  });
+
+  it('alerts and keeps the order processing (not failed) when fulfillment throws unexpectedly', async () => {
+    const { deps, alerter } = itemHarness([{ id: 'item-order-1', orderNumber: 'LU-ITEM-1', recovered: false }], async () => {
+      throw new Error('boom');
+    });
+    // `fulfillItemOrder` itself catches RocketPassError/network errors — this
+    // throw simulates something the store or client does that isn't one of
+    // those (e.g. a DB connection drop), which the loop's own try/catch must
+    // still survive without crashing the worker.
+    deps.store.loadItemOrder = async () => {
+      throw new Error('boom');
+    };
+
+    const result = await runItemFulfillmentLoop(deps, new ShutdownSignal(), { maxIterations: 1 });
+
+    expect(result.processed).toBe(0);
+    expect(alerter.has('critical')).toBe(true);
+  });
+
+  it('stops claiming once shutdown is requested', async () => {
+    const signal = new ShutdownSignal();
+    const { deps, queue } = itemHarness(
+      [
+        { id: 'item-order-1', orderNumber: 'LU-ITEM-1', recovered: false },
+        { id: 'item-order-2', orderNumber: 'LU-ITEM-2', recovered: false },
+      ],
+      async () => {
+        signal.stop();
+        return { order: { orderId: 'ORD-1', status: 'DELIVERED' } };
+      },
+    );
+
+    await runItemFulfillmentLoop(deps, signal, { maxIterations: 5 });
+    expect(queue.claimNext).toHaveBeenCalledTimes(1);
   });
 });
 

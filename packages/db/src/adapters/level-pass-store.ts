@@ -8,7 +8,7 @@
  */
 
 import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { defaultOrderNumber, LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
+import { defaultOrderNumber, LEVEL_PASS_REWARD_COMBO_KEY, ticketsForLp } from '@levelup/engine';
 import type {
   GrantableRewardOrder,
   LevelPassCheckpointConfig,
@@ -27,14 +27,17 @@ import {
   badgeDefinitions,
   badgeOwnerships,
   financialLedgerEntries,
+  itemOrderDetails,
   levelPassCheckpointEvents,
   levelPassLpTransactions,
+  notifications,
   orderItems,
   orders,
   payments,
   playerProfiles,
   seasonPlayerStats,
   seasons,
+  ticketTransactions,
   vaultEntitlements,
   baseProducts,
 } from '../schema.js';
@@ -179,14 +182,68 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
           },
         });
 
-      await tx
+      // Golden Tickets: same amount of care as LP above — computed from the
+      // awarded LP (not re-derived later), one 'purchase' row per order via
+      // the same onConflictDoNothing-on-orderId idempotency guard, balance
+      // updated in the same statement as the lifetime counters so the
+      // `resultingBalance` recorded below is never stale.
+      const ticketsAwarded = ticketsForLp(decision.awardedLp);
+      const [profileAfter] = await tx
         .update(playerProfiles)
         .set({
           lifetimeDiamondsPurchased: sql`${playerProfiles.lifetimeDiamondsPurchased} + ${order.diamonds}`,
           lifetimeRechargeCount: sql`${playerProfiles.lifetimeRechargeCount} + 1`,
+          ticketBalance: sql`${playerProfiles.ticketBalance} + ${ticketsAwarded}`,
           updatedAt: sql`now()`,
         })
-        .where(eq(playerProfiles.id, playerProfileId));
+        .where(eq(playerProfiles.id, playerProfileId))
+        .returning({ ticketBalance: playerProfiles.ticketBalance });
+
+      await tx
+        .insert(ticketTransactions)
+        .values({
+          playerProfileId,
+          type: 'purchase',
+          amount: ticketsAwarded,
+          resultingBalance: profileAfter!.ticketBalance,
+          orderId: order.orderId,
+        })
+        .onConflictDoNothing({ target: [ticketTransactions.orderId, ticketTransactions.type] });
+
+      // Bell notifications for the delivery that just happened — guarded by
+      // the same `inserted.length === 0` early-return above, so a retried or
+      // duplicate sweep pass never notifies twice for one order.
+      const [deliveredOrder] = await tx
+        .select({ orderNumber: orders.orderNumber })
+        .from(orders)
+        .where(eq(orders.id, order.orderId))
+        .limit(1);
+      if (deliveredOrder) {
+        await tx
+          .insert(notifications)
+          .values({
+            playerProfileId,
+            type: 'order_delivered',
+            title: '¡Tus diamantes ya llegaron!',
+            message: `Tu pedido ${deliveredOrder.orderNumber} fue entregado.`,
+            targetUrl: `/pedido/${deliveredOrder.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+            orderId: order.orderId,
+          })
+          .onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+        if (ticketsAwarded > 0) {
+          await tx
+            .insert(notifications)
+            .values({
+              playerProfileId,
+              type: 'tickets_earned',
+              title: `¡Ganaste ${ticketsAwarded} Golden Tickets!`,
+              message: `Por tu pedido ${deliveredOrder.orderNumber}. Úsalos en los sorteos.`,
+              targetUrl: `/pedido/${deliveredOrder.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+              orderId: order.orderId,
+            })
+            .onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+        }
+      }
 
       for (const grant of decision.newlyCrossedCheckpoints) {
         // Status stays 'pending' here — this records that the checkpoint was
@@ -260,6 +317,7 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
     const candidates = await this.db
       .select({
         orderId: orders.id,
+        orderType: orders.orderType,
         playerId: orders.playerId,
         buyerProfileId: orders.playerProfileId,
         priceMxnCents: orders.priceMxnCents,
@@ -279,6 +337,11 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
           // A reward order is not a sale — awarding it LP would let a free
           // checkpoint reward generate another, recursive checkpoint reward.
           ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
+          // Item (RocketPass) orders earn LP/Golden Tickets the same way
+          // diamond orders do — Jose confirmed this explicitly (2026-11-14):
+          // the profit on the order converts to LP exactly like a top-up's
+          // does, and Golden Tickets are the same `ticketsForLp` rounding for
+          // both. No `orderType` filter here on purpose.
         ),
       )
       .orderBy(orders.completedAt)
@@ -286,16 +349,20 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
 
     if (candidates.length === 0) return [];
     const orderIds = candidates.map((c) => c.orderId);
+    const diamondOrderIds = candidates.filter((c) => c.orderType === 'diamonds').map((c) => c.orderId);
+    const itemOrderIds = candidates.filter((c) => c.orderType === 'item').map((c) => c.orderId);
 
-    const itemRows = await this.db
-      .select({
-        orderId: orderItems.orderId,
-        costUsd: orderItems.costUsd,
-        diamondsBase: orderItems.diamondsBase,
-        status: orderItems.status,
-      })
-      .from(orderItems)
-      .where(inArray(orderItems.orderId, orderIds));
+    const itemRows = diamondOrderIds.length
+      ? await this.db
+          .select({
+            orderId: orderItems.orderId,
+            costUsd: orderItems.costUsd,
+            diamondsBase: orderItems.diamondsBase,
+            status: orderItems.status,
+          })
+          .from(orderItems)
+          .where(inArray(orderItems.orderId, diamondOrderIds))
+      : [];
 
     const costUsdByOrder = new Map<string, number>();
     const diamondsByOrder = new Map<string, number>();
@@ -305,6 +372,24 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
       }
       if (item.status === 'succeeded') {
         diamondsByOrder.set(item.orderId, (diamondsByOrder.get(item.orderId) ?? 0) + item.diamondsBase);
+      }
+    }
+
+    // RocketPass cost is already frozen in MXN cents (no fxRate conversion
+    // needed, unlike the diamond path's costUsd) — see
+    // `item_order_details.unit_cost_cents_snapshot`.
+    const itemCostCentsByOrder = new Map<string, number>();
+    if (itemOrderIds.length) {
+      const details = await this.db
+        .select({
+          orderId: itemOrderDetails.orderId,
+          unitCostCentsSnapshot: itemOrderDetails.unitCostCentsSnapshot,
+          quantity: itemOrderDetails.quantity,
+        })
+        .from(itemOrderDetails)
+        .where(inArray(itemOrderDetails.orderId, itemOrderIds));
+      for (const d of details) {
+        itemCostCentsByOrder.set(d.orderId, d.unitCostCentsSnapshot * d.quantity);
       }
     }
 
@@ -324,14 +409,20 @@ export class DrizzleLevelPassStore implements LevelPassSweepStore, RewardFulfill
       const paymentFeeCents = paid
         ? estimateFeeCents(paid.gateway, paid.method, paid.amountReceivedCents ?? 0)
         : 0;
+      const productCostCents =
+        row.orderType === 'item'
+          ? itemCostCentsByOrder.get(row.orderId) ?? 0
+          : Math.round((costUsdByOrder.get(row.orderId) ?? 0) * fxRate * 100);
       return {
         orderId: row.orderId,
         playerId: row.playerId,
         buyerProfileId: row.buyerProfileId,
         saleAmountCents: row.priceMxnCents,
-        productCostCents: Math.round((costUsdByOrder.get(row.orderId) ?? 0) * fxRate * 100),
+        productCostCents,
         paymentFeeCents,
-        diamonds: diamondsByOrder.get(row.orderId) ?? 0,
+        // Items deliver no diamonds — 0 here only affects ranking (see
+        // `applyDecision`'s `rankingDiamonds`), never LP, which is profit-based.
+        diamonds: row.orderType === 'item' ? 0 : diamondsByOrder.get(row.orderId) ?? 0,
       };
     });
   }

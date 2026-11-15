@@ -78,6 +78,9 @@ importers:
       '@levelup/provider':
         specifier: workspace:*
         version: link:../../packages/provider
+      '@levelup/rocketpass':
+        specifier: workspace:*
+        version: link:../../packages/rocketpass
       '@levelup/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -127,6 +130,9 @@ importers:
       '@levelup/provider':
         specifier: workspace:*
         version: link:../../packages/provider
+      '@levelup/rocketpass':
+        specifier: workspace:*
+        version: link:../../packages/rocketpass
       '@levelup/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -155,6 +161,9 @@ importers:
       '@levelup/provider':
         specifier: workspace:^
         version: link:../provider
+      '@levelup/rocketpass':
+        specifier: workspace:*
+        version: link:../rocketpass
       '@levelup/shared':
         specifier: workspace:*
         version: link:../shared
@@ -189,6 +198,9 @@ importers:
       '@levelup/provider':
         specifier: workspace:*
         version: link:../provider
+      '@levelup/rocketpass':
+        specifier: workspace:*
+        version: link:../rocketpass
       '@levelup/shared':
         specifier: workspace:*
         version: link:../shared
@@ -220,6 +232,22 @@ importers:
       '@levelup/shared':
         specifier: workspace:*
         version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/rocketpass:
+    dependencies:
+      '@levelup/payments':
+        specifier: workspace:*
+        version: link:../payments
     devDependencies:
       '@types/node':
         specifier: ^22

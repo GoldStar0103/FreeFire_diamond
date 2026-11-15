@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "notifications_order_type_idx" ON "notifications" USING btree ("order_id","type");

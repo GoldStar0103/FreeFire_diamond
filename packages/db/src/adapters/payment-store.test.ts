@@ -12,10 +12,20 @@ import postgres from 'postgres';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { eq, sql as raw } from 'drizzle-orm';
+import { and, eq, sql as raw } from 'drizzle-orm';
 import { approvePayment, createOrder, expireUnpaid, rejectPayment } from '@levelup/engine';
 import { createDb, type Database } from '../index.js';
-import { auditLog, baseProducts, campaigns, comboItems, combos, orders, payments } from '../schema.js';
+import {
+  auditLog,
+  baseProducts,
+  campaigns,
+  comboItems,
+  combos,
+  notifications,
+  orders,
+  payments,
+  playerProfiles,
+} from '../schema.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
 import { DrizzlePaymentStore } from './payment-store.js';
 import { DrizzleOrderQueue } from './order-queue.js';
@@ -57,8 +67,16 @@ afterAll(async () => {
   await client?.end({ timeout: 5 });
 }, 30_000);
 
+async function seedProfile(playerId = '100001') {
+  const [profile] = await db
+    .insert(playerProfiles)
+    .values({ playerId, email: `${playerId}@test.levelup` })
+    .returning();
+  return profile!;
+}
+
 /** One paid-pending order for the $1,530 pack from the client's WhatsApp log. */
-async function seedOrder() {
+async function seedOrder(buyerProfileId?: string) {
   const [campaign] = await db
     .insert(campaigns)
     .values({ key: 'mega_prime', name: 'PACKS MEGA PRIME' })
@@ -95,6 +113,7 @@ async function seedOrder() {
       playerId: '7288567050',
       paymentMethod: 'transfer_manual',
       source: 'storefront',
+      ...(buyerProfileId ? { buyerProfileId } : {}),
     },
   );
   if (!created.ok) throw new Error(`seed failed: ${created.failure.code}`);
@@ -109,7 +128,7 @@ async function seedOrder() {
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
   await db.execute(
-    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products, audit_log RESTART IDENTITY CASCADE`,
+    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products, audit_log, player_profiles, notifications RESTART IDENTITY CASCADE`,
   );
 });
 
@@ -156,6 +175,25 @@ describe.skipIf(!PG_AVAILABLE)('approving a comprobante', () => {
     const [entry] = await db.select().from(auditLog);
     expect(entry?.action).toBe('payment.approved');
     expect(entry?.entityId).toBe(order.id);
+  });
+
+  it('rings the bell for an order that has an account', async () => {
+    const profile = await seedProfile();
+    const order = await seedOrder(profile.id);
+    await approvePayment({ store: store() }, { orderId: order.id });
+
+    const [notif] = await db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.orderId, order.id), eq(notifications.type, 'payment_confirmed')));
+    expect(notif?.playerProfileId).toBe(profile.id);
+    expect(notif?.readAt).toBeNull();
+  });
+
+  it('stays silent for a guest order with no account to notify', async () => {
+    const order = await seedOrder();
+    await approvePayment({ store: store() }, { orderId: order.id });
+    expect(await db.select().from(notifications).where(eq(notifications.orderId, order.id))).toHaveLength(0);
   });
 
   it('is idempotent under a double tap', async () => {
@@ -260,6 +298,23 @@ describe.skipIf(!PG_AVAILABLE)('rejection and expiry', () => {
 
     const [updated] = await db.select().from(orders).where(eq(orders.id, order.id));
     expect(updated?.status).toBe('payment_expired');
+  });
+
+  it('rings the bell on expiry too, when the order has an account', async () => {
+    const profile = await seedProfile();
+    const order = await seedOrder(profile.id);
+    await db
+      .update(payments)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(payments.orderId, order.id));
+
+    await expireUnpaid({ store: store() }, order.id);
+
+    const [notif] = await db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.orderId, order.id), eq(notifications.type, 'order_expired')));
+    expect(notif?.playerProfileId).toBe(profile.id);
   });
 
   it('leaves an already-paid order alone when the sweep runs', async () => {

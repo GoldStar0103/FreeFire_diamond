@@ -18,6 +18,7 @@ import { settings } from '../schema.js';
 
 export const PAYMENT_DETAILS_KEY = 'payment_details';
 export const FX_RATE_KEY = 'fx_usd_mxn';
+export const FX_RATE_ARS_MXN_KEY = 'fx_ars_mxn';
 
 export interface PaymentDetails {
   /** Bank name shown next to the CLABE, e.g. "BBVA". */
@@ -37,7 +38,7 @@ export interface PaymentDetails {
 }
 
 export interface SettingIssue {
-  field: 'bank' | 'clabe' | 'holder' | 'oxxo' | 'cardNumber' | 'fxRate';
+  field: 'bank' | 'clabe' | 'holder' | 'oxxo' | 'cardNumber' | 'fxRate' | 'arsRate';
   message: string;
 }
 
@@ -269,6 +270,66 @@ export async function saveFxRate(db: Database, rate: number): Promise<void> {
   await db
     .insert(settings)
     .values({ key: FX_RATE_KEY, value: { rate } })
+    .onConflictDoUpdate({ target: settings.key, set: { value: { rate } } });
+}
+
+// ── RocketPass's ARS exchange rate ──────────────────────────────────────────
+
+/**
+ * MXN per 1 ARS — a placeholder, not a live quote. ARS has been worth only a
+ * few MXN cents for years, which is also why this has a far smaller sanity
+ * range than the USD rate above. Jose confirmed (2026-11) this stays a
+ * manually-set rate in Ajustes, the same as the USD one, rather than a live
+ * feed — update it here whenever it moves meaningfully.
+ */
+export const DEFAULT_ARS_RATE = 0.015;
+
+export async function getArsRate(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, FX_RATE_ARS_MXN_KEY))
+    .limit(1);
+
+  const rate = (row?.value as { rate?: unknown } | undefined)?.rate;
+  if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0) return rate;
+
+  const fromEnv = Number(process.env.FX_ARS_MXN);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_ARS_RATE;
+}
+
+export function reviewArsRate(raw: string): { rate: number | null; issues: SettingIssue[] } {
+  const rate = Number(raw.trim().replace(',', '.'));
+
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return {
+      rate: null,
+      issues: [{ field: 'arsRate', message: 'El tipo de cambio debe ser un número mayor que cero.' }],
+    };
+  }
+
+  // A fat-finger check, not a currency check — ARS has traded within this
+  // band against MXN for years; outside it, this almost certainly got typed
+  // the wrong way round (ARS per MXN instead of MXN per ARS).
+  if (rate < 0.001 || rate > 1) {
+    return {
+      rate: null,
+      issues: [
+        {
+          field: 'arsRate',
+          message: 'Ese tipo de cambio no parece correcto. Debe estar entre 0.001 y 1.',
+        },
+      ],
+    };
+  }
+
+  return { rate, issues: [] };
+}
+
+export async function saveArsRate(db: Database, rate: number): Promise<void> {
+  await db
+    .insert(settings)
+    .values({ key: FX_RATE_ARS_MXN_KEY, value: { rate } })
     .onConflictDoUpdate({ target: settings.key, set: { value: { rate } } });
 }
 

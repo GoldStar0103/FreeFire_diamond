@@ -25,6 +25,7 @@ import {
   combos,
   baseProducts,
   financialLedgerEntries,
+  itemOrderDetails,
   orderItems,
   orders,
   payments,
@@ -35,6 +36,8 @@ import {
   levelPassCheckpointEvents,
   levelPassLpTransactions,
   badgeOwnerships,
+  notifications,
+  ticketTransactions,
 } from '../schema.js';
 import { DrizzleCatalogSyncStore } from './catalog-sync-store.js';
 import { DrizzleOrderingStore } from './ordering-store.js';
@@ -395,6 +398,66 @@ describe.skipIf(!PG_AVAILABLE)('applyDecision', () => {
     expect(row).toMatchObject({ lifetimeDiamondsPurchased: 100, lifetimeRechargeCount: 1 });
   });
 
+  it('awards Golden Tickets rounded from the LP, and records a ticket transaction', async () => {
+    const season = await seedActiveSeason();
+    const profile = await seedProfile('100001');
+    const order = await placeOrder('100001');
+    const store = new DrizzleLevelPassStore(db);
+
+    // 47 LP -> 50 tickets, per the spec's own worked example.
+    await store.applyDecision(
+      season.id, profile.id,
+      { orderId: order.id, playerId: '100001', saleAmountCents: 4_800, productCostCents: 1_000, paymentFeeCents: 0, diamonds: 100 },
+      decision({ awardedLp: 47, newLp: 47 }),
+    );
+
+    const [profileRow] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, profile.id));
+    expect(profileRow?.ticketBalance).toBe(50);
+
+    const [txRow] = await db.select().from(ticketTransactions).where(eq(ticketTransactions.orderId, order.id));
+    expect(txRow).toMatchObject({
+      playerProfileId: profile.id,
+      type: 'purchase',
+      amount: 50,
+      resultingBalance: 50,
+    });
+  });
+
+  it('rings the bell for delivery and for the tickets just earned', async () => {
+    const season = await seedActiveSeason();
+    const profile = await seedProfile('100001');
+    const order = await placeOrder('100001');
+    const store = new DrizzleLevelPassStore(db);
+
+    await store.applyDecision(
+      season.id, profile.id,
+      { orderId: order.id, playerId: '100001', saleAmountCents: 4_800, productCostCents: 1_000, paymentFeeCents: 0, diamonds: 100 },
+      decision({ awardedLp: 47, newLp: 47 }),
+    );
+
+    const rows = await db.select().from(notifications).where(eq(notifications.orderId, order.id));
+    const types = rows.map((r) => r.type).sort();
+    expect(types).toEqual(['order_delivered', 'tickets_earned']);
+    expect(rows.every((r) => r.playerProfileId === profile.id)).toBe(true);
+  });
+
+  it('does not double-award tickets on a repeated call for the same order', async () => {
+    const season = await seedActiveSeason();
+    const profile = await seedProfile('100001');
+    const order = await placeOrder('100001');
+    const store = new DrizzleLevelPassStore(db);
+    const input = { orderId: order.id, playerId: '100001', saleAmountCents: 1_800, productCostCents: 1_200, paymentFeeCents: 0, diamonds: 100 };
+
+    await store.applyDecision(season.id, profile.id, input, decision({ awardedLp: 47, newLp: 47 }));
+    await store.applyDecision(season.id, profile.id, input, decision({ awardedLp: 47, newLp: 94 }));
+
+    const [profileRow] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, profile.id));
+    expect(profileRow?.ticketBalance).toBe(50);
+
+    const rows = await db.select().from(ticketTransactions).where(eq(ticketTransactions.orderId, order.id));
+    expect(rows).toHaveLength(1);
+  });
+
   it('records one checkpoint event per newly crossed checkpoint, status pending', async () => {
     const season = await seedActiveSeason();
     const profile = await seedProfile('100001');
@@ -536,6 +599,38 @@ describe.skipIf(!PG_AVAILABLE)('findUnprocessedOrders', () => {
     const store = new DrizzleLevelPassStore(db);
     const pending = await store.findUnprocessedOrders({ completedAfter: new Date('2026-01-01'), limit: 10 });
     expect(pending).toEqual([]);
+  });
+
+  it('earns LP for an item (RocketPass) order from its own cost snapshot, with zero diamonds', async () => {
+    // Jose confirmed (2026-11-14) item orders earn LP/Golden Tickets exactly
+    // like diamond orders — the same profit-based formula, just sourced from
+    // item_order_details' RocketPass cost snapshot instead of orderItems.costUsd.
+    await seedProfile('100001');
+    const order = await placeOrder('100001');
+    await completeOrder(order.id, { completedAt: new Date('2026-02-01'), costUsd: '1.0000', method: 'transfer_manual', gateway: null, amountReceivedCents: 10_000 });
+    await db.update(orders).set({ orderType: 'item' }).where(eq(orders.id, order.id));
+    await db.insert(itemOrderDetails).values({
+      orderId: order.id,
+      itemSku: 'crate',
+      itemNameSnapshot: 'Universal Evo Token Crate',
+      quantity: 1,
+      region: 'SAC',
+      unitPriceSnapshotCents: 10_000,
+      unitCostCentsSnapshot: 2_000,
+      fulfillmentStatus: 'delivered',
+    });
+
+    const store = new DrizzleLevelPassStore(db);
+    const pending = await store.findUnprocessedOrders({ completedAfter: new Date('2026-01-01'), limit: 10 });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      orderId: order.id,
+      saleAmountCents: 10_000,
+      // From the item's own cost snapshot — the leftover orderItems.costUsd
+      // ('1.0000' from placeOrder's diamond combo) must be ignored entirely.
+      productCostCents: 2_000,
+      diamonds: 0,
+    });
   });
 
   it('only counts succeeded items toward diamonds', async () => {

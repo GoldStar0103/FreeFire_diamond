@@ -16,6 +16,26 @@
 
 export type PaymentMethod = 'transfer_manual' | 'spei' | 'oxxo' | 'card' | 'paypal';
 
+/**
+ * How long an unpaid order holds its place, by payment method.
+ *
+ * Card and SPEI settle through the gateway automatically within minutes of the
+ * customer acting — Jose confirmed (2026-11-13) these count as "instant" and
+ * get a 2-hour window. A bank-transfer comprobante needs a human to check it,
+ * and a Stripe/Mercado Pago OXXO voucher needs the customer to physically visit
+ * a store — both keep the original 48-hour grace period. `paypal` is not
+ * reachable from checkout today (confirmed via grep); it defaults to the
+ * manual window rather than guessing it belongs with the instant methods.
+ */
+const INSTANT_PAYMENT_METHODS: ReadonlySet<PaymentMethod> = new Set(['card', 'spei']);
+
+export const INSTANT_PAYMENT_TTL_MS = 2 * 60 * 60 * 1000;
+export const MANUAL_PAYMENT_TTL_MS = 48 * 60 * 60 * 1000;
+
+export function paymentTtlMsFor(method: PaymentMethod): number {
+  return INSTANT_PAYMENT_METHODS.has(method) ? INSTANT_PAYMENT_TTL_MS : MANUAL_PAYMENT_TTL_MS;
+}
+
 export type PaymentState =
   | 'pending'
   | 'under_review'

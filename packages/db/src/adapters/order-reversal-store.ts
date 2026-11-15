@@ -15,17 +15,19 @@
  */
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { planOrderReversal, type OrderReversalPlan, type ReversibleCheckpoint } from '@levelup/engine';
+import { planOrderReversal, ticketsForLp, type OrderReversalPlan, type ReversibleCheckpoint } from '@levelup/engine';
 import type { Database } from '../index.js';
 import {
   auditLog,
   financialLedgerEntries,
   levelPassCheckpointEvents,
   levelPassLpTransactions,
+  notifications,
   orderItems,
   orders,
   playerProfiles,
   seasonPlayerStats,
+  ticketTransactions,
   vaultEntitlements,
 } from '../schema.js';
 
@@ -199,14 +201,57 @@ async function applyLevelPassReversal(
       ),
     );
 
-  await tx
+  // Undo the Golden Tickets this order's LP earned, same amount it earned —
+  // recomputed from the frozen `awardedLp`, never re-derived from anything
+  // that could have changed since. Not yet accounting for tickets already
+  // spent on a giveaway entry (Module 2 isn't built); GREATEST floors the
+  // balance at 0 the same defensive way the diamond/recharge counters above
+  // do, so this can never go negative even once entries exist.
+  const ticketsRemoved = ticketsForLp(lpTx.awardedLp);
+  const [profileAfter] = await tx
     .update(playerProfiles)
     .set({
       lifetimeDiamondsPurchased: sql`GREATEST(${playerProfiles.lifetimeDiamondsPurchased} - ${plan.diamondsRemoved}, 0)`,
       lifetimeRechargeCount: sql`GREATEST(${playerProfiles.lifetimeRechargeCount} - 1, 0)`,
+      ticketBalance: sql`GREATEST(${playerProfiles.ticketBalance} - ${ticketsRemoved}, 0)`,
       updatedAt: sql`now()`,
     })
-    .where(eq(playerProfiles.id, lpTx.playerProfileId));
+    .where(eq(playerProfiles.id, lpTx.playerProfileId))
+    .returning({ ticketBalance: playerProfiles.ticketBalance });
+
+  await tx
+    .insert(ticketTransactions)
+    .values({
+      playerProfileId: lpTx.playerProfileId,
+      type: 'reversal',
+      amount: -ticketsRemoved,
+      resultingBalance: profileAfter!.ticketBalance,
+      orderId: lpTx.orderId,
+      adminId: input.adminUserId,
+      reason: input.reason,
+    })
+    .onConflictDoNothing({ target: [ticketTransactions.orderId, ticketTransactions.type] });
+
+  // Bell notification — only reachable here because an lpTx exists, which
+  // means this order had a linked account to credit (and now to notify).
+  const [reversedOrder] = await tx
+    .select({ orderNumber: orders.orderNumber })
+    .from(orders)
+    .where(eq(orders.id, order.id))
+    .limit(1);
+  if (reversedOrder) {
+    await tx
+      .insert(notifications)
+      .values({
+        playerProfileId: lpTx.playerProfileId,
+        type: 'refund',
+        title: 'Tu pedido fue reembolsado',
+        message: `${reversedOrder.orderNumber}: ${input.reason}`,
+        targetUrl: `/pedido/${reversedOrder.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+        orderId: order.id,
+      })
+      .onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+  }
 
   for (const eventId of plan.checkpointEventIdsToReverse) {
     await tx

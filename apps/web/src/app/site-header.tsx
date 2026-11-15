@@ -3,6 +3,7 @@ import { getCustomerSession } from '../lib/customer-session';
 import { socialLinks } from '../lib/social';
 import logo from '../assets/logo.webp';
 import { BellIcon, FacebookIcon, InstagramIcon, TikTokIcon, UserIcon } from './icons';
+import { NotificationBell } from './notification-bell';
 import { HmBar } from './hm-bar';
 
 /**
@@ -54,10 +55,13 @@ export async function SiteHeader({
           </span>
         </Link>
         <div className="hm-bar-side hm-bar-account">
-          <span className="hm-bar-user hm-bar-bell" aria-hidden="true">
-            <BellIcon className="icon" />
-            <span className="hm-bar-bell-dot">2</span>
-          </span>
+          {session ? (
+            <NotificationBell />
+          ) : (
+            <span className="hm-bar-user hm-bar-bell" aria-hidden="true">
+              <BellIcon className="icon" />
+            </span>
+          )}
           <Link
             href="/cuenta"
             className="hm-bar-user"

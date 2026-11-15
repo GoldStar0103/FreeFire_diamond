@@ -20,6 +20,7 @@ import {
   countCompletedOrdersToday,
   countUniqueCustomers,
   findCustomerOrder,
+  findResumableOrder,
   getStorefrontCampaign,
   getStorefrontCombo,
   listStorefront,
@@ -326,6 +327,30 @@ describe.skipIf(!PG_AVAILABLE)('findCustomerOrder', () => {
     expect(found?.status).toBe('esperando_pago');
   });
 
+  it('carries contactWhatsapp through — the Purchase pixel on this page needs it for Advanced Matching', async () => {
+    await seedCampaign({
+      key: 'super_packs',
+      name: 'SUPER PACKS',
+      combos: [
+        { key: 'pack_insano', name: 'Pack Insano', price: 86_000, advertised: 7200, recipe: [5600, 1060] },
+      ],
+    }).catch(() => undefined);
+    const result = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      {
+        comboKey: 'pack_insano',
+        playerId: '7288567050',
+        paymentMethod: 'transfer_manual',
+        source: 'storefront',
+        contactWhatsapp: '5215512345678',
+      },
+    );
+    if (!result.ok) throw new Error(result.failure.code);
+
+    const found = await findCustomerOrder(db, result.order.orderNumber, '7288567050');
+    expect(found?.contactWhatsapp).toBe('5215512345678');
+  });
+
   it('tells a customer whose comprobante is in, that it is being reviewed', async () => {
     // Regression: this used to say "sube tu comprobante" to someone who had.
     const order = await placeOrder();
@@ -414,6 +439,75 @@ describe.skipIf(!PG_AVAILABLE)('findCustomerOrder', () => {
     const found = await findCustomerOrder(db, order.orderNumber, '7288567050');
     expect(found?.status).toBe('con_problema');
     expect(found?.needsSupport).toBe(true);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('findResumableOrder', () => {
+  async function placeOrder(playerId = '7288567050', comboKey = 'pack_insano') {
+    await seedCampaign({
+      key: 'super_packs',
+      name: 'SUPER PACKS',
+      combos: [
+        { key: 'pack_insano', name: 'Pack Insano', price: 86_000, advertised: 7200, recipe: [5600, 1060] },
+      ],
+    }).catch(() => undefined);
+
+    const result = await createOrder(
+      { store: new DrizzleOrderingStore(db) },
+      { comboKey, playerId, paymentMethod: 'transfer_manual', source: 'storefront' },
+    );
+    if (!result.ok) throw new Error(result.failure.code);
+    return result.order;
+  }
+
+  it('finds a still-untouched pending order for the same player and combo', async () => {
+    const order = await placeOrder();
+    const found = await findResumableOrder(db, { playerId: '7288567050', comboKey: 'pack_insano' });
+    expect(found?.orderNumber).toBe(order.orderNumber);
+    expect(found?.paymentMethod).toBe('transfer_manual');
+  });
+
+  it('still finds it once a gateway session was opened but never completed', async () => {
+    const order = await placeOrder();
+    await db
+      .update(payments)
+      .set({ gateway: 'stripe', gatewayChargeId: 'cs_test_1', method: 'card' })
+      .where(eq(payments.orderId, order.id));
+
+    const found = await findResumableOrder(db, { playerId: '7288567050', comboKey: 'pack_insano' });
+    expect(found?.orderNumber).toBe(order.orderNumber);
+    expect(found?.gateway).toBe('stripe');
+  });
+
+  it('stops offering it once a comprobante is already under review', async () => {
+    const order = await placeOrder();
+    await db.update(payments).set({ status: 'under_review' }).where(eq(payments.orderId, order.id));
+    expect(await findResumableOrder(db, { playerId: '7288567050', comboKey: 'pack_insano' })).toBeNull();
+  });
+
+  it('stops offering it once the payment window has passed', async () => {
+    const order = await placeOrder();
+    await db
+      .update(payments)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(payments.orderId, order.id));
+    expect(await findResumableOrder(db, { playerId: '7288567050', comboKey: 'pack_insano' })).toBeNull();
+  });
+
+  it('stops offering it once the order is no longer pending', async () => {
+    const order = await placeOrder();
+    await db.update(orders).set({ status: 'cancelled' }).where(eq(orders.id, order.id));
+    expect(await findResumableOrder(db, { playerId: '7288567050', comboKey: 'pack_insano' })).toBeNull();
+  });
+
+  it('never offers one player a different player\'s pending order', async () => {
+    await placeOrder('7288567050');
+    expect(await findResumableOrder(db, { playerId: '9999999999', comboKey: 'pack_insano' })).toBeNull();
+  });
+
+  it('never offers an order for a different combo', async () => {
+    await placeOrder('7288567050', 'pack_insano');
+    expect(await findResumableOrder(db, { playerId: '7288567050', comboKey: 'otro_combo' })).toBeNull();
   });
 });
 

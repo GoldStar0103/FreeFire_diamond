@@ -58,6 +58,15 @@ export const orderStatus = pgEnum('order_status', [
   'refunded',
 ]);
 
+/**
+ * What an order actually is. `item` orders (RocketPass vendor SKUs: Evo
+ * Crates/Shards, Booyah Passes, membership cards) reuse the whole
+ * orders/payments/webhook/expiry pipeline below them — see
+ * `item_order_details` for what's genuinely new. Default keeps every
+ * pre-existing row correctly `diamonds` with no backfill needed.
+ */
+export const orderType = pgEnum('order_type', ['diamonds', 'item']);
+
 export const orderItemStatus = pgEnum('order_item_status', [
   'queued',
   'sending', // written and committed BEFORE the HTTP call goes out
@@ -223,9 +232,15 @@ export const orders = pgTable(
     contactEmail: text('contact_email'),
     contactWhatsapp: text('contact_whatsapp'),
 
+    /** `item` for a RocketPass vendor-item order; everything else stays `diamonds`. */
+    orderType: orderType('order_type').notNull().default('diamonds'),
+
     comboId: uuid('combo_id').references(() => combos.id, { onDelete: 'set null' }),
-    /** Denormalised so the Mega Oferta partial unique index can reference it. */
-    comboKey: text('combo_key').notNull(),
+    /**
+     * Denormalised so the Mega Oferta partial unique index can reference it.
+     * Nullable because `item` orders have no combo — see `item_order_details`.
+     */
+    comboKey: text('combo_key'),
 
     /** Set on `payment.rejected` so the customer's own tracking page can show why — see rejectPayment. */
     cancelReason: text('cancel_reason'),
@@ -572,6 +587,13 @@ export const playerProfiles = pgTable(
 
     lifetimeDiamondsPurchased: integer('lifetime_diamonds_purchased').notNull().default(0),
     lifetimeRechargeCount: integer('lifetime_recharge_count').notNull().default(0),
+    /**
+     * Golden Tickets: a lifetime balance, unlike LP which resets per season —
+     * the spec is explicit they don't expire. Kept here rather than on
+     * `season_player_stats` for exactly that reason. See `ticket_transactions`
+     * for the append-only ledger this balance is a running total of.
+     */
+    ticketBalance: integer('ticket_balance').notNull().default(0),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -967,4 +989,213 @@ export const financialLedgerEntries = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('financial_ledger_occurred_idx').on(t.occurredAt)],
+);
+
+// ── notifications (order recovery module) ───────────────────────────────────
+
+/** Narrow on purpose — Phase 1/2 scope only. Giveaway variants arrive with Module 2. */
+export const notificationType = pgEnum('notification_type', [
+  'order_created',
+  'order_expiring',
+  'order_expired',
+  'payment_confirmed',
+  'order_delivered',
+  'order_failed',
+  'late_payment_delivered',
+  'awaiting_stock',
+  'refund',
+  'tickets_earned',
+]);
+
+/**
+ * Per-customer notification feed behind the site header's bell icon. Polled
+ * from the client (no SSE/WebSocket infrastructure exists anywhere in this
+ * repo today — see the plan), so this table is the single source of truth
+ * both `apps/web` and `apps/admin` read.
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'cascade' }),
+    type: notificationType('type').notNull(),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    targetUrl: text('target_url'),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('notifications_player_unread_idx').on(t.playerProfileId, t.readAt),
+    index('notifications_player_created_idx').on(t.playerProfileId, t.createdAt),
+    // At most one notification of a given type per order — the idempotency
+    // guard for types a sweep or a racing write could otherwise send twice
+    // (a reminder re-sent every sweep cycle, two concurrent fulfilment runs
+    // both landing an order in `needs_review`). Nulls (admin-adjustment-style
+    // notifications with no order) never collide with each other, so this
+    // only ever constrains the order-linked rows it is meant to.
+    uniqueIndex('notifications_order_type_idx').on(t.orderId, t.type),
+  ],
+);
+
+// ── Golden Tickets ledger ────────────────────────────────────────────────────
+
+export const ticketTransactionType = pgEnum('ticket_transaction_type', [
+  'purchase', // earned from a delivered order
+  'entry', // spent entering a giveaway (Module 2)
+  'return', // entry refunded — giveaway cancelled or minimum not reached (Module 2)
+  'reversal', // order refunded/charged back — undoes a 'purchase' row
+  'admin_adjustment',
+]);
+
+/**
+ * Golden Tickets — same append-only-ledger-with-resulting-balance convention
+ * as `level_pass_lp_transactions`, and awarded/reversed at the exact same
+ * call sites (see `level-pass-store.ts`'s `applyDecision` and
+ * `order-reversal-store.ts`). Lifetime, not seasonal — tickets don't expire,
+ * per spec — so the running balance lives on `player_profiles`, not
+ * `season_player_stats`.
+ */
+export const ticketTransactions = pgTable(
+  'ticket_transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    type: ticketTransactionType('type').notNull(),
+    /** Signed: positive for purchase/return, negative for entry/reversal. */
+    amount: integer('amount').notNull(),
+    resultingBalance: integer('resulting_balance').notNull(),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+    adminId: uuid('admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('ticket_tx_player_idx').on(t.playerProfileId, t.createdAt),
+    // One row per (order, type): an order gets exactly one 'purchase' row and,
+    // if later reversed, exactly one 'reversal' row — this is the idempotency
+    // guard, same role as `level_pass_lp_tx_order_idx`.
+    uniqueIndex('ticket_tx_order_type_idx').on(t.orderId, t.type),
+  ],
+);
+
+// ── RocketPass vendor items (Module 3 — column/table laid now, not wired yet) ─
+
+export const itemFulfillmentStatus = pgEnum('item_fulfillment_status', [
+  'pending',
+  'processing',
+  'delivered',
+  'partial',
+  'failed',
+  'awaiting_stock',
+  // RocketPass's own `CANCELLED` order status — discovered in its OpenAPI
+  // spec after this enum's other values were written against its docs page
+  // alone.
+  'cancelled',
+]);
+
+/**
+ * The item-specific half of an `orders` row with `order_type = 'item'` — a
+ * RocketPass vendor SKU (Evo Crate/Shard, Booyah Pass, membership card)
+ * rather than a diamond combo. 1:1 with `orders`; everything else (payment,
+ * webhook handling, expiry) reuses the existing pipeline untouched — see the
+ * plan's "item orders extend `orders`, they don't fork it" decision.
+ */
+export const itemOrderDetails = pgTable(
+  'item_order_details',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    itemSku: text('item_sku').notNull(),
+    /** Frozen at purchase time — same discipline as `orders.comboSnapshot`. */
+    itemNameSnapshot: text('item_name_snapshot').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    /** Null for memberships — RocketPass ignores region for those. */
+    region: text('region'),
+    unitPriceSnapshotCents: integer('unit_price_snapshot_cents').notNull(),
+    /**
+     * RocketPass's own charge, converted to MXN cents at the admin-set ARS
+     * rate and frozen at purchase time — same discipline as
+     * `order_items.cost_usd`, and what `findUnprocessedOrders` subtracts from
+     * the sale price to compute Level Pass LP/Golden Tickets for item orders,
+     * exactly like a diamond order's profit. Defaults to 0 only because no
+     * storefront checkout path writes this column yet (Phase 3 UI is not
+     * built); that path must set it from `item_catalog.price_ars * quantity`.
+     */
+    unitCostCentsSnapshot: integer('unit_cost_cents_snapshot').notNull().default(0),
+    rocketpassOrderId: text('rocketpass_order_id'),
+    fulfillmentStatus: itemFulfillmentStatus('fulfillment_status').notNull().default('pending'),
+    /** How many times `POST /orders` has been attempted — the retry cap `fulfillItemOrder` checks against. */
+    attemptCount: integer('attempt_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('item_order_details_order_idx').on(t.orderId)],
+);
+
+// ── RocketPass catalog mirror ────────────────────────────────────────────────
+
+/**
+ * RocketPass's `kind` field. Deliberately only `gift` and `membership` are
+ * modelled anywhere in this codebase — RocketPass's own `level_pass` kind
+ * (`level_pass_complete`, `lvl_6`…`lvl_30`) is its unrelated Free Fire
+ * battle-pass product, confusingly named like LevelUp Store's own Level
+ * Pass, and out of scope for this build (see the new-features plan).
+ */
+export const rocketpassItemKind = pgEnum('rocketpass_item_kind', ['gift', 'membership']);
+
+/**
+ * A mirror of `GET /catalog`'s items, kept locally so the storefront never
+ * calls RocketPass on a page render. `sku` is RocketPass's own `item` value
+ * (`crate`, `token`, `pass`, `weekly_basic`, `weekly`, `monthly`) — the one
+ * field `item_order_details.item_sku` is frozen from at purchase time.
+ *
+ * `displayName` is Jose's own marketing name ("Evo Crate" for `crate`, "Evo
+ * Shard" for `token`, "Booyah Pass" for `pass") — editable independently of
+ * whatever RocketPass calls it, which is kept as `rocketpassName` purely for
+ * reference. `active` is this store's own on/off switch, separate from
+ * `rocketpassAvailable` (what the vendor itself currently reports) — the
+ * same two-switch shape `base_products.active` already uses for diamonds.
+ */
+export const itemCatalog = pgTable('item_catalog', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sku: text('sku').notNull().unique(),
+  displayName: text('display_name').notNull(),
+  rocketpassName: text('rocketpass_name').notNull(),
+  kind: rocketpassItemKind('kind').notNull(),
+  /** Last price RocketPass reported, in ARS. Converted to MXN at purchase time via the admin-set rate. */
+  priceArs: numeric('price_ars', { precision: 12, scale: 2 }).notNull(),
+  maxQuantity: integer('max_quantity').notNull(),
+  active: boolean('active').notNull().default(true),
+  rocketpassAvailable: boolean('rocketpass_available').notNull().default(true),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Per-region stock for a catalog item — split out from `item_catalog` since
+ * this changes on a much shorter sync interval than price/name do, and a
+ * membership SKU simply has no rows here (RocketPass reports
+ * `stock_by_region: null` for those).
+ */
+export const itemStock = pgTable(
+  'item_stock',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    itemCatalogId: uuid('item_catalog_id')
+      .notNull()
+      .references(() => itemCatalog.id, { onDelete: 'cascade' }),
+    region: text('region').notNull(),
+    quantity: integer('quantity').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('item_stock_item_region_idx').on(t.itemCatalogId, t.region)],
 );

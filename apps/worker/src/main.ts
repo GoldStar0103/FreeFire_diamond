@@ -13,9 +13,13 @@ import {
   createDb,
   DrizzleCatalogSyncStore,
   DrizzleConversionStore,
+  DrizzleExpiryReminderStore,
+  DrizzleItemFulfillmentStore,
+  DrizzleItemOrderQueue,
   DrizzleLevelPassStore,
   DrizzleOrderQueue,
   DrizzleRecoveryStore,
+  DrizzleRocketPassCatalogStore,
   DrizzleSeasonStore,
   getEmergencyMode,
   PostgresAdvisoryLock,
@@ -34,6 +38,7 @@ import {
   type TopupProvider,
   type UsdTenK,
 } from '@levelup/provider';
+import { RocketPassClient } from '@levelup/rocketpass';
 import { ConsoleAlerter, TelegramAlerter } from './alerter.js';
 import { loadConfig } from './config.js';
 import { startHeartbeat } from './heartbeat.js';
@@ -41,9 +46,12 @@ import { MetaConversionsReporter } from './meta-capi.js';
 import {
   CatalogSyncSchedule,
   runConversions,
+  runExpiryReminders,
   runFulfillmentLoop,
+  runItemFulfillmentLoop,
   runLevelPassSync,
   runRewardDelivery,
+  runRocketPassSync,
   runSeasonClose,
   runSweepOnce,
   ShutdownSignal,
@@ -235,6 +243,18 @@ async function main(): Promise<void> {
 
   const levelPassStore = new DrizzleLevelPassStore(db);
   const seasonStore = new DrizzleSeasonStore(db);
+  const expiryReminderStore = new DrizzleExpiryReminderStore(db);
+
+  // Module 3 (RocketPass vendor items). Null — and simply never run — until
+  // `ROCKETPASS_API_KEY` is set; everything else in this worker is unaffected.
+  const rocketpass = config.rocketpass
+    ? {
+        client: new RocketPassClient({ apiKey: config.rocketpass.apiKey, baseUrl: config.rocketpass.baseUrl }),
+        store: new DrizzleRocketPassCatalogStore(db),
+        itemQueue: new DrizzleItemOrderQueue(db),
+        itemStore: new DrizzleItemFulfillmentStore(db),
+      }
+    : null;
 
   // Server-side purchase reporting for the ad account. Off without a token.
   const conversions = config.meta
@@ -291,6 +311,8 @@ async function main(): Promise<void> {
       // ordinary fulfilment loop above, not here.
       await runRewardDelivery({ store: levelPassStore }, config.levelPass.batchSize);
       await runSeasonClose({ store: seasonStore });
+      await runExpiryReminders({ store: expiryReminderStore });
+      if (rocketpass) await runRocketPassSync(rocketpass);
       // A beat per completed sweep, on top of the timer's. The timer proves the
       // event loop turns; this proves the sweep itself is still coming round.
       heartbeat.beat();
@@ -302,10 +324,34 @@ async function main(): Promise<void> {
     }
   })();
 
+  // A third concurrent loop, only when RocketPass is configured — see
+  // `runItemFulfillmentLoop`'s own comment on why this never shares the
+  // diamond loop's lock/boundary.
+  const items = rocketpass
+    ? runItemFulfillmentLoop(
+        {
+          queue: rocketpass.itemQueue,
+          store: rocketpass.itemStore,
+          client: rocketpass.client,
+          alerter,
+          config: {
+            maxAttempts: config.fulfillment.maxAttempts,
+            staleOrderMs: config.fulfillment.staleOrderMs,
+            idlePollMs: config.fulfillment.idlePollMs,
+          },
+        },
+        signal,
+      )
+    : Promise.resolve({ processed: 0 });
+
   try {
     const { processed } = await runFulfillmentLoop(deps, signal);
     await sweeps;
-    console.log(`[worker] Stopped after processing ${processed} order(s)`);
+    const { processed: itemsProcessed } = await items;
+    console.log(
+      `[worker] Stopped after processing ${processed} order(s)` +
+        (rocketpass ? ` and ${itemsProcessed} item order(s)` : ''),
+    );
   } finally {
     // Stop beating before the connection closes, so a crash cannot leave a
     // fresh heartbeat behind and keep the container marked healthy.

@@ -6,6 +6,7 @@ import {
   attachGatewayCharge,
   DrizzleOrderingStore,
   DrizzlePaymentStore,
+  findResumableOrder,
   getPaymentDetails,
   getStorefrontCombo,
 } from '@levelup/db';
@@ -293,42 +294,54 @@ export async function placeOrder(
   const vault = await resolveVaultPurchase(formData);
   if (!vault.ok) return { error: vault.message };
 
-  const buyer = await getCustomerSession();
-  const created = await createOrder(
-    { store: new DrizzleOrderingStore(getDb()) },
-    {
-      comboKey,
-      playerId,
-      playerNickname: confirmed.nickname,
-      contactWhatsapp: whatsapp,
-      paymentMethod: 'transfer_manual',
-      source: 'storefront',
-      tracking: await trackingContext(),
-      buyerProfileId: buyer?.playerProfileId ?? null,
-      ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
-    },
-  );
+  // Reuse a still-genuinely-untouched pending order for this exact combo
+  // instead of inserting a second one — see `findResumableOrder`'s own doc
+  // comment. Covers the retry this screen's own comment above describes: a
+  // rejected comprobante used to leave a real order sitting in
+  // `pending_payment` that the next attempt duplicated instead of reusing.
+  const resumable = await findResumableOrder(getDb(), { playerId, comboKey });
 
-  if (!created.ok) return { error: explain(created.failure) };
+  let order: { id: string; orderNumber: string; priceMxnCents: number };
+  if (resumable) {
+    order = resumable;
+  } else {
+    const buyer = await getCustomerSession();
+    const created = await createOrder(
+      { store: new DrizzleOrderingStore(getDb()) },
+      {
+        comboKey,
+        playerId,
+        playerNickname: confirmed.nickname,
+        contactWhatsapp: whatsapp,
+        paymentMethod: 'transfer_manual',
+        source: 'storefront',
+        tracking: await trackingContext(),
+        buyerProfileId: buyer?.playerProfileId ?? null,
+        ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
+      },
+    );
+    if (!created.ok) return { error: explain(created.failure) };
+    order = created.order;
+  }
 
   // Written after the order exists, so the file is keyed to a real order
   // number. The bytes were already validated above; `storeComprobante` checks
   // them again, which is cheap and keeps it safe to call from anywhere.
-  const stored = await storeComprobante(created.order.orderNumber, bytes);
+  const stored = await storeComprobante(order.orderNumber, bytes);
 
   if (!stored.ok) {
     // Only reachable now if the disk itself refused the write, since the bytes
     // passed validation moments ago. The order stands and the customer can send
     // the file over WhatsApp with their order number; the alternative — losing
     // an order somebody has already paid for — is worse.
-    console.error(
-      `[checkout] ${created.order.orderNumber}: could not store a valid comprobante`,
-      stored.rejection,
-    );
+    console.error(`[checkout] ${order.orderNumber}: could not store a valid comprobante`, stored.rejection);
     return { error: stored.rejection.message };
   }
 
-  await attachComprobante(created.order.id, stored.key);
+  // Also converts a resumed gateway-method order (abandoned card/OXXO/SPEI
+  // attempt) back to a manual transfer — see `attachComprobante`'s own
+  // comment on why it clears the stale gateway pointer too.
+  await attachComprobante(order.id, stored.key);
 
   // Best-effort and deliberately not awaited: the owner asked to hear about
   // this the moment it happens rather than having to keep checking
@@ -339,17 +352,17 @@ export async function placeOrder(
   // (Dockerfile.next's standalone server), not a serverless function that
   // could freeze before the request finishes.
   notifyNewOrder({
-    orderNumber: created.order.orderNumber,
+    orderNumber: order.orderNumber,
     comboName: combo.name,
     // The order's own price, not the combo's public one — a Vault purchase
     // charges less, and the admin reading this notification needs the real
     // amount to expect on the comprobante, not the public list price.
-    price: mxn(created.order.priceMxnCents),
+    price: mxn(order.priceMxnCents),
   }).catch(() => {
     /* notifyNewOrder already logs and never rejects; this is only a backstop. */
   });
 
-  redirect(`/pedido/${created.order.orderNumber}?id=${encodeURIComponent(playerId)}`);
+  redirect(`/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`);
 }
 
 // ── step 2, through Stripe (card, OXXO, or SPEI — one method per button) ───────
@@ -428,24 +441,35 @@ async function payWithGatewayMethod(
   const vault = await resolveVaultPurchase(formData);
   if (!vault.ok) return { error: vault.message };
 
-  const buyer = await getCustomerSession();
-  const created = await createOrder(
-    { store: new DrizzleOrderingStore(getDb()) },
-    {
-      comboKey,
-      playerId,
-      playerNickname: confirmed.nickname,
-      contactWhatsapp: whatsapp,
-      paymentMethod: method,
-      source: 'storefront',
-      tracking: await trackingContext(),
-      buyerProfileId: buyer?.playerProfileId ?? null,
-      ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
-    },
-  );
-  if (!created.ok) return { error: explain(created.failure) };
+  // Reuse a still-genuinely-untouched pending order for this exact combo
+  // instead of inserting a second one — see `findResumableOrder`'s own doc
+  // comment. Covers a customer who lost the gateway tab and clicked the
+  // button again, or switched methods (e.g. tried OXXO, now wants card).
+  const resumable = await findResumableOrder(getDb(), { playerId, comboKey });
 
-  const { order } = created;
+  let order: { id: string; orderNumber: string; priceMxnCents: number };
+  if (resumable) {
+    order = resumable;
+  } else {
+    const buyer = await getCustomerSession();
+    const created = await createOrder(
+      { store: new DrizzleOrderingStore(getDb()) },
+      {
+        comboKey,
+        playerId,
+        playerNickname: confirmed.nickname,
+        contactWhatsapp: whatsapp,
+        paymentMethod: method,
+        source: 'storefront',
+        tracking: await trackingContext(),
+        buyerProfileId: buyer?.playerProfileId ?? null,
+        ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
+      },
+    );
+    if (!created.ok) return { error: explain(created.failure) };
+    order = created.order;
+  }
+
   const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
   let checkoutUrl: string;
 
@@ -476,18 +500,27 @@ async function payWithGatewayMethod(
       // Pago's Preference does not (createCharge returns null for it), so
       // this leaves whatever deadline order creation already set.
       expiresAt: charge.expiresAt ? new Date(charge.expiresAt.getTime() + SESSION_GRACE_MS) : null,
+      // Only passed when resuming with a method different from the order's
+      // first attempt (see `attachGatewayCharge`'s own comment) — a fresh
+      // order's method is already exactly this.
+      ...(resumable ? { method } : {}),
     });
     if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
 
     checkoutUrl = charge.instructions.url;
   } catch (err) {
     console.error(`[checkout] ${order.orderNumber}: could not open a ${gatewayName}/${method} checkout`, err);
-    await rejectPayment(
-      { store: new DrizzlePaymentStore(getDb()) },
-      { orderId: order.id, adminUserId: null, reason: `No se pudo abrir el pago (${method})` },
-    ).catch((cancelErr: unknown) =>
-      console.error(`[checkout] ${order.orderNumber}: and could not cancel it`, cancelErr),
-    );
+    // Only ever cancels an order this call just created — a resumed order's
+    // original attempt stands untouched on failure, since there is nothing
+    // wrong with it that this failed retry caused.
+    if (!resumable) {
+      await rejectPayment(
+        { store: new DrizzlePaymentStore(getDb()) },
+        { orderId: order.id, adminUserId: null, reason: `No se pudo abrir el pago (${method})` },
+      ).catch((cancelErr: unknown) =>
+        console.error(`[checkout] ${order.orderNumber}: and could not cancel it`, cancelErr),
+      );
+    }
     return { error: copy.openFailed };
   }
 
@@ -550,10 +583,26 @@ export async function payWithMercadoPagoSpei(
   return payWithGatewayMethod(gateway, MERCADOPAGO, 'spei', MERCADOPAGO_SPEI_COPY, formData);
 }
 
+/**
+ * `method`/`gateway`/`gatewayChargeId` are reset here too, not just
+ * `comprobanteAssetUrl`/`status` — on a resumed order whose first attempt was
+ * a gateway method (abandoned card/OXXO/SPEI), this is what actually converts
+ * it to a manual transfer. Without clearing the old `gatewayChargeId`, a late
+ * webhook for that abandoned session could still find and settle this payment
+ * row through the gateway path after the customer has moved on to paying by
+ * transfer instead. A no-op for the ordinary fresh-order case, where those
+ * fields are already at exactly these values.
+ */
 async function attachComprobante(orderId: string, key: string): Promise<void> {
   const { payments } = await import('@levelup/db');
   await getDb()
     .update(payments)
-    .set({ comprobanteAssetUrl: key, status: 'under_review' })
+    .set({
+      comprobanteAssetUrl: key,
+      status: 'under_review',
+      method: 'transfer_manual',
+      gateway: null,
+      gatewayChargeId: null,
+    })
     .where(eq(payments.orderId, orderId));
 }
