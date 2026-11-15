@@ -32,6 +32,7 @@ COPY packages/db/package.json        packages/db/
 COPY packages/engine/package.json    packages/engine/
 COPY packages/payments/package.json  packages/payments/
 COPY packages/provider/package.json  packages/provider/
+COPY packages/rocketpass/package.json packages/rocketpass/
 COPY packages/shared/package.json    packages/shared/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
