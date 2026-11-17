@@ -10,9 +10,9 @@ const STORAGE_KEY = 'levelup_whatsapp_popup_hide_until';
 /** Dispatched by the homepage FAB so the modal can reopen after a dismiss. */
 export const WA_POPUP_OPEN_EVENT = 'levelup:wa-popup-open';
 
-/** Order status / “final” page — Jose: only the VIP invite here, not this channel popup. */
-function isPedidoPage(pathname: string | null): boolean {
-  return Boolean(pathname?.startsWith('/pedido/'));
+/** Jose: this popup should only ever appear on the home page, nowhere else. */
+function isHomePage(pathname: string | null): boolean {
+  return pathname === '/';
 }
 
 export function openWhatsappChannelPopup() {
@@ -57,9 +57,9 @@ const TILES = [
  * per Mexico City day per browser — `localStorage`, not a cookie, since
  * nothing here needs the server to know about it.
  *
- * Never auto-opens (or reopens) on `/pedido/...`: that page already owns the
- * VIP group invite after a completed top-up, and Jose asked that only the VIP
- * popup appear there.
+ * Only ever shows on the home page (`/`) — Jose asked that it stop appearing
+ * everywhere else, including `/pedido/...`, which already owns the VIP group
+ * invite after a completed top-up.
  *
  * Portaled to `document.body` so it stays a true viewport-fixed overlay
  * (same as the approved redesign mockup), not a block that lands in the
@@ -70,7 +70,7 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (isPedidoPage(pathname)) {
+    if (!isHomePage(pathname)) {
       setVisible(false);
       return;
     }
@@ -82,7 +82,7 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
       /* Private browsing or blocked storage — fall through and show it. */
     }
     const open = () => {
-      if (isPedidoPage(window.location.pathname)) return;
+      if (!isHomePage(window.location.pathname)) return;
       setVisible(true);
     };
     window.addEventListener(WA_POPUP_OPEN_EVENT, open);
@@ -111,7 +111,7 @@ export function WhatsappChannelPopup({ channelUrl }: { channelUrl: string }) {
     };
   }, [visible]);
 
-  if (!visible || isPedidoPage(pathname)) return null;
+  if (!visible || !isHomePage(pathname)) return null;
 
   const dismiss = () => setVisible(false);
   const dismissForToday = () => {
