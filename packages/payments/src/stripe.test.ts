@@ -112,6 +112,39 @@ describe('createCharge', () => {
     expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
   });
 
+  it('retries under a fresh key when Stripe refuses a reused one with different params', async () => {
+    // Real production case: `expires_at` is computed from the clock, so a
+    // retry seconds/minutes later ("Continuar pago", a resubmit after a
+    // stuck tab) sends a different payload under the same order-keyed
+    // Idempotency-Key. Stripe rejects that outright instead of creating a
+    // new session — this must recover by retrying once under a de-duplicated
+    // key, not surface "No pudimos abrir el pago con tarjeta" to the customer.
+    const { impl, calls } = fakeFetch([
+      {
+        status: 400,
+        body: {
+          error: {
+            message:
+              "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'levelup-checkout-ord-uuid-1' if you meant to execute a different request.",
+          },
+        },
+      },
+      { status: 200, body: { id: 'cs_2', url: 'https://retry', amount_total: 26_000 } },
+    ]);
+
+    const created = await gateway(impl).createCharge(chargeInput);
+
+    expect(created).toMatchObject({ gatewayChargeId: 'cs_2', instructions: { url: 'https://retry' } });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.headers['Idempotency-Key']).toBe('levelup-checkout-ord-uuid-1');
+    expect(calls[1]?.headers['Idempotency-Key']).toBe(`levelup-checkout-ord-uuid-1-${NOW_MS}`);
+  });
+
+  it('does not retry a plain 400 that has nothing to do with idempotency', async () => {
+    const { impl } = fakeFetch([{ status: 400, body: { error: { message: 'bad param' } } }]);
+    await expect(gateway(impl).createCharge(chargeInput)).rejects.toMatchObject({ retryable: false });
+  });
+
   it('requests only the single method the customer picked, never the others enabled', async () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },

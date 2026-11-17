@@ -338,10 +338,35 @@ export class StripeGateway implements PaymentGateway {
     };
 
     // One session per order, however many times the button is pressed or the
-    // request retried. Stripe replays the original response for 24h.
-    const session = await this.request<StripeSession>('POST', '/checkout/sessions', params, {
-      idempotencyKey: `levelup-checkout-${input.orderId}`,
-    });
+    // request retried. Stripe replays the original response for 24h — but
+    // only when every param matches exactly, and `expires_at` above is
+    // computed from the current clock, so it differs between a first attempt
+    // and any retry seconds or minutes later (a customer resubmitting after
+    // a stuck tab, or "Continuar pago" on a resumed order). Stripe then
+    // rejects the retry outright with a 400 instead of creating a new
+    // session, which is exactly the "No pudimos abrir el pago con tarjeta"
+    // customers started hitting once order resumption made retries common.
+    // A genuine same-instant double-submit still gets the intended replay
+    // (identical params, same second); anything else falls through to a
+    // fresh session under a de-duplicated key instead of failing outright.
+    let session: StripeSession;
+    try {
+      session = await this.request<StripeSession>('POST', '/checkout/sessions', params, {
+        idempotencyKey: `levelup-checkout-${input.orderId}`,
+      });
+    } catch (err) {
+      if (
+        err instanceof StripeApiError &&
+        err.status === 400 &&
+        /idempotent requests/i.test(err.message)
+      ) {
+        session = await this.request<StripeSession>('POST', '/checkout/sessions', params, {
+          idempotencyKey: `levelup-checkout-${input.orderId}-${this.now()}`,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     if (!session.url) {
       throw new GatewayError(`Session ${session.id} came back without a URL`, this.name, true);
