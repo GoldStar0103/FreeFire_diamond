@@ -5756,6 +5756,44 @@ body > .wa-overlay,
   .vlt-offer { animation: none !important; }
 }
 
+/* ── /articulos, /comprar-articulo/[sku]: RocketPass vendor items ────────── */
+.art-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.art-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  transition: transform var(--t-fast, 0.16s), border-color var(--t-fast, 0.16s);
+}
+.art-card:hover { transform: translateY(-2px); border-color: rgba(139, 92, 246, 0.4); }
+.art-card.is-sold-out { opacity: 0.55; cursor: not-allowed; }
+.art-card.is-sold-out:hover { transform: none; }
+.art-card-kind {
+  align-self: flex-start;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+}
+.art-card-name { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+.art-card-price { font-size: 19px; font-weight: 900; color: var(--accent-2); }
+.art-card-stock { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.art-card-stock.is-sold-out { color: #f87171; }
+.art-card-cta { display: block; margin-top: 10px; font-weight: 700; color: var(--accent); }
+
+/* Region picker on the item checkout — reuses `.pago`'s card chrome as a
+   plain tappable button instead of inventing a second card style. */
+.pago.is-selected { border-color: var(--accent-2); box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25); }
+
 /* ── /ranking: Top 50 tabs, podium, pagination, Salón de la Fama ─────────── */
 /* No site header here — leave room under the fixed ← Inicio pill so the
    gold Temporada kicker is fully visible below it. */

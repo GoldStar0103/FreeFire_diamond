@@ -179,7 +179,7 @@ export interface OrderingDeps {
 }
 
 /** Free Fire IDs are numeric and roughly 8-12 digits. */
-const PLAYER_ID_PATTERN = /^\d{6,15}$/;
+export const PLAYER_ID_PATTERN = /^\d{6,15}$/;
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 

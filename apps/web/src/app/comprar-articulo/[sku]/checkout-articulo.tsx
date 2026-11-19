@@ -1,0 +1,253 @@
+'use client';
+
+import { useActionState, useEffect, useState } from 'react';
+import { payWithItemCard, type CheckoutState } from './actions';
+import { setPixelUserData, trackPixel } from '../../../lib/pixel';
+import { GatewayTabNotice, useStripeTabRedirect } from '../../../lib/gateway-tab-redirect';
+
+type Step = 'datos' | 'confirmacion';
+
+interface Props {
+  sku: string;
+  displayName: string;
+  kind: 'gift' | 'membership';
+  price: string;
+  priceMxn: number;
+  maxQuantity: number;
+  /** Region code -> quantity. Empty for a membership. */
+  stockByRegion: Record<string, number>;
+  cancelledNotice: string | null;
+}
+
+const REGION_LABEL: Record<string, string> = { US: 'Estados Unidos', SAC: 'Sudamérica' };
+
+/**
+ * Two screens, not three — there is no identity-confirmation step like the
+ * combo checkout's "¿Eres tú, X?", because RocketPass's own API has no
+ * validate-uid endpoint to check against (confirmed in `packages/rocketpass`).
+ * The warning below is the honest substitute: double-check before paying,
+ * since an item sent to the wrong ID is exactly as unrecoverable as a
+ * diamond recharge would be.
+ */
+export function CheckoutArticulo({
+  sku,
+  displayName,
+  kind,
+  price,
+  priceMxn,
+  maxQuantity,
+  stockByRegion,
+  cancelledNotice,
+}: Props) {
+  const regions = Object.keys(stockByRegion);
+  const [step, setStep] = useState<Step>('datos');
+  const [targetUid, setTargetUid] = useState('');
+  const [targetNickname, setTargetNickname] = useState('');
+  const [region, setRegion] = useState<string | null>(kind === 'gift' ? (regions[0] ?? null) : null);
+  const [quantity, setQuantity] = useState(1);
+
+  const [card, cardAction, redirecting] = useActionState<CheckoutState, FormData>(payWithItemCard, {});
+  const openCardTab = useStripeTabRedirect(card);
+
+  const pixel = {
+    value: priceMxn,
+    currency: 'MXN' as const,
+    content_ids: [sku],
+    content_type: 'product' as const,
+  };
+
+  useEffect(() => {
+    trackPixel('ViewContent', { ...pixel, content_name: displayName });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const idValid = /^\d{6,15}$/.test(targetUid);
+  const regionValid = kind === 'membership' || Boolean(region);
+  const canContinue = idValid && regionValid && quantity >= 1 && quantity <= maxQuantity;
+
+  const confirmStep = () => {
+    setStep('confirmacion');
+    setPixelUserData({ playerId: targetUid });
+    trackPixel('InitiateCheckout', pixel);
+  };
+
+  const trackPaymentInfo = (form: HTMLFormElement) => {
+    const whatsapp = String(new FormData(form).get('whatsapp') ?? '');
+    if (whatsapp) setPixelUserData({ whatsapp });
+    trackPixel('AddPaymentInfo', pixel);
+  };
+
+  return (
+    <div className="ck">
+      <div className="resumen">
+        <div className="txt">
+          <b>{displayName}</b>
+          <span>{kind === 'gift' ? 'Artículo RocketPass' : 'Membresía RocketPass'}</span>
+        </div>
+        <div className="pr">
+          {price.replace(/\s*MXN$/i, '')} <small>MXN</small>
+        </div>
+      </div>
+
+      {cancelledNotice && <div className="alert warn">{cancelledNotice}</div>}
+
+      {step === 'datos' && (
+        <section className="paso">
+          <h2>
+            <span className="n" aria-hidden="true">
+              1
+            </span>
+            Datos de la entrega
+          </h2>
+          <p className="ayuda">
+            Revisa bien tu ID — no podemos verificarlo contra el juego antes de cobrar, así que un
+            ID equivocado no se puede corregir después.
+          </p>
+
+          <label className="field">
+            <span>Tu ID de Free Fire</span>
+            <input
+              inputMode="numeric"
+              pattern="\d*"
+              placeholder="Ej. 123456789"
+              value={targetUid}
+              onChange={(e) => setTargetUid(e.target.value.replace(/\D/g, ''))}
+              autoFocus
+            />
+          </label>
+
+          <label className="field">
+            <span>Tu nombre en el juego (opcional)</span>
+            <input
+              placeholder="Para confirmar que es tu cuenta"
+              value={targetNickname}
+              onChange={(e) => setTargetNickname(e.target.value)}
+            />
+          </label>
+
+          {kind === 'gift' && regions.length > 0 && (
+            <div className="field">
+              <span>Región de tu cuenta</span>
+              <div className="pagos" style={{ marginTop: 6 }}>
+                {regions.map((r) => {
+                  const stock = stockByRegion[r] ?? 0;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      className={`pago tarjeta${region === r ? ' is-selected' : ''}`}
+                      disabled={stock <= 0}
+                      onClick={() => setRegion(r)}
+                      style={{ cursor: stock <= 0 ? 'not-allowed' : 'pointer', opacity: stock <= 0 ? 0.5 : 1 }}
+                    >
+                      <div className="head">
+                        <h3>{REGION_LABEL[r] ?? r}</h3>
+                      </div>
+                      <p className="hint">{stock > 0 ? `${stock} disponibles` : 'Sin stock'}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <label className="field">
+            <span>Cantidad</span>
+            <input
+              type="number"
+              min={1}
+              max={maxQuantity}
+              value={quantity}
+              onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, Number(e.target.value) || 1)))}
+            />
+          </label>
+
+          <button
+            className="btn-primary"
+            type="button"
+            disabled={!canContinue}
+            onClick={confirmStep}
+            style={{ marginTop: 12 }}
+          >
+            Continuar →
+          </button>
+        </section>
+      )}
+
+      {step === 'confirmacion' && (
+        <section className="paso">
+          <h2>
+            <span className="n" aria-hidden="true">
+              2
+            </span>
+            Revisa y paga
+          </h2>
+
+          <div className="datos" style={{ marginTop: 12 }}>
+            <div className="fila">
+              <span className="k">Artículo</span>
+              <span className="v">{displayName}</span>
+            </div>
+            <div className="fila">
+              <span className="k">Cantidad</span>
+              <span className="v">{quantity}</span>
+            </div>
+            {region && (
+              <div className="fila">
+                <span className="k">Región</span>
+                <span className="v">{REGION_LABEL[region] ?? region}</span>
+              </div>
+            )}
+            <div className="fila">
+              <span className="k">ID</span>
+              <span className="v mono">{targetUid}</span>
+            </div>
+            <div className="fila">
+              <span className="k">Total</span>
+              <span className="v total">{price}</span>
+            </div>
+          </div>
+
+          <form
+            action={cardAction}
+            onSubmit={(e) => {
+              openCardTab();
+              trackPaymentInfo(e.currentTarget);
+            }}
+          >
+            <input type="hidden" name="sku" value={sku} />
+            <input type="hidden" name="targetUid" value={targetUid} />
+            <input type="hidden" name="targetNickname" value={targetNickname} />
+            <input type="hidden" name="region" value={region ?? ''} />
+            <input type="hidden" name="quantity" value={quantity} />
+
+            <label className="field">
+              <span>Tu WhatsApp</span>
+              <input
+                type="tel"
+                name="whatsapp"
+                inputMode="tel"
+                placeholder="Solo por si necesitamos contactarte"
+                disabled={redirecting}
+                required
+              />
+            </label>
+
+            <GatewayTabNotice provider="Stripe" />
+
+            {card.error && <div className="alert bad">{card.error}</div>}
+
+            <button className="btn-primary" type="submit" disabled={redirecting}>
+              {redirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${price}`}
+            </button>
+            <p className="hint center">🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.</p>
+          </form>
+
+          <button type="button" className="btn-ghost" onClick={() => setStep('datos')}>
+            ← Volver
+          </button>
+        </section>
+      )}
+    </div>
+  );
+}

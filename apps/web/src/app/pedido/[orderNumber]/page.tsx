@@ -66,6 +66,13 @@ const TRACKER_LABELS = [
   '¡Listo! Diamantes entregados',
 ] as const;
 
+const ITEM_TRACKER_LABELS = [
+  'Recibimos tu pedido',
+  'Confirmando tu pago',
+  'Entregando tu artículo',
+  '¡Listo! Artículo entregado',
+] as const;
+
 /**
  * Where the order sits on the four-stage tracker in the mockup ("Panel de
  * Seguimiento").
@@ -285,6 +292,7 @@ export default async function OrderPage({
           eventId={order.eventId}
           value={order.priceMxnCents / 100}
           comboKey={order.comboKey}
+          itemSku={order.item?.sku ?? null}
           playerId={order.playerId}
           whatsapp={order.contactWhatsapp}
         />
@@ -390,7 +398,7 @@ export default async function OrderPage({
         )}
 
         <div className="timeline">
-          {TRACKER_LABELS.map((label, i) => {
+          {(order.orderType === 'item' ? ITEM_TRACKER_LABELS : TRACKER_LABELS).map((label, i) => {
             const state = trackerStates(order.status, order.completedAt)[i];
             const tlClass =
               state === 'done' ? 'hecho' : state === 'active' ? 'activo' : state === 'error' ? 'activo' : 'pendiente';
@@ -405,7 +413,7 @@ export default async function OrderPage({
                   {i === 1 && order.status === 'pago_en_revision' && (
                     <small>En revisión · suele tardar de 1 a 5 minutos</small>
                   )}
-                  {i === 2 && order.status === 'procesando' && (
+                  {i === 2 && order.status === 'procesando' && order.orderType === 'diamonds' && (
                     <small>
                       {diamonds(order.deliveredDiamonds)} de {diamonds(order.advertisedDiamonds)} (
                       {Math.round(pct)}%)
@@ -427,10 +435,25 @@ export default async function OrderPage({
             <span className="k">Paquete</span>
             <span className="v">{order.comboName}</span>
           </div>
-          <div className="fila">
-            <span className="k">Diamantes</span>
-            <span className="v">{diamonds(order.advertisedDiamonds)}</span>
-          </div>
+          {order.orderType === 'item' && order.item ? (
+            <>
+              <div className="fila">
+                <span className="k">Cantidad</span>
+                <span className="v">{order.item.quantity}</span>
+              </div>
+              {order.item.region && (
+                <div className="fila">
+                  <span className="k">Región</span>
+                  <span className="v">{order.item.region}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="fila">
+              <span className="k">Diamantes</span>
+              <span className="v">{diamonds(order.advertisedDiamonds)}</span>
+            </div>
+          )}
           <div className="fila">
             <span className="k">Cuenta</span>
             <span className="v">

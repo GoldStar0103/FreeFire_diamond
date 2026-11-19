@@ -3,6 +3,7 @@ export * from './ports.js';
 export * from './fulfillment.js';
 export * from './poller.js';
 export * from './ordering.js';
+export * from './item-ordering.js';
 export * from './payments.js';
 export * from './expiry.js';
 export * from './expiry-reminders.js';

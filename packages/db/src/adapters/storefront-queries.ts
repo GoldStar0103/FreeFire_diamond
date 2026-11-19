@@ -18,7 +18,7 @@
 
 import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
-import { campaigns, combos, orderItems, orders, payments } from '../schema.js';
+import { campaigns, combos, itemOrderDetails, orderItems, orders, payments } from '../schema.js';
 import { mexicoCityDayRange } from './mexico-city-time.js';
 
 // ── catalog ───────────────────────────────────────────────────────────────────
@@ -232,6 +232,15 @@ export interface CustomerOrder {
   cancelReason: string | null;
   /** For the browser Purchase pixel's Advanced Matching — same number the server-side CAPI event already hashes. */
   contactWhatsapp: string | null;
+  orderType: 'diamonds' | 'item';
+  /** Only set when `orderType === 'item'`. */
+  item: {
+    sku: string;
+    name: string;
+    quantity: number;
+    region: string | null;
+    fulfillmentStatus: string;
+  } | null;
 }
 
 /**
@@ -297,6 +306,7 @@ export async function findCustomerOrder(
       completedAt: orders.completedAt,
       cancelReason: orders.cancelReason,
       contactWhatsapp: orders.contactWhatsapp,
+      orderType: orders.orderType,
     })
     .from(orders)
     .where(
@@ -309,7 +319,7 @@ export async function findCustomerOrder(
 
   if (!row) return null;
 
-  const [items, [payment]] = await Promise.all([
+  const [items, [payment], [itemDetail]] = await Promise.all([
     db
       .select({ status: orderItems.status, diamondsBase: orderItems.diamondsBase })
       .from(orderItems)
@@ -326,6 +336,19 @@ export async function findCustomerOrder(
       .where(eq(payments.orderId, row.id))
       .orderBy(desc(payments.createdAt))
       .limit(1),
+    row.orderType === 'item'
+      ? db
+          .select({
+            itemSku: itemOrderDetails.itemSku,
+            itemNameSnapshot: itemOrderDetails.itemNameSnapshot,
+            quantity: itemOrderDetails.quantity,
+            region: itemOrderDetails.region,
+            fulfillmentStatus: itemOrderDetails.fulfillmentStatus,
+          })
+          .from(itemOrderDetails)
+          .where(eq(itemOrderDetails.orderId, row.id))
+          .limit(1)
+      : Promise.resolve([]),
   ]);
 
   const deliveredDiamonds = items
@@ -360,6 +383,16 @@ export async function findCustomerOrder(
     comboKey: row.comboKey,
     cancelReason: status === 'cancelado' ? row.cancelReason : null,
     contactWhatsapp: row.contactWhatsapp,
+    orderType: row.orderType,
+    item: itemDetail
+      ? {
+          sku: itemDetail.itemSku,
+          name: itemDetail.itemNameSnapshot,
+          quantity: itemDetail.quantity,
+          region: itemDetail.region,
+          fulfillmentStatus: itemDetail.fulfillmentStatus,
+        }
+      : null,
   };
 }
 

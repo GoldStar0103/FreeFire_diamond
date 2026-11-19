@@ -40,6 +40,7 @@ export function PurchasePixel({
   eventId,
   value,
   comboKey,
+  itemSku,
   playerId,
   whatsapp,
 }: {
@@ -47,6 +48,8 @@ export function PurchasePixel({
   eventId: string;
   value: number;
   comboKey: string | null;
+  /** Set when `comboKey` is null — a RocketPass item order. */
+  itemSku?: string | null;
   playerId: string;
   whatsapp: string | null;
 }) {
@@ -58,6 +61,7 @@ export function PurchasePixel({
     } catch {
       // Private mode: fire anyway; the eventId still deduplicates server-side.
     }
+    const contentId = comboKey ?? itemSku ?? null;
     setPixelUserData({ playerId, ...(whatsapp ? { whatsapp } : {}) });
     trackPixel(
       'Purchase',
@@ -65,10 +69,10 @@ export function PurchasePixel({
         value,
         currency: 'MXN',
         content_type: 'product',
-        ...(comboKey ? { content_ids: [comboKey] } : {}),
+        ...(contentId ? { content_ids: [contentId] } : {}),
       },
       eventId,
     );
-  }, [orderNumber, eventId, value, comboKey, playerId, whatsapp]);
+  }, [orderNumber, eventId, value, comboKey, itemSku, playerId, whatsapp]);
   return null;
 }

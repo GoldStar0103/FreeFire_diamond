@@ -11,7 +11,7 @@
 
 import { and, count, desc, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import type { Database } from '../index.js';
-import { baseProducts, campaigns, combos, orderItems, orders, payments } from '../schema.js';
+import { baseProducts, campaigns, combos, itemOrderDetails, orderItems, orders, payments } from '../schema.js';
 import { mexicoCityDayRange } from './mexico-city-time.js';
 import { getSalesTotals } from './accounting-queries.js';
 
@@ -440,6 +440,19 @@ export interface OrderDetail {
   items: OrderItemDetail[];
   /** Diamonds actually delivered so far, against what was promised. */
   progress: { delivered: number; total: number; pct: number };
+  orderType: 'diamonds' | 'item';
+  /** Only set when `orderType === 'item'`. */
+  itemDetail: {
+    sku: string;
+    nameSnapshot: string;
+    quantity: number;
+    region: string | null;
+    unitPriceSnapshotCents: number;
+    unitCostCentsSnapshot: number;
+    rocketpassOrderId: string | null;
+    fulfillmentStatus: string;
+    attemptCount: number;
+  } | null;
 }
 
 /**
@@ -466,6 +479,11 @@ export async function getOrderDetail(db: Database, orderId: string): Promise<Ord
     .from(orderItems)
     .where(eq(orderItems.orderId, orderId))
     .orderBy(orderItems.sequence);
+
+  const [itemDetailRow] =
+    order.orderType === 'item'
+      ? await db.select().from(itemOrderDetails).where(eq(itemOrderDetails.orderId, orderId)).limit(1)
+      : [];
 
   const bonusPct = 10;
   const delivered = items
@@ -521,6 +539,20 @@ export async function getOrderDetail(db: Database, orderId: string): Promise<Ord
       settledAt: i.settledAt,
     })),
     progress: { delivered, total, pct: total === 0 ? 0 : (delivered / total) * 100 },
+    orderType: order.orderType,
+    itemDetail: itemDetailRow
+      ? {
+          sku: itemDetailRow.itemSku,
+          nameSnapshot: itemDetailRow.itemNameSnapshot,
+          quantity: itemDetailRow.quantity,
+          region: itemDetailRow.region,
+          unitPriceSnapshotCents: itemDetailRow.unitPriceSnapshotCents,
+          unitCostCentsSnapshot: itemDetailRow.unitCostCentsSnapshot,
+          rocketpassOrderId: itemDetailRow.rocketpassOrderId,
+          fulfillmentStatus: itemDetailRow.fulfillmentStatus,
+          attemptCount: itemDetailRow.attemptCount,
+        }
+      : null,
   };
 }
 

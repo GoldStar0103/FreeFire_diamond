@@ -310,13 +310,45 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           of `completed` in the state machine. */}
       {order.status === 'completed' && <ReverseOrderForm orderId={order.orderId} />}
 
-      <h2>Recargas al proveedor ({order.items.length})</h2>
-      <p className="subtitle">
-        El cliente ve una sola compra. Aquí está cada llamada por separado, con lo que
-        respondió el proveedor.
-      </p>
+      {order.orderType === 'item' && order.itemDetail && (
+        <>
+          <h2>Artículo RocketPass</h2>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="row">
+              <strong>{order.itemDetail.nameSnapshot}</strong>
+              <span className="badge muted">×{order.itemDetail.quantity}</span>
+              {order.itemDetail.region && <span className="badge muted">{order.itemDetail.region}</span>}
+              <span className={`badge ${statusTone(order.itemDetail.fulfillmentStatus)}`}>
+                {order.itemDetail.fulfillmentStatus}
+              </span>
+              {order.itemDetail.attemptCount > 1 && (
+                <span className="badge muted">{order.itemDetail.attemptCount} intentos</span>
+              )}
+              <div className="spacer" />
+              <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                {mxn(order.itemDetail.unitCostCentsSnapshot)} costo/u
+              </span>
+            </div>
+            {order.itemDetail.rocketpassOrderId && (
+              <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 8 }} className="mono">
+                Pedido RocketPass: {order.itemDetail.rocketpassOrderId}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
-      {order.items.map((item) => (
+      {order.orderType === 'diamonds' && (
+        <>
+          <h2>Recargas al proveedor ({order.items.length})</h2>
+          <p className="subtitle">
+            El cliente ve una sola compra. Aquí está cada llamada por separado, con lo que
+            respondió el proveedor.
+          </p>
+        </>
+      )}
+
+      {order.orderType === 'diamonds' && order.items.map((item) => (
         <div className="card" key={item.itemId} style={{ marginBottom: 10 }}>
           <div className="row">
             <strong>#{item.sequence + 1}</strong>
