@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mexicoCityCustomRange,
+  mexicoCityDateTimeToUtc,
   mexicoCityDayRange,
   mexicoCityMonthRange,
   mexicoCityWeekRange,
@@ -96,5 +97,22 @@ describe('mexicoCityCustomRange', () => {
     const custom = mexicoCityCustomRange('2026-09-14', '2026-09-14');
     const day = mexicoCityDayRange(new Date('2026-09-14T12:00:00Z'));
     expect(custom).toEqual(day);
+  });
+});
+
+describe('mexicoCityDateTimeToUtc', () => {
+  it('reads a datetime-local value as Mexico City wall-clock time, not server-local time', () => {
+    // 10:00 in Mexico City (UTC-6) is 16:00 UTC — never 10:00 UTC, which is
+    // what plain `new Date(value)` would produce on this UTC-running stack.
+    expect(mexicoCityDateTimeToUtc('2026-11-21T10:00')!.toISOString()).toBe('2026-11-21T16:00:00.000Z');
+  });
+
+  it('accepts the seconds-included variant some browsers emit', () => {
+    expect(mexicoCityDateTimeToUtc('2026-11-21T10:00:30')!.toISOString()).toBe('2026-11-21T16:00:00.000Z');
+  });
+
+  it('returns null for an empty or malformed value', () => {
+    expect(mexicoCityDateTimeToUtc('')).toBeNull();
+    expect(mexicoCityDateTimeToUtc('not-a-date')).toBeNull();
   });
 });

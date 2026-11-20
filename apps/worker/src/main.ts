@@ -14,6 +14,7 @@ import {
   DrizzleCatalogSyncStore,
   DrizzleConversionStore,
   DrizzleExpiryReminderStore,
+  DrizzleGiveawayAdminStore,
   DrizzleItemFulfillmentStore,
   DrizzleItemOrderQueue,
   DrizzleLevelPassStore,
@@ -48,6 +49,7 @@ import {
   runConversions,
   runExpiryReminders,
   runFulfillmentLoop,
+  runGiveawayDraws,
   runItemFulfillmentLoop,
   runLevelPassSync,
   runRewardDelivery,
@@ -244,6 +246,7 @@ async function main(): Promise<void> {
   const levelPassStore = new DrizzleLevelPassStore(db);
   const seasonStore = new DrizzleSeasonStore(db);
   const expiryReminderStore = new DrizzleExpiryReminderStore(db);
+  const giveawayStore = new DrizzleGiveawayAdminStore(db);
 
   // Module 3 (RocketPass vendor items). Null — and simply never run — until
   // `ROCKETPASS_API_KEY` is set; everything else in this worker is unaffected.
@@ -312,6 +315,7 @@ async function main(): Promise<void> {
       await runRewardDelivery({ store: levelPassStore }, config.levelPass.batchSize);
       await runSeasonClose({ store: seasonStore });
       await runExpiryReminders({ store: expiryReminderStore });
+      await runGiveawayDraws({ store: giveawayStore });
       if (rocketpass) await runRocketPassSync(rocketpass);
       // A beat per completed sweep, on top of the timer's. The timer proves the
       // event loop turns; this proves the sweep itself is still coming round.

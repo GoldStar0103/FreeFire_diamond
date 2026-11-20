@@ -124,6 +124,13 @@ export default async function PromocionesPage() {
         <p className="hint" style={{ margin: '4px 0 0' }}>Artículos con stock limitado, aparte de las recargas de diamantes.</p>
       </Link>
 
+      <Link href="/sorteos" className="card" style={{ display: 'block', marginBottom: 14 }}>
+        <b>Sorteos con Golden Tickets →</b>
+        <p className="hint" style={{ margin: '4px 0 0' }}>
+          Ganas tickets con cada recarga entregada — úsalos para participar, sin gastar extra.
+        </p>
+      </Link>
+
       {campaigns.length === 0 && (
         <div className="card empty">Estamos preparando las promociones del mes. Vuelve pronto.</div>
       )}

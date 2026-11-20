@@ -993,7 +993,6 @@ export const financialLedgerEntries = pgTable(
 
 // ── notifications (order recovery module) ───────────────────────────────────
 
-/** Narrow on purpose — Phase 1/2 scope only. Giveaway variants arrive with Module 2. */
 export const notificationType = pgEnum('notification_type', [
   'order_created',
   'order_expiring',
@@ -1005,6 +1004,8 @@ export const notificationType = pgEnum('notification_type', [
   'awaiting_stock',
   'refund',
   'tickets_earned',
+  'giveaway_won',
+  'giveaway_cancelled',
 ]);
 
 /**
@@ -1041,12 +1042,91 @@ export const notifications = pgTable(
   ],
 );
 
+// ── Golden Tickets giveaways (Module 2) ─────────────────────────────────────
+
+export const giveawayStatus = pgEnum('giveaway_status', [
+  'draft',
+  'open',
+  'closed_pending_draw',
+  'drawn',
+  'delivered',
+  'cancelled',
+]);
+
+/** Descriptive only in this build — drives storefront copy ("Sorteo diario"), nothing auto-recurs from it yet. */
+export const giveawayScheduleType = pgEnum('giveaway_schedule_type', [
+  'daily',
+  'weekly',
+  'monthly',
+  'flash',
+]);
+
+/**
+ * A single raffle: players spend Golden Tickets (`giveawayEntries`) for a
+ * chance at one prize, drawn by an admin (not automatic — see the plan) once
+ * `closesAt` has passed and `closeDueGiveaways` has moved it to
+ * `closed_pending_draw`. One winner only in this build; multi-tier prizes are
+ * out of scope.
+ */
+export const giveaways = pgTable(
+  'giveaways',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    description: text('description').notNull(),
+    prizeDescription: text('prize_description').notNull(),
+    entryCostTickets: integer('entry_cost_tickets').notNull(),
+    scheduleType: giveawayScheduleType('schedule_type').notNull(),
+    /** Below this many total entries at close time, the giveaway is cancelled and every entrant refunded instead of drawn. */
+    minEntries: integer('min_entries').notNull().default(0),
+    opensAt: timestamp('opens_at', { withTimezone: true }).notNull(),
+    closesAt: timestamp('closes_at', { withTimezone: true }).notNull(),
+    status: giveawayStatus('status').notNull().default('draft'),
+    winnerPlayerProfileId: uuid('winner_player_profile_id').references(() => playerProfiles.id, {
+      onDelete: 'set null',
+    }),
+    drawnAt: timestamp('drawn_at', { withTimezone: true }),
+    drawnByAdminId: uuid('drawn_by_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
+    cancelReason: text('cancel_reason'),
+    createdByAdminId: uuid('created_by_admin_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('giveaways_status_closes_idx').on(t.status, t.closesAt)],
+);
+
+/**
+ * One row per `(giveaway, player)`, accumulated via upsert as a player buys
+ * more entries in the same giveaway — `entryCount` is this player's number of
+ * chances in the draw; `ticketsSpent` is the running total they've paid in.
+ * The real per-purchase audit trail is `ticketTransactions`, not this table.
+ */
+export const giveawayEntries = pgTable(
+  'giveaway_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    giveawayId: uuid('giveaway_id')
+      .notNull()
+      .references(() => giveaways.id, { onDelete: 'restrict' }),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    entryCount: integer('entry_count').notNull(),
+    ticketsSpent: integer('tickets_spent').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('giveaway_entries_giveaway_player_idx').on(t.giveawayId, t.playerProfileId)],
+);
+
 // ── Golden Tickets ledger ────────────────────────────────────────────────────
 
 export const ticketTransactionType = pgEnum('ticket_transaction_type', [
   'purchase', // earned from a delivered order
-  'entry', // spent entering a giveaway (Module 2)
-  'return', // entry refunded — giveaway cancelled or minimum not reached (Module 2)
+  'entry', // spent entering a giveaway
+  'return', // entry refunded — giveaway cancelled or minimum not reached
   'reversal', // order refunded/charged back — undoes a 'purchase' row
   'admin_adjustment',
 ]);
@@ -1071,6 +1151,8 @@ export const ticketTransactions = pgTable(
     amount: integer('amount').notNull(),
     resultingBalance: integer('resulting_balance').notNull(),
     orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+    /** Set on 'entry'/'return' rows only — traceability for the giveaway ledger, not an idempotency guard (see giveaways.status below). */
+    giveawayId: uuid('giveaway_id').references(() => giveaways.id, { onDelete: 'set null' }),
     adminId: uuid('admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
     reason: text('reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -99,3 +99,18 @@ export function mexicoCityCustomRange(startYmd: string, endYmdInclusive: string)
   const [ey, em, ed] = endYmdInclusive.split('-').map(Number) as [number, number, number];
   return { start: utcMidnight(sy, sm, sd), end: utcMidnight(ey, em, ed + 1) };
 }
+
+/**
+ * An `<input type="datetime-local">` value ("YYYY-MM-DDTHH:mm"), read as the
+ * admin's own Mexico City wall-clock time, converted to the UTC instant the
+ * database actually stores. Parsing it with plain `new Date(value)` would
+ * instead read it as the *server's* local time — UTC in this deployment, see
+ * this file's own doc comment — silently shifting every giveaway's open/close
+ * time by the 6-hour offset.
+ */
+export function mexicoCityDateTimeToUtc(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!match) return null;
+  const [, y, m, d, h, min] = match.map(Number) as unknown as [number, number, number, number, number, number];
+  return new Date(Date.UTC(y, m - 1, d, h + OFFSET_HOURS, min, 0, 0));
+}

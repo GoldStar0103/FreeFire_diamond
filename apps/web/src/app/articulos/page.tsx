@@ -42,6 +42,13 @@ export default async function ArticulosPage() {
         <p>Stock limitado, vendido tal cual lo reporta el proveedor — vuelve seguido.</p>
       </section>
 
+      <Link href="/sorteos" className="card" style={{ display: 'block', marginBottom: 14 }}>
+        <b>Sorteos con Golden Tickets →</b>
+        <p className="hint" style={{ margin: '4px 0 0' }}>
+          Ganas tickets con cada recarga entregada — úsalos para participar, sin gastar extra.
+        </p>
+      </Link>
+
       {items.length === 0 ? (
         <div className="card empty">Estamos preparando el catálogo de artículos. Vuelve pronto.</div>
       ) : (

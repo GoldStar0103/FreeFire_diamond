@@ -47,7 +47,7 @@ import type {
   StuckPaymentStore,
 } from '@levelup/engine';
 import type { ProviderName, TopupProvider, UsdTenK } from '@levelup/provider';
-import type { DrizzleOrderQueue } from '@levelup/db';
+import type { DrizzleGiveawayAdminStore, DrizzleOrderQueue } from '@levelup/db';
 import { catalogSyncAlerts } from './catalog-report.js';
 import type { WorkerConfig } from './config.js';
 
@@ -631,5 +631,32 @@ export async function runRewardDelivery(
     }
   } catch (err) {
     console.error(`[rewards] Could not grant completed reward orders: ${String(err)}`);
+  }
+}
+
+/**
+ * Golden Tickets giveaways (Module 2): close any giveaway past its `closesAt`
+ * — to `closed_pending_draw` if it met its minimum, or `cancelled` with every
+ * entrant refunded otherwise. Every giveaway has its own due time (a row
+ * query, not a single global timer), so this rides the plain sweep cadence
+ * like `runLevelPassSync`/`runSeasonClose` rather than needing a
+ * `CatalogSyncSchedule`-style schedule of its own. Winner selection is
+ * deliberately NOT done here — `drawWinner` is admin-triggered only, never
+ * called from the worker.
+ */
+export async function runGiveawayDraws(deps: {
+  store: Pick<DrizzleGiveawayAdminStore, 'closeDueGiveaways'>;
+}): Promise<{ closedPendingDraw: number; cancelledAndRefunded: number } | null> {
+  try {
+    const result = await deps.store.closeDueGiveaways(new Date());
+    if (result.closedPendingDraw > 0 || result.cancelledAndRefunded > 0) {
+      console.log(
+        `[giveaways] ${result.closedPendingDraw} closed for draw, ${result.cancelledAndRefunded} cancelled and refunded`,
+      );
+    }
+    return result;
+  } catch (err) {
+    console.error(`[giveaways] Sweep failed: ${String(err)}`);
+    return null;
   }
 }

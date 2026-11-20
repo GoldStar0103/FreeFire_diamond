@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getMyLevelUpOverview, getMyProfile, listMyOrders } from '@levelup/db';
+import { getMyLevelUpOverview, getMyProfile, listMyGiveawayEntries, listMyOrders } from '@levelup/db';
 import { getCustomerSession } from '../../lib/customer-session.js';
 import { getDb } from '../../lib/server.js';
 import { avatarUrl } from '../../lib/assets.js';
 import { diamonds, mxn } from '../../lib/format.js';
-import { CartIcon, ClockIcon, CrownIcon, DiamondIcon, LockIcon } from '../icons';
+import { CartIcon, ClockIcon, CrownIcon, DiamondIcon, GiftIcon, LockIcon } from '../icons';
 import { MascotMedia } from '../mascot-media';
 import { SiteHeader } from '../site-header';
 import { CuentaBg } from './cuenta-bg';
@@ -43,6 +43,29 @@ function orderTone(status: string): 'ok' | 'o' | 'e' {
 
 function daysRemaining(endsAt: Date): number {
   return Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000));
+}
+
+function giveawayStatusLabel(status: string, isWinner: boolean): string {
+  switch (status) {
+    case 'open':
+      return 'Abierto';
+    case 'closed_pending_draw':
+      return 'Esperando sorteo';
+    case 'drawn':
+      return isWinner ? '¡Ganaste!' : 'No ganaste esta vez';
+    case 'delivered':
+      return 'Premio entregado';
+    case 'cancelled':
+      return 'Cancelado — tickets devueltos';
+    default:
+      return status;
+  }
+}
+
+function giveawayTone(status: string, isWinner: boolean): 'ok' | 'o' | 'e' {
+  if (status === 'delivered' || (status === 'drawn' && isWinner)) return 'ok';
+  if (status === 'cancelled' || (status === 'drawn' && !isWinner)) return 'e';
+  return 'o';
 }
 
 export default async function CuentaPage() {
@@ -86,10 +109,11 @@ export default async function CuentaPage() {
   }
 
   const db = getDb();
-  const [profile, overview, orders] = await Promise.all([
+  const [profile, overview, orders, giveawayEntries] = await Promise.all([
     getMyProfile(db, session.playerProfileId),
     getMyLevelUpOverview(db, session.playerProfileId),
     listMyOrders(db, session.playerId, 10, session.playerProfileId),
+    listMyGiveawayEntries(db, session.playerProfileId),
   ]);
 
   if (!profile) {
@@ -184,6 +208,13 @@ export default async function CuentaPage() {
           <b>{overview.lp}</b>
           <span>LP esta temporada</span>
         </div>
+        <Link href="/sorteos" className="stat">
+          <span className="ic">
+            <GiftIcon className="icon" />
+          </span>
+          <b>{profile.ticketBalance}</b>
+          <span>Golden Tickets</span>
+        </Link>
       </div>
 
       {overview.featuredBadges.length > 0 ? (
@@ -308,7 +339,31 @@ export default async function CuentaPage() {
         </section>
       )}
 
-      <form action={logout} style={{ marginTop: orders.length > 0 ? 0 : 20 }}>
+      {giveawayEntries.length > 0 && (
+        <section className="pedidos">
+          <div className="cab">
+            <i aria-hidden="true" />
+            <h2>Tus sorteos</h2>
+          </div>
+          {giveawayEntries.map((g) => (
+            <Link key={g.giveawayId} href={`/sorteos/${g.giveawayId}`} className={`pedido ${giveawayTone(g.status, g.isWinner)}`}>
+              <span className="carro">
+                <GiftIcon className="icon" />
+              </span>
+              <div className="datos">
+                <div className="id">{g.title}</div>
+                <span className="det">{g.entryCount} entrada{g.entryCount === 1 ? '' : 's'} · {g.prizeDescription}</span>
+              </div>
+              <div className="der">
+                <span className="est">{giveawayStatusLabel(g.status, g.isWinner)}</span>
+              </div>
+              <span className="arw">→</span>
+            </Link>
+          ))}
+        </section>
+      )}
+
+      <form action={logout} style={{ marginTop: orders.length > 0 || giveawayEntries.length > 0 ? 0 : 20 }}>
         <button className="cerrar" type="submit">
           Cerrar sesión
           <span className="arw">→</span>

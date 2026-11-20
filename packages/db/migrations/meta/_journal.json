@@ -127,6 +127,13 @@
       "when": 1794684795184,
       "tag": "0017_smiling_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795206342759,
+      "tag": "0018_tan_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

@@ -61,3 +61,6 @@ export * from './adapters/badge-admin-store.js';
 export * from './adapters/vault-admin-store.js';
 export * from './adapters/customer-profile-store.js';
 export * from './adapters/notifications-store.js';
+export * from './adapters/giveaway-admin-store.js';
+export * from './adapters/giveaway-entry-store.js';
+export * from './adapters/giveaway-queries.js';

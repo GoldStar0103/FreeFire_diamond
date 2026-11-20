@@ -36,6 +36,7 @@ export interface MyProfile {
   avatarAssetUrl: string | null;
   lifetimeDiamondsPurchased: number;
   lifetimeRechargeCount: number;
+  ticketBalance: number;
   createdAt: Date;
 }
 

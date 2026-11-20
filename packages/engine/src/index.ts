@@ -20,3 +20,5 @@ export * from './golden-tickets.js';
 export * from './lp-override.js';
 export * from './order-reversal.js';
 export * from './seasons.js';
+export * from './giveaways.js';
+export * from './giveaway-entry.js';
