@@ -49,16 +49,8 @@ export default async function ArticulosPage() {
           {items.map((item) => {
             const sold = Object.keys(item.stockByRegion).length > 0 &&
               Object.values(item.stockByRegion).every((n) => n === 0);
-            return (
-              <Link
-                key={item.sku}
-                href={sold ? '#' : `/comprar-articulo/${item.sku}`}
-                className={`card art-card${sold ? ' is-sold-out' : ''}`}
-                aria-disabled={sold}
-                onClick={(e) => {
-                  if (sold) e.preventDefault();
-                }}
-              >
+            const card = (
+              <>
                 <span className="art-card-kind">{KIND_LABEL[item.kind]}</span>
                 <span className="art-card-name">{item.displayName}</span>
                 <span className="art-card-price">{mxn(item.salePriceMxnCents)}</span>
@@ -68,6 +60,23 @@ export default async function ArticulosPage() {
                   </span>
                 )}
                 <span className="art-card-cta">{sold ? 'Agotado' : 'Comprar →'}</span>
+              </>
+            );
+
+            // A sold-out card has nowhere to navigate to, so it renders as a
+            // plain non-interactive div rather than a Link whose navigation
+            // needs blocking — a Server Component can't pass an onClick
+            // handler to Link, since a function isn't serializable across
+            // the server/client boundary (confirmed in production: crashed
+            // the whole page with "Event handlers cannot be passed to
+            // Client Component props").
+            return sold ? (
+              <div key={item.sku} className="card art-card is-sold-out" aria-disabled="true">
+                {card}
+              </div>
+            ) : (
+              <Link key={item.sku} href={`/comprar-articulo/${item.sku}`} className="card art-card">
+                {card}
               </Link>
             );
           })}
