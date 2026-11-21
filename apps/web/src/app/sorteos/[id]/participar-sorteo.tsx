@@ -8,6 +8,8 @@ interface Props {
   entryCostTickets: number;
   ticketBalance: number;
   myEntryCount: number;
+  /** Null = no cap. */
+  maxEntriesPerPlayer: number | null;
 }
 
 /**
@@ -15,15 +17,18 @@ interface Props {
  * no delivery details or payment: tickets are already sitting on the
  * player's own account, so this is just "how many entries" + submit.
  */
-export function ParticiparSorteo({ giveawayId, entryCostTickets, ticketBalance, myEntryCount }: Props) {
+export function ParticiparSorteo({ giveawayId, entryCostTickets, ticketBalance, myEntryCount, maxEntriesPerPlayer }: Props) {
   const [state, action, pending] = useActionState<EnterGiveawayState, FormData>(enterGiveawayAction, {});
-  const maxAffordable = Math.max(0, Math.floor((state.ok ? state.ok.resultingBalance : ticketBalance) / entryCostTickets));
+  const currentEntries = state.ok ? myEntryCount + state.ok.entryCount : myEntryCount;
+  const affordableMax = Math.max(0, Math.floor((state.ok ? state.ok.resultingBalance : ticketBalance) / entryCostTickets));
+  const remainingByCap = maxEntriesPerPlayer != null ? Math.max(0, maxEntriesPerPlayer - currentEntries) : Infinity;
+  const maxAffordable = Math.min(affordableMax, remainingByCap);
   const [entryCount, setEntryCount] = useState(Math.min(1, maxAffordable || 1));
 
   const currentBalance = state.ok ? state.ok.resultingBalance : ticketBalance;
-  const currentEntries = state.ok ? myEntryCount + state.ok.entryCount : myEntryCount;
   const cost = entryCount * entryCostTickets;
   const canAfford = maxAffordable >= 1 && entryCount >= 1 && cost <= currentBalance;
+  const reachedCap = maxEntriesPerPlayer != null && currentEntries >= maxEntriesPerPlayer;
 
   return (
     <div className="card" style={{ marginTop: 14 }}>
@@ -42,8 +47,14 @@ export function ParticiparSorteo({ giveawayId, entryCostTickets, ticketBalance, 
 
       {maxAffordable < 1 ? (
         <div className="alert warn">
-          Necesitas al menos {entryCostTickets} ticket{entryCostTickets === 1 ? '' : 's'} para participar —
-          tienes {currentBalance}.
+          {reachedCap ? (
+            <>Ya alcanzaste el máximo de {maxEntriesPerPlayer} entradas por jugador en este sorteo.</>
+          ) : (
+            <>
+              Necesitas al menos {entryCostTickets} ticket{entryCostTickets === 1 ? '' : 's'} para participar —
+              tienes {currentBalance}.
+            </>
+          )}
         </div>
       ) : (
         <form action={action}>

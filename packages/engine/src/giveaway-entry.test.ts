@@ -105,7 +105,7 @@ describe('enterGiveaway', () => {
   });
 
   it('surfaces insufficient tickets without spending anything', async () => {
-    const { store } = harness(openGiveaway(), { ok: false, currentBalance: 5 });
+    const { store } = harness(openGiveaway(), { ok: false, reason: 'insufficient_tickets', currentBalance: 5 });
     const result = await enterGiveaway({ store, now }, baseInput);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -113,5 +113,23 @@ describe('enterGiveaway', () => {
     if (result.failure.code !== 'INSUFFICIENT_TICKETS') return;
     expect(result.failure.balance).toBe(5);
     expect(result.failure.cost).toBe(30);
+  });
+
+  it('surfaces the per-player entry cap', async () => {
+    const { store } = harness(openGiveaway(), { ok: false, reason: 'max_entries_per_player', currentEntryCount: 4 });
+    const result = await enterGiveaway({ store, now }, baseInput);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure.code).toBe('MAX_ENTRIES_PER_PLAYER_EXCEEDED');
+    if (result.failure.code !== 'MAX_ENTRIES_PER_PLAYER_EXCEEDED') return;
+    expect(result.failure.currentEntryCount).toBe(4);
+  });
+
+  it('surfaces a full giveaway (max participants reached)', async () => {
+    const { store } = harness(openGiveaway(), { ok: false, reason: 'giveaway_full' });
+    const result = await enterGiveaway({ store, now }, baseInput);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure.code).toBe('GIVEAWAY_FULL');
   });
 });

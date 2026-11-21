@@ -1079,6 +1079,10 @@ export const giveaways = pgTable(
     scheduleType: giveawayScheduleType('schedule_type').notNull(),
     /** Below this many total entries at close time, the giveaway is cancelled and every entrant refunded instead of drawn. */
     minEntries: integer('min_entries').notNull().default(0),
+    /** Null = no cap. Enforced transactionally in `spendTicketsForEntry`, not just the UI. */
+    maxEntriesPerPlayer: integer('max_entries_per_player'),
+    /** Null = no cap. Caps distinct entrants (`giveaway_entries` rows), not total entries. */
+    maxParticipants: integer('max_participants'),
     opensAt: timestamp('opens_at', { withTimezone: true }).notNull(),
     closesAt: timestamp('closes_at', { withTimezone: true }).notNull(),
     status: giveawayStatus('status').notNull().default('draft'),

@@ -64,6 +64,17 @@ export function NewGiveawayForm() {
       </div>
 
       <div className="row">
+        <label className="field" style={{ maxWidth: 220 }}>
+          <span>Máx. entradas por jugador (opcional)</span>
+          <input name="maxEntriesPerPlayer" type="number" min={1} step={1} placeholder="Sin límite" />
+        </label>
+        <label className="field" style={{ maxWidth: 220 }}>
+          <span>Máx. participantes (opcional)</span>
+          <input name="maxParticipants" type="number" min={1} step={1} placeholder="Sin límite" />
+        </label>
+      </div>
+
+      <div className="row">
         <label className="field">
           <span>Abre (hora Ciudad de México)</span>
           <input name="opensAt" type="datetime-local" required />

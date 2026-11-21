@@ -7,10 +7,18 @@ import postgres from 'postgres';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { sql as raw } from 'drizzle-orm';
+import { eq, sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
 import { adminUsers, giveawayEntries, giveaways, playerProfiles } from '../schema.js';
-import { getMyEntry, getOpenGiveaway, listMyGiveawayEntries, listOpenGiveaways } from './giveaway-queries.js';
+import {
+  getGiveawayPublic,
+  getMyEntry,
+  getOpenGiveaway,
+  listGiveawayLeaderboard,
+  listMyGiveawayEntries,
+  listOpenGiveaways,
+  listRecentCompletedGiveaways,
+} from './giveaway-queries.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(HERE, '..', '..', 'migrations');
@@ -148,5 +156,77 @@ describe.skipIf(!PG_AVAILABLE)('getMyEntry / listMyGiveawayEntries', () => {
     expect(list).toHaveLength(2);
     expect(list.find((e) => e.giveawayId === drawn.id)?.isWinner).toBe(true);
     expect(list.find((e) => e.giveawayId === lostOne.id)?.isWinner).toBe(false);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('getGiveawayPublic', () => {
+  it('returns null for a draft (admin-only) giveaway', async () => {
+    const draft = await seedGiveaway({ status: 'draft' });
+    expect(await getGiveawayPublic(db, draft.id)).toBeNull();
+  });
+
+  it('returns an open giveaway with no winner yet', async () => {
+    const open = await seedGiveaway();
+    const found = await getGiveawayPublic(db, open.id);
+    expect(found).toMatchObject({ id: open.id, status: 'open', winnerDisplayName: null, totalEntryCount: 0 });
+  });
+
+  it('includes the winner display name once drawn', async () => {
+    const winner = await seedPlayer();
+    await db.update(playerProfiles).set({ displayName: 'Ganador123' }).where(eq(playerProfiles.id, winner.id));
+    const drawn = await seedGiveaway({ status: 'drawn', winnerPlayerProfileId: winner.id });
+
+    const found = await getGiveawayPublic(db, drawn.id);
+    expect(found).toMatchObject({ status: 'drawn', winnerDisplayName: 'Ganador123' });
+  });
+
+  it('surfaces the cancel reason for a cancelled giveaway', async () => {
+    const cancelled = await seedGiveaway({ status: 'cancelled', cancelReason: 'No alcanzó el mínimo' });
+    const found = await getGiveawayPublic(db, cancelled.id);
+    expect(found).toMatchObject({ status: 'cancelled', cancelReason: 'No alcanzó el mínimo' });
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('listGiveawayLeaderboard', () => {
+  it('orders entrants by entryCount descending, never exposing ticketsSpent', async () => {
+    const giveaway = await seedGiveaway();
+    const leader = await seedPlayer();
+    const trailing = await seedPlayer();
+    await db.insert(giveawayEntries).values({ giveawayId: giveaway.id, playerProfileId: leader.id, entryCount: 5, ticketsSpent: 50 });
+    await db.insert(giveawayEntries).values({ giveawayId: giveaway.id, playerProfileId: trailing.id, entryCount: 1, ticketsSpent: 10 });
+
+    const board = await listGiveawayLeaderboard(db, giveaway.id);
+    expect(board.map((r) => r.playerProfileId)).toEqual([leader.id, trailing.id]);
+    expect(board[0]).not.toHaveProperty('ticketsSpent');
+  });
+
+  it('falls back to a generic label when the player has no display name', async () => {
+    const giveaway = await seedGiveaway();
+    const player = await seedPlayer();
+    await db.insert(giveawayEntries).values({ giveawayId: giveaway.id, playerProfileId: player.id, entryCount: 1, ticketsSpent: 10 });
+
+    const board = await listGiveawayLeaderboard(db, giveaway.id);
+    expect(board[0]?.displayName).toBe(`Jugador ${player.playerId}`);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('listRecentCompletedGiveaways', () => {
+  it('lists drawn/delivered/cancelled giveaways, newest-closed first, excluding open/draft ones', async () => {
+    await seedGiveaway({ status: 'open' });
+    await seedGiveaway({ status: 'draft' });
+    const older = await seedGiveaway({ status: 'delivered', closesAt: new Date('2026-10-01T00:00:00Z') });
+    const newer = await seedGiveaway({ status: 'cancelled', closesAt: new Date('2026-11-01T00:00:00Z') });
+
+    const list = await listRecentCompletedGiveaways(db);
+    expect(list.map((g) => g.id)).toEqual([newer.id, older.id]);
+  });
+
+  it('includes the winner display name and total entries', async () => {
+    const winner = await seedPlayer();
+    const drawn = await seedGiveaway({ status: 'drawn', winnerPlayerProfileId: winner.id });
+    await db.insert(giveawayEntries).values({ giveawayId: drawn.id, playerProfileId: winner.id, entryCount: 3, ticketsSpent: 30 });
+
+    const [row] = await listRecentCompletedGiveaways(db);
+    expect(row).toMatchObject({ id: drawn.id, winnerDisplayName: `Jugador ${winner.playerId}`, totalEntryCount: 3 });
   });
 });

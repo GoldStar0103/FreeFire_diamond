@@ -25,6 +25,8 @@ export interface GiveawayAdminRow {
   entryCostTickets: number;
   scheduleType: GiveawayScheduleType;
   minEntries: number;
+  maxEntriesPerPlayer: number | null;
+  maxParticipants: number | null;
   opensAt: Date;
   closesAt: Date;
   status: GiveawayStatus;
@@ -52,6 +54,8 @@ export interface CreateGiveawayInput {
   entryCostTickets: number;
   scheduleType: GiveawayScheduleType;
   minEntries: number;
+  maxEntriesPerPlayer?: number | null;
+  maxParticipants?: number | null;
   opensAt: Date;
   closesAt: Date;
 }
@@ -64,6 +68,8 @@ const ADMIN_ROW_SELECTION = {
   entryCostTickets: giveaways.entryCostTickets,
   scheduleType: giveaways.scheduleType,
   minEntries: giveaways.minEntries,
+  maxEntriesPerPlayer: giveaways.maxEntriesPerPlayer,
+  maxParticipants: giveaways.maxParticipants,
   opensAt: giveaways.opensAt,
   closesAt: giveaways.closesAt,
   status: giveaways.status,
@@ -96,6 +102,8 @@ export class DrizzleGiveawayAdminStore {
         giveaways.entryCostTickets,
         giveaways.scheduleType,
         giveaways.minEntries,
+        giveaways.maxEntriesPerPlayer,
+        giveaways.maxParticipants,
         giveaways.opensAt,
         giveaways.closesAt,
         giveaways.status,

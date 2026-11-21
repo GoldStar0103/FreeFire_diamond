@@ -1,9 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getMyProfile, listOpenGiveaways } from '@levelup/db';
+import { getMyProfile, listOpenGiveaways, listRecentCompletedGiveaways } from '@levelup/db';
 import { getDb } from '../../lib/server';
 import { getCustomerSession } from '../../lib/customer-session';
 import { SiteHeader } from '../site-header';
+
+const COMPLETED_STATUS_LABEL: Record<'drawn' | 'delivered' | 'cancelled', string> = {
+  drawn: 'Sorteado',
+  delivered: 'Entregado',
+  cancelled: 'Cancelado',
+};
 
 export const metadata: Metadata = {
   title: 'Sorteos',
@@ -32,9 +38,10 @@ function timeRemaining(closesAt: Date): string {
 export default async function SorteosPage() {
   const db = getDb();
   const session = await getCustomerSession();
-  const [giveaways, profile] = await Promise.all([
+  const [giveaways, profile, recent] = await Promise.all([
     listOpenGiveaways(db),
     session ? getMyProfile(db, session.playerProfileId) : null,
+    listRecentCompletedGiveaways(db, 10),
   ]);
 
   return (
@@ -77,11 +84,33 @@ export default async function SorteosPage() {
               <span className="art-card-stock">
                 {g.entryCostTickets} ticket{g.entryCostTickets === 1 ? '' : 's'} por entrada ·{' '}
                 {g.totalEntryCount} entrada{g.totalEntryCount === 1 ? '' : 's'} hasta ahora
+                {g.maxParticipants != null ? ` · ${g.totalEntrants}/${g.maxParticipants} participantes` : ''}
               </span>
               <span className="art-card-cta">{timeRemaining(g.closesAt)} · Participar →</span>
             </Link>
           ))}
         </div>
+      )}
+
+      {recent.length > 0 && (
+        <section style={{ marginTop: 28 }}>
+          <h2 style={{ fontSize: 18, marginBottom: 10 }}>Últimos sorteos</h2>
+          <div className="art-grid">
+            {recent.map((g) => (
+              <Link key={g.id} href={`/sorteos/${g.id}`} className="card art-card">
+                <span className="art-card-kind">{COMPLETED_STATUS_LABEL[g.status]}</span>
+                <span className="art-card-name">{g.title}</span>
+                <span className="art-card-price">{g.prizeDescription}</span>
+                <span className="art-card-stock">
+                  {g.status === 'cancelled'
+                    ? 'No alcanzó el mínimo de participantes'
+                    : `Ganó ${g.winnerDisplayName ?? 'un jugador de LevelUp'}`}
+                </span>
+                <span className="art-card-cta">Ver detalle →</span>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
     </main>
   );

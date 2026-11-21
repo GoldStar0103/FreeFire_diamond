@@ -28,6 +28,10 @@ export async function createGiveawayAction(
   const scheduleType = String(formData.get('scheduleType') ?? '');
   const opensAt = mexicoCityDateTimeToUtc(String(formData.get('opensAt') ?? ''));
   const closesAt = mexicoCityDateTimeToUtc(String(formData.get('closesAt') ?? ''));
+  const maxEntriesPerPlayerRaw = String(formData.get('maxEntriesPerPlayer') ?? '').trim();
+  const maxParticipantsRaw = String(formData.get('maxParticipants') ?? '').trim();
+  const maxEntriesPerPlayer = maxEntriesPerPlayerRaw ? Number(maxEntriesPerPlayerRaw) : null;
+  const maxParticipants = maxParticipantsRaw ? Number(maxParticipantsRaw) : null;
 
   if (!title) issues.push('Falta el título.');
   if (!description) issues.push('Falta la descripción.');
@@ -37,6 +41,12 @@ export async function createGiveawayAction(
   }
   if (!Number.isFinite(minEntries) || minEntries < 0) {
     issues.push('El mínimo de entradas no puede ser negativo.');
+  }
+  if (maxEntriesPerPlayer !== null && (!Number.isFinite(maxEntriesPerPlayer) || maxEntriesPerPlayer < 1)) {
+    issues.push('El máximo de entradas por jugador debe ser al menos 1.');
+  }
+  if (maxParticipants !== null && (!Number.isFinite(maxParticipants) || maxParticipants < 1)) {
+    issues.push('El máximo de participantes debe ser al menos 1.');
   }
   if (!SCHEDULE_TYPES.includes(scheduleType as (typeof SCHEDULE_TYPES)[number])) {
     issues.push('Elige un tipo de sorteo.');
@@ -54,6 +64,8 @@ export async function createGiveawayAction(
     entryCostTickets: Math.trunc(entryCostTickets),
     scheduleType: scheduleType as CreateGiveawayInput['scheduleType'],
     minEntries: Math.trunc(minEntries),
+    maxEntriesPerPlayer: maxEntriesPerPlayer !== null ? Math.trunc(maxEntriesPerPlayer) : null,
+    maxParticipants: maxParticipants !== null ? Math.trunc(maxParticipants) : null,
     opensAt,
     closesAt,
   };

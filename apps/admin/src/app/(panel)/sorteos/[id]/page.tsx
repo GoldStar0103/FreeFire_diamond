@@ -76,6 +76,14 @@ export default async function GiveawayDetailPage({ params }: { params: Promise<{
             <div className="hint">Mínimo para sortear</div>
             {giveaway.minEntries}
           </div>
+          <div>
+            <div className="hint">Máx. por jugador</div>
+            {giveaway.maxEntriesPerPlayer ?? 'Sin límite'}
+          </div>
+          <div>
+            <div className="hint">Máx. participantes</div>
+            {giveaway.maxParticipants ?? 'Sin límite'}
+          </div>
         </div>
         <p style={{ marginTop: 12 }}>{giveaway.description}</p>
       </div>

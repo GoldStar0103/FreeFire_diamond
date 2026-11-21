@@ -71,7 +71,9 @@ async function seedPlayer(ticketBalance = 0) {
   return profile!;
 }
 
-async function seedOpenGiveaway(overrides: { entryCostTickets?: number } = {}) {
+async function seedOpenGiveaway(
+  overrides: { entryCostTickets?: number; maxEntriesPerPlayer?: number; maxParticipants?: number } = {},
+) {
   const [row] = await db
     .insert(giveaways)
     .values({
@@ -81,6 +83,8 @@ async function seedOpenGiveaway(overrides: { entryCostTickets?: number } = {}) {
       entryCostTickets: overrides.entryCostTickets ?? 10,
       scheduleType: 'daily',
       minEntries: 0,
+      maxEntriesPerPlayer: overrides.maxEntriesPerPlayer ?? null,
+      maxParticipants: overrides.maxParticipants ?? null,
       opensAt: new Date('2026-11-01T00:00:00Z'),
       closesAt: new Date('2026-11-08T00:00:00Z'),
       status: 'open',
@@ -157,10 +161,76 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       costTickets: 10,
     });
 
-    expect(result).toEqual({ ok: false, currentBalance: 5 });
+    expect(result).toEqual({ ok: false, reason: 'insufficient_tickets', currentBalance: 5 });
     const [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, player.id));
     expect(profile?.ticketBalance).toBe(5);
     const ledgerRows = await db.select().from(ticketTransactions).where(eq(ticketTransactions.playerProfileId, player.id));
     expect(ledgerRows).toHaveLength(0);
+  });
+
+  it('refuses to exceed maxEntriesPerPlayer and writes nothing', async () => {
+    const giveaway = await seedOpenGiveaway({ maxEntriesPerPlayer: 2 });
+    const player = await seedPlayer(100);
+
+    await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: player.id,
+      entryCount: 2,
+      costTickets: 20,
+    });
+
+    const result = await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: player.id,
+      entryCount: 1,
+      costTickets: 10,
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'max_entries_per_player', currentEntryCount: 2 });
+    const [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, player.id));
+    expect(profile?.ticketBalance).toBe(80);
+  });
+
+  it('allows entries up to exactly maxEntriesPerPlayer', async () => {
+    const giveaway = await seedOpenGiveaway({ maxEntriesPerPlayer: 3 });
+    const player = await seedPlayer(100);
+
+    const result = await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: player.id,
+      entryCount: 3,
+      costTickets: 30,
+    });
+
+    expect(result).toEqual({ ok: true, resultingBalance: 70, totalEntryCount: 3, totalTicketsSpent: 30 });
+  });
+
+  it('refuses a new entrant once maxParticipants is reached, but still lets existing entrants top up', async () => {
+    const giveaway = await seedOpenGiveaway({ maxParticipants: 1 });
+    const first = await seedPlayer(100);
+    const second = await seedPlayer(100);
+
+    await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: first.id,
+      entryCount: 1,
+      costTickets: 10,
+    });
+
+    const blocked = await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: second.id,
+      entryCount: 1,
+      costTickets: 10,
+    });
+    expect(blocked).toEqual({ ok: false, reason: 'giveaway_full' });
+
+    const topUp = await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: first.id,
+      entryCount: 1,
+      costTickets: 10,
+    });
+    expect(topUp).toEqual({ ok: true, resultingBalance: 80, totalEntryCount: 2, totalTicketsSpent: 20 });
   });
 });

@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getMyEntry, getMyProfile, getOpenGiveaway } from '@levelup/db';
+import { getGiveawayPublic, getMyEntry, getMyProfile, listGiveawayLeaderboard } from '@levelup/db';
 import { getDb } from '../../../lib/server';
-import { requireCustomerSession } from '../../../lib/customer-session';
+import { getCustomerSession } from '../../../lib/customer-session';
 import { SiteHeader } from '../../site-header';
 import { ParticiparSorteo } from './participar-sorteo';
 
@@ -10,27 +11,46 @@ export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const giveaway = await getOpenGiveaway(getDb(), id);
+  const giveaway = await getGiveawayPublic(getDb(), id);
   return {
     title: giveaway?.title ?? 'Sorteo',
     alternates: { canonical: `/sorteos/${id}` },
   };
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  open: 'Abierto',
+  closed_pending_draw: 'Cerrado — esperando sorteo',
+  drawn: 'Sorteado',
+  delivered: 'Premio entregado',
+  cancelled: 'Cancelado',
+};
+
+/**
+ * Viewable at every stage of a giveaway's life, not just while open —
+ * `getGiveawayPublic` doesn't 404 once it closes/draws/cancels, so the
+ * entry-progress/leaderboard/winner/cancellation info stays visible. Like
+ * `/ranking`, this page itself needs no login; only the entry form does
+ * (ticket balance is account-tied), gated at `enterGiveawayAction` already.
+ */
 export default async function SorteoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-
-  // Ticket balance belongs to the logged-in account, so entering requires one — no guest path.
-  const session = await requireCustomerSession();
-
   const db = getDb();
-  const [giveaway, profile, myEntry] = await Promise.all([
-    getOpenGiveaway(db, id),
-    getMyProfile(db, session.playerProfileId),
-    getMyEntry(db, id, session.playerProfileId),
-  ]);
 
-  if (!giveaway || !profile) notFound();
+  const [giveaway, session, leaderboard] = await Promise.all([
+    getGiveawayPublic(db, id),
+    getCustomerSession(),
+    listGiveawayLeaderboard(db, id),
+  ]);
+  if (!giveaway) notFound();
+
+  const now = Date.now();
+  const isOpenNow = giveaway.status === 'open' && now >= giveaway.opensAt.getTime() && now < giveaway.closesAt.getTime();
+
+  const [profile, myEntry] = await Promise.all([
+    session ? getMyProfile(db, session.playerProfileId) : null,
+    session ? getMyEntry(db, id, session.playerProfileId) : null,
+  ]);
 
   return (
     <main className="page narrow">
@@ -56,20 +76,73 @@ export default async function SorteoDetailPage({ params }: { params: Promise<{ i
         </div>
         <div className="fila">
           <span className="k">Entradas hasta ahora</span>
-          <span className="v">{giveaway.totalEntryCount}</span>
+          <span className="v">
+            {giveaway.totalEntryCount}
+            {giveaway.maxParticipants != null
+              ? ` · ${giveaway.totalEntrants}/${giveaway.maxParticipants} participantes`
+              : ''}
+          </span>
         </div>
         <div className="fila">
-          <span className="k">Tus tickets</span>
-          <span className="v">{profile.ticketBalance}</span>
+          <span className="k">Estado</span>
+          <span className="v">{STATUS_LABEL[giveaway.status] ?? giveaway.status}</span>
         </div>
+        {session && profile && (
+          <div className="fila">
+            <span className="k">Tus tickets</span>
+            <span className="v">{profile.ticketBalance}</span>
+          </div>
+        )}
       </div>
 
-      <ParticiparSorteo
-        giveawayId={giveaway.id}
-        entryCostTickets={giveaway.entryCostTickets}
-        ticketBalance={profile.ticketBalance}
-        myEntryCount={myEntry?.entryCount ?? 0}
-      />
+      {giveaway.status === 'cancelled' && (
+        <div className="alert bad">
+          Este sorteo se canceló{giveaway.cancelReason ? `: ${giveaway.cancelReason}` : ''}. Se devolvieron los
+          tickets a quienes participaron.
+        </div>
+      )}
+
+      {(giveaway.status === 'drawn' || giveaway.status === 'delivered') && (
+        <div className="alert ok">
+          🎉 Ganador: <b>{giveaway.winnerDisplayName ?? 'Jugador de LevelUp'}</b>
+          {giveaway.status === 'delivered' ? ' — premio entregado.' : ' — premio en camino.'}
+        </div>
+      )}
+
+      {giveaway.status === 'closed_pending_draw' && (
+        <div className="alert warn">Este sorteo ya cerró y está esperando el sorteo del ganador.</div>
+      )}
+
+      {isOpenNow && session && (
+        <ParticiparSorteo
+          giveawayId={giveaway.id}
+          entryCostTickets={giveaway.entryCostTickets}
+          ticketBalance={profile?.ticketBalance ?? 0}
+          myEntryCount={myEntry?.entryCount ?? 0}
+          maxEntriesPerPlayer={giveaway.maxEntriesPerPlayer}
+        />
+      )}
+
+      {isOpenNow && !session && (
+        <div className="card">
+          <p className="hint" style={{ marginTop: 0 }}>
+            <Link href="/cuenta">Inicia sesión en Mi LevelUp</Link> para participar con tus Golden Tickets.
+          </p>
+        </div>
+      )}
+
+      {leaderboard.length > 0 && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h2 style={{ marginTop: 0, fontSize: 16 }}>Quién va ganando</h2>
+          <ol style={{ margin: 0, paddingLeft: 20 }}>
+            {leaderboard.map((row) => (
+              <li key={row.playerProfileId}>
+                {row.displayName} — {row.entryCount} entrada{row.entryCount === 1 ? '' : 's'}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </main>
   );
 }

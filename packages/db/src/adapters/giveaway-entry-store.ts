@@ -6,6 +6,12 @@
  * nothing, rather than relying on a defensive floor (the
  * `GREATEST(...,0)` floor `order-reversal-store.ts` uses for refunds is not
  * safe to reuse here — an entry must never be allowed to go negative).
+ *
+ * The optional `maxEntriesPerPlayer`/`maxParticipants` caps are checked in
+ * the same transaction, after locking the `giveaways` row with
+ * `FOR UPDATE` — same `.for('update')` pattern `catalog-sync-store.ts`
+ * already uses — so two concurrent entries for the same giveaway can't both
+ * slip past a `maxParticipants` cap.
  */
 
 import { and, eq, gte, sql } from 'drizzle-orm';
@@ -38,6 +44,35 @@ export class DrizzleGiveawayEntryStore implements GiveawayEntryStore {
     costTickets: number;
   }): Promise<SpendTicketsResult> {
     return this.db.transaction(async (tx) => {
+      const [giveaway] = await tx
+        .select({ maxEntriesPerPlayer: giveaways.maxEntriesPerPlayer, maxParticipants: giveaways.maxParticipants })
+        .from(giveaways)
+        .where(eq(giveaways.id, input.giveawayId))
+        .for('update');
+
+      const [existingEntry] = await tx
+        .select({ entryCount: giveawayEntries.entryCount })
+        .from(giveawayEntries)
+        .where(
+          and(eq(giveawayEntries.giveawayId, input.giveawayId), eq(giveawayEntries.playerProfileId, input.playerProfileId)),
+        )
+        .limit(1);
+      const priorEntryCount = existingEntry?.entryCount ?? 0;
+
+      if (giveaway?.maxEntriesPerPlayer != null && priorEntryCount + input.entryCount > giveaway.maxEntriesPerPlayer) {
+        return { ok: false, reason: 'max_entries_per_player', currentEntryCount: priorEntryCount };
+      }
+
+      if (!existingEntry && giveaway?.maxParticipants != null) {
+        const [countRow] = await tx
+          .select({ count: sql<string>`count(*)` })
+          .from(giveawayEntries)
+          .where(eq(giveawayEntries.giveawayId, input.giveawayId));
+        if (Number(countRow!.count) >= giveaway.maxParticipants) {
+          return { ok: false, reason: 'giveaway_full' };
+        }
+      }
+
       const [profileAfter] = await tx
         .update(playerProfiles)
         .set({
@@ -58,7 +93,7 @@ export class DrizzleGiveawayEntryStore implements GiveawayEntryStore {
           .from(playerProfiles)
           .where(eq(playerProfiles.id, input.playerProfileId))
           .limit(1);
-        return { ok: false, currentBalance: current?.ticketBalance ?? 0 };
+        return { ok: false, reason: 'insufficient_tickets', currentBalance: current?.ticketBalance ?? 0 };
       }
 
       const [entry] = await tx

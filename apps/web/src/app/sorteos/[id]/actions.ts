@@ -20,6 +20,10 @@ function explain(failure: EnterGiveawayFailure): string {
       return 'La cantidad de entradas no es válida.';
     case 'INSUFFICIENT_TICKETS':
       return `No tienes suficientes tickets — te faltan ${failure.cost - failure.balance}.`;
+    case 'MAX_ENTRIES_PER_PLAYER_EXCEEDED':
+      return 'Ya alcanzaste el máximo de entradas por jugador para este sorteo.';
+    case 'GIVEAWAY_FULL':
+      return 'Este sorteo ya alcanzó su máximo de participantes.';
     default:
       return 'No pudimos registrar tu entrada. Intenta de nuevo.';
   }

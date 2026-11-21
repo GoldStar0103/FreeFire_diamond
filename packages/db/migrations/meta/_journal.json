@@ -134,6 +134,13 @@
       "when": 1795206342759,
       "tag": "0018_tan_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795265634288,
+      "tag": "0019_bouncy_silver_sable",
+      "breakpoints": true
     }
   ]
 }

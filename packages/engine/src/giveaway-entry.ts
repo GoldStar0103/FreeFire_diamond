@@ -23,7 +23,9 @@ export type EnterGiveawayFailure =
   | { code: 'GIVEAWAY_NOT_FOUND'; message: string }
   | { code: 'GIVEAWAY_CLOSED'; message: string }
   | { code: 'INVALID_ENTRY_COUNT'; message: string }
-  | { code: 'INSUFFICIENT_TICKETS'; message: string; balance: number; cost: number };
+  | { code: 'INSUFFICIENT_TICKETS'; message: string; balance: number; cost: number }
+  | { code: 'MAX_ENTRIES_PER_PLAYER_EXCEEDED'; message: string; currentEntryCount: number }
+  | { code: 'GIVEAWAY_FULL'; message: string };
 
 export type EnterGiveawayResult =
   | { ok: true; entryCount: number; ticketsSpent: number; resultingBalance: number }
@@ -31,7 +33,9 @@ export type EnterGiveawayResult =
 
 export type SpendTicketsResult =
   | { ok: true; resultingBalance: number; totalEntryCount: number; totalTicketsSpent: number }
-  | { ok: false; currentBalance: number };
+  | { ok: false; reason: 'insufficient_tickets'; currentBalance: number }
+  | { ok: false; reason: 'max_entries_per_player'; currentEntryCount: number }
+  | { ok: false; reason: 'giveaway_full' };
 
 export interface GiveawayEntryStore {
   findGiveawayForEntry(giveawayId: string): Promise<GiveawayForEntry | null>;
@@ -77,6 +81,16 @@ export async function enterGiveaway(
   });
 
   if (!spent.ok) {
+    if (spent.reason === 'giveaway_full') {
+      return fail({ code: 'GIVEAWAY_FULL', message: 'This giveaway has reached its participant limit.' });
+    }
+    if (spent.reason === 'max_entries_per_player') {
+      return fail({
+        code: 'MAX_ENTRIES_PER_PLAYER_EXCEEDED',
+        message: 'You have reached the maximum entries allowed per player for this giveaway.',
+        currentEntryCount: spent.currentEntryCount,
+      });
+    }
     return fail({
       code: 'INSUFFICIENT_TICKETS',
       message: 'You do not have enough Golden Tickets for this many entries.',

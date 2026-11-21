@@ -93,6 +93,16 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayAdminStore create/update/publish'
     expect(row).toMatchObject({ title: 'Sorteo de prueba', status: 'draft', totalEntryCount: 0, totalEntrants: 0 });
   });
 
+  it('stores optional entry/participant caps, defaulting to no limit', async () => {
+    const withoutCaps = await store().create(baseInput, adminId);
+    const rowWithoutCaps = await store().getForAdmin(withoutCaps);
+    expect(rowWithoutCaps).toMatchObject({ maxEntriesPerPlayer: null, maxParticipants: null });
+
+    const withCaps = await store().create({ ...baseInput, maxEntriesPerPlayer: 5, maxParticipants: 100 }, adminId);
+    const rowWithCaps = await store().getForAdmin(withCaps);
+    expect(rowWithCaps).toMatchObject({ maxEntriesPerPlayer: 5, maxParticipants: 100 });
+  });
+
   it('updates a draft giveaway but refuses once it is open', async () => {
     const id = await store().create(baseInput, adminId);
     expect(await store().update(id, { title: 'Nuevo título' }, adminId)).toBe(true);
