@@ -55,6 +55,7 @@ export async function GET(request: Request) {
   lines.push(`Comision estimada,${centsToDecimal(summary.estimatedFeeCents)}`);
   lines.push(`Ganancia antes de recompensas,${centsToDecimal(summary.estimatedProfitCents)}`);
   lines.push(`Recompensas Level Pass,-${centsToDecimal(summary.levelPassRewardCostCents)}`);
+  lines.push(`Premios de sorteos,-${centsToDecimal(summary.giveawayPrizeCostCents)}`);
   lines.push(`Otros gastos,-${centsToDecimal(summary.otherExpensesCents)}`);
   lines.push(`Ingresos manuales,${centsToDecimal(summary.manualIncomeCents)}`);
   lines.push(`Ganancia neta real,${centsToDecimal(summary.realNetProfitCents)}`);

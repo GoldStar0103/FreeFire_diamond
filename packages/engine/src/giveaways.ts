@@ -44,3 +44,31 @@ export function pickWinner(entries: WeightedEntry[], random: () => number = Math
   // below 0) — fall back to the last entry rather than null for a non-empty pool.
   return entries[entries.length - 1]!.playerProfileId;
 }
+
+/**
+ * Draw up to `count` DISTINCT winners, weighted by `entryCount`, without
+ * replacement — each round removes the player just picked from the pool
+ * before the next round runs, so someone with 50 entries can't win every one
+ * of a giveaway's several prizes. Returns fewer than `count` only when the
+ * pool itself has fewer than `count` distinct players — every entrant wins in
+ * that case, never an error (a giveaway with 3 winner slots and 2 entrants is
+ * a valid, if odd, admin configuration).
+ */
+export function pickWinners(
+  entries: WeightedEntry[],
+  count: number,
+  random: () => number = Math.random,
+): string[] {
+  const pool = entries.filter((e) => e.entryCount > 0).map((e) => ({ ...e }));
+  const winners: string[] = [];
+
+  while (winners.length < count && pool.length > 0) {
+    const winnerId = pickWinner(pool, random);
+    if (!winnerId) break;
+    winners.push(winnerId);
+    const index = pool.findIndex((e) => e.playerProfileId === winnerId);
+    if (index >= 0) pool.splice(index, 1);
+  }
+
+  return winners;
+}

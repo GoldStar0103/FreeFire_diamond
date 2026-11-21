@@ -22,3 +22,4 @@ export * from './order-reversal.js';
 export * from './seasons.js';
 export * from './giveaways.js';
 export * from './giveaway-entry.js';
+export * from './giveaway-prize-delivery.js';

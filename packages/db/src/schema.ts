@@ -564,6 +564,8 @@ export const ledgerEntryType = pgEnum('ledger_entry_type', [
    * NOT given back, so erasing the original sale would understate the loss.
    */
   'order_refund',
+  /** A giveaway prize's monetary value, posted when an admin confirms it was delivered. */
+  'giveaway_prize',
 ]);
 
 /**
@@ -1062,11 +1064,29 @@ export const giveawayScheduleType = pgEnum('giveaway_schedule_type', [
 ]);
 
 /**
+ * `manual` is today's flow unchanged: free text prize, admin confirms
+ * delivery by hand, posts `prizeValueCents` to the ledger themselves.
+ * `diamonds` prizes are delivered automatically — `prizeDiamonds`/
+ * `prizeRecipe` tell the worker what to actually hand out (see
+ * `giveaway-prize-delivery.ts`), and `prizeValueCents` is still the
+ * admin-typed internal cost posted to the ledger, same convention Level
+ * Pass's checkpoint `costCents` uses (a human estimate, not a live
+ * recomputation from the provider's cost).
+ */
+export const giveawayPrizeType = pgEnum('giveaway_prize_type', ['manual', 'diamonds']);
+
+export const giveawayWinnerDeliveryStatus = pgEnum('giveaway_winner_delivery_status', [
+  'pending',
+  'delivered',
+  'failed',
+]);
+
+/**
  * A single raffle: players spend Golden Tickets (`giveawayEntries`) for a
- * chance at one prize, drawn by an admin (not automatic — see the plan) once
- * `closesAt` has passed and `closeDueGiveaways` has moved it to
- * `closed_pending_draw`. One winner only in this build; multi-tier prizes are
- * out of scope.
+ * chance at one of `winnerCount` prizes, drawn by an admin (not automatic —
+ * see the plan) once `closesAt` has passed and `closeDueGiveaways` has moved
+ * it to `closed_pending_draw`. Winners themselves live in `giveawayWinners`,
+ * not on this row — multiple winners per giveaway, per the client's request.
  */
 export const giveaways = pgTable(
   'giveaways',
@@ -1075,6 +1095,15 @@ export const giveaways = pgTable(
     title: text('title').notNull(),
     description: text('description').notNull(),
     prizeDescription: text('prize_description').notNull(),
+    /**
+     * Null until an admin sets it. For `prizeType = 'manual'`, required
+     * before a winner can be marked delivered. For `prizeType = 'diamonds'`,
+     * required before the draw itself, since delivery happens automatically
+     * with no later manual confirmation step to gate on. Posted to the
+     * ledger once PER WINNER, frozen onto each `giveawayWinners` row at draw
+     * time — see `costCentsSnapshot`.
+     */
+    prizeValueCents: integer('prize_value_cents'),
     entryCostTickets: integer('entry_cost_tickets').notNull(),
     scheduleType: giveawayScheduleType('schedule_type').notNull(),
     /** Below this many total entries at close time, the giveaway is cancelled and every entrant refunded instead of drawn. */
@@ -1083,12 +1112,21 @@ export const giveaways = pgTable(
     maxEntriesPerPlayer: integer('max_entries_per_player'),
     /** Null = no cap. Caps distinct entrants (`giveaway_entries` rows), not total entries. */
     maxParticipants: integer('max_participants'),
+    /** How many winners this giveaway draws — 1 to several, per the client's request. */
+    winnerCount: integer('winner_count').notNull().default(1),
+    prizeType: giveawayPrizeType('prize_type').notNull().default('manual'),
+    /** Set only for `prizeType = 'diamonds'` — the target amount `prizeRecipe` is checked against. */
+    prizeDiamonds: integer('prize_diamonds'),
+    /**
+     * Set only for `prizeType = 'diamonds'`. Resolved and pinned to real
+     * `base_products` rows at save time, exactly like a combo's recipe or a
+     * Level Pass checkpoint's reward recipe (`saveLevelPassCheckpoints`) —
+     * the admin form only ever deals in plain denominations.
+     */
+    prizeRecipe: jsonb('prize_recipe').$type<{ baseProductId: string; diamondsBase: number }[]>(),
     opensAt: timestamp('opens_at', { withTimezone: true }).notNull(),
     closesAt: timestamp('closes_at', { withTimezone: true }).notNull(),
     status: giveawayStatus('status').notNull().default('draft'),
-    winnerPlayerProfileId: uuid('winner_player_profile_id').references(() => playerProfiles.id, {
-      onDelete: 'set null',
-    }),
     drawnAt: timestamp('drawn_at', { withTimezone: true }),
     drawnByAdminId: uuid('drawn_by_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
     cancelReason: text('cancel_reason'),
@@ -1106,6 +1144,12 @@ export const giveaways = pgTable(
  * more entries in the same giveaway — `entryCount` is this player's number of
  * chances in the draw; `ticketsSpent` is the running total they've paid in.
  * The real per-purchase audit trail is `ticketTransactions`, not this table.
+ *
+ * `freeFireId`/`freeFireNickname` are captured and verified (against the
+ * provider, same call checkout uses) on a player's FIRST entry into a given
+ * giveaway and never overwritten after — the client asked for this
+ * specifically so a prize is delivered to an ID the winner actually proved
+ * was theirs, which is not always the same as the account's linked season ID.
  */
 export const giveawayEntries = pgTable(
   'giveaway_entries',
@@ -1119,10 +1163,46 @@ export const giveawayEntries = pgTable(
       .references(() => playerProfiles.id, { onDelete: 'restrict' }),
     entryCount: integer('entry_count').notNull(),
     ticketsSpent: integer('tickets_spent').notNull(),
+    freeFireId: text('free_fire_id'),
+    freeFireNickname: text('free_fire_nickname'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('giveaway_entries_giveaway_player_idx').on(t.giveawayId, t.playerProfileId)],
+);
+
+/**
+ * One row per winner of a giveaway — `winnerCount` of these are created in
+ * one `drawWinners` call. Delivery is tracked per winner, not per giveaway:
+ * for `prizeType = 'manual'` an admin marks each one delivered by hand; for
+ * `prizeType = 'diamonds'` the worker's two-phase sweep
+ * (`giveaway-prize-delivery.ts`, mirrors `level-pass.ts`'s reward delivery)
+ * creates a real `$0` order per winner and closes the loop once it completes.
+ */
+export const giveawayWinners = pgTable(
+  'giveaway_winners',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    giveawayId: uuid('giveaway_id')
+      .notNull()
+      .references(() => giveaways.id, { onDelete: 'restrict' }),
+    playerProfileId: uuid('player_profile_id')
+      .notNull()
+      .references(() => playerProfiles.id, { onDelete: 'restrict' }),
+    /** Snapshot of `giveawayEntries.freeFireId` at draw time — where the prize actually gets sent. */
+    freeFireId: text('free_fire_id').notNull(),
+    /** Display order only (1..winnerCount), not a prize tier — every winner gets the same prize. */
+    position: integer('position').notNull(),
+    /** `giveaways.prizeValueCents` frozen at draw time, so a later edit can't change an already-decided winner's cost. */
+    costCentsSnapshot: integer('cost_cents_snapshot').notNull(),
+    deliveryStatus: giveawayWinnerDeliveryStatus('delivery_status').notNull().default('pending'),
+    /** Set only for `prizeType = 'diamonds'` — the `$0` order delivering this winner's prize. */
+    deliveryOrderId: uuid('delivery_order_id').references(() => orders.id, { onDelete: 'set null' }),
+    deliveryNote: text('delivery_note'),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('giveaway_winners_giveaway_player_idx').on(t.giveawayId, t.playerProfileId)],
 );
 
 // ── Golden Tickets ledger ────────────────────────────────────────────────────

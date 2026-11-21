@@ -1904,6 +1904,7 @@ a.btn-edit:hover {
   border: 1px solid rgba(196, 181, 253, 0.4);
 }
 .lp-badge b { font-size: 10px; font-weight: 900; color: #f5f3ff; }
+.lp-badge .icon { width: 15px; height: 15px; color: #f5f3ff; }
 .lp-head h3 { margin: 0; font-size: 13.5px; font-weight: 800; }
 .lp-head .ver { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: var(--accent-2); }
 .lp-sub { margin: 9px 0 8px; font-size: 11px; color: #b9c0dc; }
@@ -2949,6 +2950,68 @@ body > .wa-overlay,
 }
 @media (prefers-reduced-motion: reduce) {
   .wa-overlay, .wa-sheet, .wa-bubble, .wa-shapes i, .btn-wa::after { animation: none !important; }
+}
+
+/* ── Giveaway preview popup (2026-11-21) ──────────────────────────────────
+   Opened by the same floating bubble as the WhatsApp popup, but a separate
+   modal/event — Jose: the bubble now previews open sorteos, the home page's
+   automatic WhatsApp-channel popup is untouched. Shares `.wa-overlay`'s fixed
+   positioning behavior (same body>* exclusion below) and reuses the neutral
+   `.wa-close` button, but its own accent (gold/purple) instead of WhatsApp
+   green so it doesn't read as a WhatsApp feature. */
+.gw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(4, 3, 10, 0.62);
+  backdrop-filter: blur(10px) saturate(1.1);
+  animation: wa-ov-in 0.3s ease-out both;
+}
+.gw-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  max-height: 86vh;
+  overflow-y: auto;
+  border-radius: 20px;
+  padding: 22px 18px 18px;
+  border: 1.5px solid rgba(250, 204, 21, 0.4);
+  background: linear-gradient(165deg, rgba(139, 92, 246, 0.18), rgba(11, 10, 20, 0.98) 55%);
+  box-shadow: 0 34px 70px -30px rgba(0, 0, 0, 0.95);
+  animation: wa-sheet-in 0.5s cubic-bezier(0.2, 1.25, 0.35, 1) both;
+}
+.gw-head { text-align: center; padding: 0 20px; }
+.gw-ic {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 10px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(150deg, rgba(250, 204, 21, 0.3), rgba(139, 92, 246, 0.25));
+  border: 1px solid rgba(250, 204, 21, 0.4);
+}
+.gw-ic .icon { width: 21px; height: 21px; color: #ffe6a8; }
+.gw-head b { display: block; font-size: 17px; font-weight: 900; letter-spacing: -0.01em; }
+.gw-head p { margin: 7px 0 0; font-size: 12px; line-height: 1.5; color: #a7b0c8; }
+.gw-list { display: grid; gap: 8px; margin-top: 16px; }
+.gw-item {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.gw-item-title { display: block; font-size: 12.5px; font-weight: 800; color: var(--text); }
+.gw-item-prize { display: block; margin-top: 3px; font-size: 11px; color: var(--accent-2); }
+.gw-item-time { display: block; margin-top: 3px; font-size: 10px; color: #9aa2c4; }
+.gw-actions { margin-top: 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .gw-overlay, .gw-sheet { animation: none !important; }
 }
 
 /* ── footer (approved redesign `.foot` + `.revstamp`) ──────────────────── */
@@ -5969,7 +6032,7 @@ body::before {
 /* Keep fixed chrome (back pill, bottom nav, WA modal) out of this —
    `position: relative` here would override their `position: fixed` and let
    them scroll away / sit in document flow (WA popup landed above the footer). */
-body > *:not(.appbg):not(.mc-bg):not(.pv-back):not(.bottom-nav):not(.wa-overlay):not(.wa-fab) { position: relative; z-index: 1; }
+body > *:not(.appbg):not(.mc-bg):not(.pv-back):not(.bottom-nav):not(.wa-overlay):not(.wa-fab):not(.gw-overlay) { position: relative; z-index: 1; }
 a.pv-back {
   position: fixed;
   /* Sit above page kickers (e.g. ranking Temporada) instead of covering them. */

@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import presenta from '../assets/mascot/presenta.webp';
-import { openWhatsappChannelPopup } from './whatsapp-channel-popup';
+import { openGiveawayPopup } from './giveaway-fab-popup';
 
 /**
  * Homepage floating avatar (mockup `.fab`) — sits above the bottom nav on the
- * right and opens the WhatsApp channel modal. Portaled to `document.body` so
+ * right. Jose: this bubble now opens a sorteos preview, not the WhatsApp
+ * channel modal — that one stays only as the home page's automatic popup
+ * (`whatsapp-channel-popup.tsx`). Portaled to `document.body` so
  * `position: fixed` isn't broken by page stacking rules.
  */
 export function WaFab() {
@@ -24,8 +26,8 @@ export function WaFab() {
       <button
         type="button"
         className="wa-fab-btn"
-        aria-label="Abrir canal de WhatsApp"
-        onClick={openWhatsappChannelPopup}
+        aria-label="Ver sorteos"
+        onClick={openGiveawayPopup}
       >
         <img src={presenta.src} alt="" width={38} height={38} decoding="async" />
         <span className="wa-fab-dot" aria-hidden="true" />

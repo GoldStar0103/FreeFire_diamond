@@ -1,6 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getMyLevelUpOverview, getMyProfile, listMyGiveawayEntries, listMyOrders } from '@levelup/db';
+import {
+  getMyLevelUpOverview,
+  getMyProfile,
+  listMyGiveawayEntries,
+  listMyOrders,
+  listOpenGiveaways,
+} from '@levelup/db';
 import { getCustomerSession } from '../../lib/customer-session.js';
 import { getDb } from '../../lib/server.js';
 import { avatarUrl } from '../../lib/assets.js';
@@ -109,11 +115,12 @@ export default async function CuentaPage() {
   }
 
   const db = getDb();
-  const [profile, overview, orders, giveawayEntries] = await Promise.all([
+  const [profile, overview, orders, giveawayEntries, openGiveaways] = await Promise.all([
     getMyProfile(db, session.playerProfileId),
     getMyLevelUpOverview(db, session.playerProfileId),
     listMyOrders(db, session.playerId, 10, session.playerProfileId),
     listMyGiveawayEntries(db, session.playerProfileId),
+    listOpenGiveaways(db),
   ]);
 
   if (!profile) {
@@ -208,13 +215,6 @@ export default async function CuentaPage() {
           <b>{overview.lp}</b>
           <span>LP esta temporada</span>
         </div>
-        <Link href="/sorteos" className="stat">
-          <span className="ic">
-            <GiftIcon className="icon" />
-          </span>
-          <b>{profile.ticketBalance}</b>
-          <span>Golden Tickets</span>
-        </Link>
       </div>
 
       {overview.featuredBadges.length > 0 ? (
@@ -307,6 +307,25 @@ export default async function CuentaPage() {
           </div>
           <span className="ver">Ver→</span>
         </div>
+      </Link>
+
+      <Link href="/sorteos" className="lp-card">
+        <div className="lp-head">
+          <span className="lp-badge">
+            <GiftIcon className="icon" />
+          </span>
+          <h3>Sorteos</h3>
+          <span className="ver">
+            Ver<span className="arw">→</span>
+          </span>
+        </div>
+        <p className="lp-sub">
+          <b>{profile.ticketBalance}</b> ticket{profile.ticketBalance === 1 ? '' : 's'}
+          {' · '}
+          {openGiveaways.length > 0
+            ? `${openGiveaways.length} sorteo${openGiveaways.length === 1 ? '' : 's'} abierto${openGiveaways.length === 1 ? '' : 's'}`
+            : 'sin sorteos abiertos por ahora'}
+        </p>
       </Link>
 
       {orders.length > 0 && (

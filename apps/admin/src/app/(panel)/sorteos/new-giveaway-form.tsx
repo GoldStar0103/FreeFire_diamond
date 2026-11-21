@@ -10,10 +10,19 @@ const SCHEDULE_LABEL: Record<string, string> = {
   flash: 'Flash',
 };
 
+const num = (n: number) => n.toLocaleString('es-MX');
+
+interface Props {
+  /** Denominations the provider currently sells, for the diamonds-prize recipe builder — same shape the Level Pass checkpoint form uses. */
+  available: Array<{ diamondsBase: number; active: boolean }>;
+}
+
 /** Hides behind a disclosure, same pattern as `ReverseOrderForm` — creating a giveaway is occasional, not an everyday action. */
-export function NewGiveawayForm() {
+export function NewGiveawayForm({ available }: Props) {
   const [state, action, pending] = useActionState<CreateGiveawayFormState, FormData>(createGiveawayAction, {});
   const [open, setOpen] = useState(false);
+  const [prizeType, setPrizeType] = useState<'manual' | 'diamonds'>('manual');
+  const [recipe, setRecipe] = useState<number[]>([]);
 
   if (!open) {
     return (
@@ -44,6 +53,14 @@ export function NewGiveawayForm() {
 
       <div className="row">
         <label className="field" style={{ maxWidth: 200 }}>
+          <span>Valor del premio en MXN, por ganador (se puede definir después, pero hace falta antes de sortear)</span>
+          <input name="prizeValue" type="text" inputMode="decimal" placeholder="750.00" />
+        </label>
+        <label className="field" style={{ maxWidth: 160 }}>
+          <span>Número de ganadores</span>
+          <input name="winnerCount" type="number" min={1} step={1} defaultValue={1} required />
+        </label>
+        <label className="field" style={{ maxWidth: 200 }}>
           <span>Costo por entrada (tickets)</span>
           <input name="entryCostTickets" type="number" min={1} step={1} defaultValue={10} required />
         </label>
@@ -62,6 +79,60 @@ export function NewGiveawayForm() {
           </select>
         </label>
       </div>
+
+      <label className="field" style={{ maxWidth: 260 }}>
+        <span>Entrega del premio</span>
+        <select
+          name="prizeType"
+          value={prizeType}
+          onChange={(e) => setPrizeType(e.target.value as 'manual' | 'diamonds')}
+        >
+          <option value="manual">Manual (Evo box, Booyah Pass, etc. — la entregas tú)</option>
+          <option value="diamonds">Diamantes (se entregan solos al sortear)</option>
+        </select>
+      </label>
+
+      {prizeType === 'diamonds' && (
+        <div className="card" style={{ background: 'var(--surface-2)' }}>
+          <label className="field">
+            <span>Diamantes del premio (cada ganador recibe esta cantidad)</span>
+            <input name="prizeDiamonds" type="number" min={1} step={1} placeholder="5000" />
+          </label>
+          <input type="hidden" name="prizeRecipe" value={recipe.join(',')} />
+          <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+            {available.map((p) => (
+              <button
+                key={p.diamondsBase}
+                type="button"
+                className="btn sm"
+                disabled={!p.active}
+                onClick={() => setRecipe((prev) => [...prev, p.diamondsBase])}
+                title={p.active ? undefined : 'No disponible'}
+              >
+                + {num(p.diamondsBase)}
+              </button>
+            ))}
+          </div>
+          {recipe.length === 0 ? (
+            <p className="hint">Sin receta — este premio no podrá entregarse automáticamente.</p>
+          ) : (
+            <ol className="recipe">
+              {recipe.map((d, i) => (
+                <li key={`${d}-${i}`}>
+                  <span>{num(d)} 💎</span>
+                  <button
+                    type="button"
+                    className="btn sm danger"
+                    onClick={() => setRecipe((prev) => prev.filter((_, idx) => idx !== i))}
+                  >
+                    Quitar
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
 
       <div className="row">
         <label className="field" style={{ maxWidth: 220 }}>
@@ -86,9 +157,12 @@ export function NewGiveawayForm() {
       </div>
 
       <p className="hint">
-        Si no se alcanza el mínimo de entradas al cerrar, el sorteo se cancela solo y se devuelven
-        los tickets a quienes participaron. Nadie se sortea automáticamente — eso siempre lo haces
-        tú desde el detalle del sorteo.
+        Se publica solo cuando llegue la fecha de apertura — no hace falta volver a publicarlo a
+        mano. Si no se alcanza el mínimo de entradas al cerrar, el sorteo se cancela solo y se
+        devuelven los tickets a quienes participaron. Nadie se sortea automáticamente — eso
+        siempre lo haces tú desde el detalle del sorteo. El valor del premio se puede dejar en
+        blanco y definir más tarde, pero hace falta antes de poder sortear — así queda registrado
+        como gasto en Contabilidad por cada ganador.
       </p>
 
       {state.issues?.map((issue) => (

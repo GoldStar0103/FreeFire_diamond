@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { DrizzleGiveawayAdminStore } from '@levelup/db';
+import { DrizzleCatalogAdminStore, DrizzleGiveawayAdminStore } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { dateTime } from '../../../lib/format';
@@ -28,7 +28,11 @@ const STATUS_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'muted'> = {
 
 export default async function SorteosPage() {
   await requireSession();
-  const giveaways = await new DrizzleGiveawayAdminStore(getDb()).listForAdmin();
+  const db = getDb();
+  const [giveaways, available] = await Promise.all([
+    new DrizzleGiveawayAdminStore(db).listForAdmin(),
+    new DrizzleCatalogAdminStore(db).listAvailableProducts(),
+  ]);
 
   return (
     <>
@@ -38,7 +42,7 @@ export default async function SorteosPage() {
         participar. El sorteo del ganador siempre lo haces tú desde aquí; nunca es automático.
       </p>
 
-      <NewGiveawayForm />
+      <NewGiveawayForm available={available} />
 
       <div className="table-wrap">
         <table>

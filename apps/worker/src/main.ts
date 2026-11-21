@@ -49,7 +49,9 @@ import {
   runConversions,
   runExpiryReminders,
   runFulfillmentLoop,
+  runGiveawayAutoPublish,
   runGiveawayDraws,
+  runGiveawayPrizeDelivery,
   runItemFulfillmentLoop,
   runLevelPassSync,
   runRewardDelivery,
@@ -316,6 +318,11 @@ async function main(): Promise<void> {
       await runSeasonClose({ store: seasonStore });
       await runExpiryReminders({ store: expiryReminderStore });
       await runGiveawayDraws({ store: giveawayStore });
+      await runGiveawayAutoPublish({ store: giveawayStore });
+      // Reuses the same store instance — it also implements
+      // `GiveawayPrizeDeliveryStore`. Delivery itself happens through the
+      // ordinary fulfilment loop above, not here.
+      await runGiveawayPrizeDelivery({ store: giveawayStore }, config.levelPass.batchSize);
       if (rocketpass) await runRocketPassSync(rocketpass);
       // A beat per completed sweep, on top of the timer's. The timer proves the
       // event loop turns; this proves the sweep itself is still coming round.

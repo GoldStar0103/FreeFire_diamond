@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOpenForEntry, meetsMinimum, pickWinner, type GiveawayWindow } from './giveaways.js';
+import { isOpenForEntry, meetsMinimum, pickWinner, pickWinners, type GiveawayWindow } from './giveaways.js';
 
 const window = (overrides: Partial<GiveawayWindow> = {}): GiveawayWindow => ({
   status: 'open',
@@ -70,5 +70,45 @@ describe('pickWinner', () => {
       { playerProfileId: 'b', entryCount: 1 },
     ];
     expect(pickWinner(entries, () => 1)).toBe('b');
+  });
+});
+
+describe('pickWinners', () => {
+  it('returns an empty list for an empty pool', () => {
+    expect(pickWinners([], 3)).toEqual([]);
+  });
+
+  it('draws distinct winners without replacement, up to count', () => {
+    const entries = [
+      { playerProfileId: 'a', entryCount: 1 },
+      { playerProfileId: 'b', entryCount: 1 },
+      { playerProfileId: 'c', entryCount: 1 },
+    ];
+    // random() always returns the same value — if replacement happened, every
+    // round would pick the same player and the result would have duplicates.
+    const winners = pickWinners(entries, 2, () => 0.9);
+    expect(winners).toHaveLength(2);
+    expect(new Set(winners).size).toBe(2);
+    winners.forEach((w) => expect(['a', 'b', 'c']).toContain(w));
+  });
+
+  it('returns every entrant, not an error, when count exceeds the pool size', () => {
+    const entries = [
+      { playerProfileId: 'a', entryCount: 1 },
+      { playerProfileId: 'b', entryCount: 1 },
+    ];
+    const winners = pickWinners(entries, 5, () => 0.1);
+    expect(winners).toHaveLength(2);
+    expect(new Set(winners)).toEqual(new Set(['a', 'b']));
+  });
+
+  it('is deterministic and weighted the same way pickWinner is, per round', () => {
+    const entries = [
+      { playerProfileId: 'low', entryCount: 1 },
+      { playerProfileId: 'high', entryCount: 9 },
+    ];
+    // First round: random()=0.05 -> target=0.5 -> "low". Second round, "low"
+    // removed, pool is just "high" -> whatever random() returns, it's "high".
+    expect(pickWinners(entries, 2, () => 0.05)).toEqual(['low', 'high']);
   });
 });

@@ -9,7 +9,7 @@
 
 import { and, desc, eq, gt, inArray, lt } from 'drizzle-orm';
 import type { Database } from '../index.js';
-import { giveawayEntries, giveaways, playerProfiles } from '../schema.js';
+import { giveawayEntries, giveaways, giveawayWinners, playerProfiles } from '../schema.js';
 import type { GiveawayStatus } from './giveaway-admin-store.js';
 
 export interface OpenGiveaway {
@@ -108,9 +108,14 @@ export async function getMyEntry(
   db: Database,
   giveawayId: string,
   playerProfileId: string,
-): Promise<{ entryCount: number; ticketsSpent: number } | null> {
+): Promise<{ entryCount: number; ticketsSpent: number; freeFireId: string | null; freeFireNickname: string | null } | null> {
   const [row] = await db
-    .select({ entryCount: giveawayEntries.entryCount, ticketsSpent: giveawayEntries.ticketsSpent })
+    .select({
+      entryCount: giveawayEntries.entryCount,
+      ticketsSpent: giveawayEntries.ticketsSpent,
+      freeFireId: giveawayEntries.freeFireId,
+      freeFireNickname: giveawayEntries.freeFireNickname,
+    })
     .from(giveawayEntries)
     .where(and(eq(giveawayEntries.giveawayId, giveawayId), eq(giveawayEntries.playerProfileId, playerProfileId)))
     .limit(1);
@@ -126,7 +131,6 @@ export async function listMyGiveawayEntries(db: Database, playerProfileId: strin
       prizeDescription: giveaways.prizeDescription,
       status: giveaways.status,
       closesAt: giveaways.closesAt,
-      winnerPlayerProfileId: giveaways.winnerPlayerProfileId,
       entryCount: giveawayEntries.entryCount,
       ticketsSpent: giveawayEntries.ticketsSpent,
       enteredAt: giveawayEntries.createdAt,
@@ -136,6 +140,16 @@ export async function listMyGiveawayEntries(db: Database, playerProfileId: strin
     .where(eq(giveawayEntries.playerProfileId, playerProfileId))
     .orderBy(desc(giveawayEntries.createdAt));
 
+  if (rows.length === 0) return [];
+
+  const won = await db
+    .select({ giveawayId: giveawayWinners.giveawayId })
+    .from(giveawayWinners)
+    .where(
+      and(eq(giveawayWinners.playerProfileId, playerProfileId), inArray(giveawayWinners.giveawayId, rows.map((r) => r.giveawayId))),
+    );
+  const wonGiveawayIds = new Set(won.map((w) => w.giveawayId));
+
   return rows.map((r) => ({
     giveawayId: r.giveawayId,
     title: r.title,
@@ -143,7 +157,7 @@ export async function listMyGiveawayEntries(db: Database, playerProfileId: strin
     status: r.status,
     entryCount: r.entryCount,
     ticketsSpent: r.ticketsSpent,
-    isWinner: r.winnerPlayerProfileId === playerProfileId,
+    isWinner: wonGiveawayIds.has(r.giveawayId),
     closesAt: r.closesAt,
     enteredAt: r.enteredAt,
   }));
@@ -165,7 +179,8 @@ export interface PublicGiveaway {
   maxParticipants: number | null;
   totalEntryCount: number;
   totalEntrants: number;
-  winnerDisplayName: string | null;
+  /** One per winner — a giveaway can draw several, per the client's request. Empty before it's drawn. */
+  winnerDisplayNames: string[];
   drawnAt: Date | null;
   cancelReason: string | null;
 }
@@ -195,7 +210,6 @@ export async function getGiveawayPublic(db: Database, id: string): Promise<Publi
       closesAt: giveaways.closesAt,
       maxEntriesPerPlayer: giveaways.maxEntriesPerPlayer,
       maxParticipants: giveaways.maxParticipants,
-      winnerPlayerProfileId: giveaways.winnerPlayerProfileId,
       drawnAt: giveaways.drawnAt,
       cancelReason: giveaways.cancelReason,
     })
@@ -209,15 +223,12 @@ export async function getGiveawayPublic(db: Database, id: string): Promise<Publi
     .from(giveawayEntries)
     .where(eq(giveawayEntries.giveawayId, id));
 
-  let winnerDisplayName: string | null = null;
-  if (row.winnerPlayerProfileId) {
-    const [winner] = await db
-      .select({ displayName: playerProfiles.displayName, playerId: playerProfiles.playerId })
-      .from(playerProfiles)
-      .where(eq(playerProfiles.id, row.winnerPlayerProfileId))
-      .limit(1);
-    if (winner) winnerDisplayName = publicDisplayName(winner.displayName, winner.playerId);
-  }
+  const winners = await db
+    .select({ displayName: playerProfiles.displayName, playerId: playerProfiles.playerId })
+    .from(giveawayWinners)
+    .innerJoin(playerProfiles, eq(playerProfiles.id, giveawayWinners.playerProfileId))
+    .where(eq(giveawayWinners.giveawayId, id))
+    .orderBy(giveawayWinners.position);
 
   return {
     id: row.id,
@@ -233,7 +244,7 @@ export async function getGiveawayPublic(db: Database, id: string): Promise<Publi
     maxParticipants: row.maxParticipants,
     totalEntryCount: entryRows.reduce((sum, e) => sum + e.entryCount, 0),
     totalEntrants: entryRows.length,
-    winnerDisplayName,
+    winnerDisplayNames: winners.map((w) => publicDisplayName(w.displayName, w.playerId)),
     drawnAt: row.drawnAt,
     cancelReason: row.cancelReason,
   };
@@ -280,7 +291,8 @@ export interface CompletedGiveaway {
   title: string;
   prizeDescription: string;
   status: 'drawn' | 'delivered' | 'cancelled';
-  winnerDisplayName: string | null;
+  /** One per winner — empty for a cancelled giveaway. */
+  winnerDisplayNames: string[];
   totalEntryCount: number;
   closesAt: Date;
 }
@@ -293,7 +305,6 @@ export async function listRecentCompletedGiveaways(db: Database, limit = 10): Pr
       title: giveaways.title,
       prizeDescription: giveaways.prizeDescription,
       status: giveaways.status,
-      winnerPlayerProfileId: giveaways.winnerPlayerProfileId,
       closesAt: giveaways.closesAt,
     })
     .from(giveaways)
@@ -303,15 +314,24 @@ export async function listRecentCompletedGiveaways(db: Database, limit = 10): Pr
 
   if (rows.length === 0) return [];
 
-  const winnerIds = [...new Set(rows.map((r) => r.winnerPlayerProfileId).filter((id): id is string => id != null))];
-  const winners =
-    winnerIds.length > 0
-      ? await db
-          .select({ id: playerProfiles.id, displayName: playerProfiles.displayName, playerId: playerProfiles.playerId })
-          .from(playerProfiles)
-          .where(inArray(playerProfiles.id, winnerIds))
-      : [];
-  const winnerNameById = new Map(winners.map((w) => [w.id, publicDisplayName(w.displayName, w.playerId)]));
+  const winnerRows = await db
+    .select({
+      giveawayId: giveawayWinners.giveawayId,
+      displayName: playerProfiles.displayName,
+      playerId: playerProfiles.playerId,
+      position: giveawayWinners.position,
+    })
+    .from(giveawayWinners)
+    .innerJoin(playerProfiles, eq(playerProfiles.id, giveawayWinners.playerProfileId))
+    .where(inArray(giveawayWinners.giveawayId, rows.map((r) => r.id)))
+    .orderBy(giveawayWinners.position);
+
+  const winnerNamesByGiveaway = new Map<string, string[]>();
+  for (const w of winnerRows) {
+    const list = winnerNamesByGiveaway.get(w.giveawayId) ?? [];
+    list.push(publicDisplayName(w.displayName, w.playerId));
+    winnerNamesByGiveaway.set(w.giveawayId, list);
+  }
 
   const counts = await Promise.all(
     rows.map((r) =>
@@ -327,7 +347,7 @@ export async function listRecentCompletedGiveaways(db: Database, limit = 10): Pr
     title: r.title,
     prizeDescription: r.prizeDescription,
     status: r.status as 'drawn' | 'delivered' | 'cancelled',
-    winnerDisplayName: r.winnerPlayerProfileId ? winnerNameById.get(r.winnerPlayerProfileId) ?? null : null,
+    winnerDisplayNames: winnerNamesByGiveaway.get(r.id) ?? [],
     totalEntryCount: counts[i]!.reduce((sum, e) => sum + e.entryCount, 0),
     closesAt: r.closesAt,
   }));

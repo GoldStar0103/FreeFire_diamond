@@ -17,7 +17,14 @@ const openGiveaway = (overrides: Partial<GiveawayForEntry> = {}): GiveawayForEnt
 });
 
 function harness(giveaway: GiveawayForEntry | null, spendResult: SpendTicketsResult) {
-  const spends: Array<{ giveawayId: string; playerProfileId: string; entryCount: number; costTickets: number }> = [];
+  const spends: Array<{
+    giveawayId: string;
+    playerProfileId: string;
+    entryCount: number;
+    costTickets: number;
+    freeFireId: string;
+    freeFireNickname: string | null;
+  }> = [];
   const store: GiveawayEntryStore = {
     findGiveawayForEntry: async () => giveaway,
     spendTicketsForEntry: async (input) => {
@@ -32,6 +39,8 @@ const baseInput: EnterGiveawayInput = {
   giveawayId: 'giveaway-1',
   playerProfileId: 'player-1',
   entryCount: 3,
+  freeFireId: '123456789',
+  freeFireNickname: 'Jugador',
 };
 
 const now = () => new Date('2026-11-05T00:00:00Z');
@@ -53,7 +62,14 @@ describe('enterGiveaway', () => {
     expect(result.entryCount).toBe(3);
     expect(result.ticketsSpent).toBe(30);
     expect(spends).toEqual([
-      { giveawayId: 'giveaway-1', playerProfileId: 'player-1', entryCount: 3, costTickets: 30 },
+      {
+        giveawayId: 'giveaway-1',
+        playerProfileId: 'player-1',
+        entryCount: 3,
+        costTickets: 30,
+        freeFireId: '123456789',
+        freeFireNickname: 'Jugador',
+      },
     ]);
   });
 

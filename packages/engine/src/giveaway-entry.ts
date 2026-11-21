@@ -17,6 +17,16 @@ export interface EnterGiveawayInput {
   giveawayId: string;
   playerProfileId: string;
   entryCount: number;
+  /**
+   * Verified against the provider (same call checkout uses) by the caller
+   * BEFORE this function runs — this module stays pure/I-O-free like the
+   * rest of the engine, so verification itself happens in the web action.
+   * Required on a player's first entry into a giveaway; ignored (the
+   * already-stored value wins) on every entry after that — see
+   * `spendTicketsForEntry`'s store-level COALESCE.
+   */
+  freeFireId: string;
+  freeFireNickname: string | null;
 }
 
 export type EnterGiveawayFailure =
@@ -46,6 +56,8 @@ export interface GiveawayEntryStore {
     playerProfileId: string;
     entryCount: number;
     costTickets: number;
+    freeFireId: string;
+    freeFireNickname: string | null;
   }): Promise<SpendTicketsResult>;
 }
 
@@ -78,6 +90,8 @@ export async function enterGiveaway(
     playerProfileId: input.playerProfileId,
     entryCount,
     costTickets,
+    freeFireId: input.freeFireId,
+    freeFireNickname: input.freeFireNickname,
   });
 
   if (!spent.ok) {

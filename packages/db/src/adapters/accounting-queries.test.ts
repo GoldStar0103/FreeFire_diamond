@@ -401,7 +401,7 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary — real net profit', () =>
   }
 
   async function seedLedger(
-    entryType: 'level_pass_reward' | 'manual_expense' | 'manual_income',
+    entryType: 'level_pass_reward' | 'giveaway_prize' | 'manual_expense' | 'manual_income',
     amountCents: number,
     occurredAt = DAY,
   ) {
@@ -418,6 +418,16 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary — real net profit', () =>
     // Reported as a positive cost, the same way round as recargaCostCents.
     expect(summary.levelPassRewardCostCents).toBe(1_200);
     expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 1_200);
+  });
+
+  it('subtracts a delivered giveaway prize from real net profit', async () => {
+    const profitBeforeRewards = await seedOneSale();
+    await seedLedger('giveaway_prize', -75_000);
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(DAY));
+
+    expect(summary.giveawayPrizeCostCents).toBe(75_000);
+    expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 75_000);
   });
 
   it('applies manual expenses and manual income', async () => {

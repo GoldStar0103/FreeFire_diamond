@@ -11,12 +11,15 @@
  * back from the gateway) that this deliberately does not attempt.
  */
 
-import { and, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
-import { LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
+import { and, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm';
+import { GIVEAWAY_PRIZE_COMBO_KEY, LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import type { Database } from '../index.js';
 import { financialLedgerEntries, orderItems, orders, payments } from '../schema.js';
 import { getFxRate } from './payment-settings.js';
 import type { DateRange } from './mexico-city-time.js';
+
+/** Synthetic `orders.comboKey`s that deliver something free (a reward or a prize), never counted as a sale. */
+const NON_SALE_COMBO_KEYS = [LEVEL_PASS_REWARD_COMBO_KEY, GIVEAWAY_PRIZE_COMBO_KEY];
 
 // ── estimated gateway fees ───────────────────────────────────────────────────
 
@@ -112,7 +115,7 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     inArray(orders.status, ['completed', 'refunded']),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
-    ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
+    notInArray(orders.comboKey, NON_SALE_COMBO_KEYS),
   );
 
   const [gross] = await db
@@ -251,6 +254,8 @@ export interface AccountingSummary {
    * every caller reads it the same way round as `recargaCostCents`.
    */
   levelPassRewardCostCents: number;
+  /** Giveaway prize value posted on delivery in this range, as a POSITIVE cost — same sign convention as `levelPassRewardCostCents`. */
+  giveawayPrizeCostCents: number;
   /** Manual operating expenses recorded in this range, as a positive cost. */
   otherExpensesCents: number;
   /** Manual income recorded in this range. */
@@ -276,6 +281,7 @@ export interface AccountingSummary {
 
 interface LedgerTotals {
   levelPassRewardCostCents: number;
+  giveawayPrizeCostCents: number;
   otherExpensesCents: number;
   manualIncomeCents: number;
   orderRefundsCents: number;
@@ -306,6 +312,7 @@ async function getLedgerTotals(db: Database, range: DateRange): Promise<LedgerTo
 
   const totals: LedgerTotals = {
     levelPassRewardCostCents: 0,
+    giveawayPrizeCostCents: 0,
     otherExpensesCents: 0,
     manualIncomeCents: 0,
     orderRefundsCents: 0,
@@ -313,6 +320,7 @@ async function getLedgerTotals(db: Database, range: DateRange): Promise<LedgerTo
   for (const row of rows) {
     const signed = Number(row.totalCents);
     if (row.entryType === 'level_pass_reward') totals.levelPassRewardCostCents = -signed;
+    else if (row.entryType === 'giveaway_prize') totals.giveawayPrizeCostCents = -signed;
     else if (row.entryType === 'manual_expense') totals.otherExpensesCents = -signed;
     else if (row.entryType === 'manual_income') totals.manualIncomeCents = signed;
     else if (row.entryType === 'order_refund') totals.orderRefundsCents = -signed;
@@ -344,7 +352,7 @@ export async function getAccountingSummary(
       and(
         gte(orders.createdAt, range.start),
         lt(orders.createdAt, range.end),
-        ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
+        notInArray(orders.comboKey, NON_SALE_COMBO_KEYS),
       ),
     )
     .groupBy(orders.status);
@@ -361,7 +369,7 @@ export async function getAccountingSummary(
     eq(orders.status, 'completed'),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
-    ne(orders.comboKey, LEVEL_PASS_REWARD_COMBO_KEY),
+    notInArray(orders.comboKey, NON_SALE_COMBO_KEYS),
   );
 
   const movementRows = await db
@@ -405,6 +413,7 @@ export async function getAccountingSummary(
   const realNetProfitCents =
     totals.netSalesCents -
     ledger.levelPassRewardCostCents -
+    ledger.giveawayPrizeCostCents -
     ledger.otherExpensesCents -
     ledger.orderRefundsCents +
     ledger.manualIncomeCents;
@@ -417,6 +426,7 @@ export async function getAccountingSummary(
     netSalesCents: totals.netSalesCents,
     estimatedProfitCents: totals.netSalesCents,
     levelPassRewardCostCents: ledger.levelPassRewardCostCents,
+    giveawayPrizeCostCents: ledger.giveawayPrizeCostCents,
     otherExpensesCents: ledger.otherExpensesCents,
     manualIncomeCents: ledger.manualIncomeCents,
     orderRefundsCents: ledger.orderRefundsCents,

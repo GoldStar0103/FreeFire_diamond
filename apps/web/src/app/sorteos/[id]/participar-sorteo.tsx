@@ -10,14 +10,27 @@ interface Props {
   myEntryCount: number;
   /** Null = no cap. */
   maxEntriesPerPlayer: number | null;
+  /** Already verified on a prior entry — null means this player hasn't entered this giveaway yet. */
+  myFreeFireId: string | null;
+  myFreeFireNickname: string | null;
 }
 
 /**
  * One step, not a stepper — unlike buying an item, entering a giveaway needs
  * no delivery details or payment: tickets are already sitting on the
- * player's own account, so this is just "how many entries" + submit.
+ * player's own account, so this is just "how many entries" + submit. The
+ * Free Fire ID field only shows on a player's first entry — once verified
+ * it's locked in (see `actions.ts`), so a top-up never asks again.
  */
-export function ParticiparSorteo({ giveawayId, entryCostTickets, ticketBalance, myEntryCount, maxEntriesPerPlayer }: Props) {
+export function ParticiparSorteo({
+  giveawayId,
+  entryCostTickets,
+  ticketBalance,
+  myEntryCount,
+  maxEntriesPerPlayer,
+  myFreeFireId,
+  myFreeFireNickname,
+}: Props) {
   const [state, action, pending] = useActionState<EnterGiveawayState, FormData>(enterGiveawayAction, {});
   const currentEntries = state.ok ? myEntryCount + state.ok.entryCount : myEntryCount;
   const affordableMax = Math.max(0, Math.floor((state.ok ? state.ok.resultingBalance : ticketBalance) / entryCostTickets));
@@ -29,6 +42,9 @@ export function ParticiparSorteo({ giveawayId, entryCostTickets, ticketBalance, 
   const cost = entryCount * entryCostTickets;
   const canAfford = maxAffordable >= 1 && entryCount >= 1 && cost <= currentBalance;
   const reachedCap = maxEntriesPerPlayer != null && currentEntries >= maxEntriesPerPlayer;
+  // `state.ok` covers a second entry submitted without a page reload, before
+  // the server-passed prop has a chance to catch up via revalidation.
+  const hasFreeFireId = myFreeFireId != null || state.ok != null;
 
   return (
     <div className="card" style={{ marginTop: 14 }}>
@@ -59,6 +75,24 @@ export function ParticiparSorteo({ giveawayId, entryCostTickets, ticketBalance, 
       ) : (
         <form action={action}>
           <input type="hidden" name="giveawayId" value={giveawayId} />
+          {hasFreeFireId ? (
+            <p className="hint" style={{ marginTop: 0 }}>
+              Premio se entrega al ID verificado: <b>{myFreeFireId}</b>
+              {myFreeFireNickname ? ` (${myFreeFireNickname})` : ''}
+            </p>
+          ) : (
+            <label className="field">
+              <span>Tu ID de Free Fire (donde recibirías el premio si ganas)</span>
+              <input
+                type="text"
+                name="freeFireId"
+                inputMode="numeric"
+                pattern="\d{6,15}"
+                required
+                placeholder="123456789"
+              />
+            </label>
+          )}
           <label className="field">
             <span>Cantidad de entradas ({entryCostTickets} ticket{entryCostTickets === 1 ? '' : 's'} cada una)</span>
             <input

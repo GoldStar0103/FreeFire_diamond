@@ -126,6 +126,12 @@ export default async function ContabilidadPage({
           </div>
         </div>
         <div className="card">
+          <div className="stat-label">Premios de sorteos</div>
+          <div className={`stat-value${summary.giveawayPrizeCostCents > 0 ? ' bad' : ''}`}>
+            −{mxn(summary.giveawayPrizeCostCents)}
+          </div>
+        </div>
+        <div className="card">
           <div className="stat-label">Otros gastos</div>
           <div className={`stat-value${summary.otherExpensesCents > 0 ? ' bad' : ''}`}>
             −{mxn(summary.otherExpensesCents)}

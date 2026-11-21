@@ -8,10 +8,12 @@
 
 import {
   closeDueSeasons,
+  createPendingGiveawayPrizeOrders,
   createPendingRewardOrders,
   expireOverduePayments,
   fulfillItemOrder,
   fulfillOrder,
+  grantCompletedGiveawayPrizes,
   grantCompletedRewardOrders,
   holdForManualFulfillment,
   PROVIDER_LOCK_KEYS,
@@ -34,6 +36,7 @@ import type {
   ExpiryReminderDeps,
   ExpiryReminderResult,
   ExpiryStore,
+  GiveawayPrizeDeliveryStore,
   ItemFulfillmentStore,
   LevelPassSweepResult,
   LevelPassSweepStore,
@@ -658,5 +661,58 @@ export async function runGiveawayDraws(deps: {
   } catch (err) {
     console.error(`[giveaways] Sweep failed: ${String(err)}`);
     return null;
+  }
+}
+
+/**
+ * The scheduling feature the client asked for: a draft giveaway saved with a
+ * future `opensAt` publishes itself once that time arrives — no admin click
+ * needed. Admin still creates every giveaway by hand (nothing here generates
+ * new ones), this only flips the one manual "Publicar" step into a schedule.
+ */
+export async function runGiveawayAutoPublish(deps: {
+  store: Pick<DrizzleGiveawayAdminStore, 'autoPublishDue'>;
+}): Promise<number | null> {
+  try {
+    const count = await deps.store.autoPublishDue(new Date());
+    if (count > 0) console.log(`[giveaways] ${count} draft(s) auto-published on schedule`);
+    return count;
+  } catch (err) {
+    console.error(`[giveaways] Auto-publish sweep failed: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Automatic delivery for `prizeType = 'diamonds'` giveaway winners, in two
+ * halves — same shape as `runRewardDelivery` above, and for the same reason:
+ * turn a winner into a real `$0` order (which `runFulfillmentLoop`/the
+ * poller then deliver like any other order), then close the loop for
+ * whichever of those orders has since completed. `prizeType = 'manual'`
+ * winners never appear here — those stay the admin's own
+ * `markWinnerDelivered` click.
+ */
+export async function runGiveawayPrizeDelivery(
+  deps: { store: GiveawayPrizeDeliveryStore },
+  batchSize: number,
+): Promise<void> {
+  try {
+    const created = await createPendingGiveawayPrizeOrders(deps, batchSize);
+    if (created.examined > 0) {
+      console.log(
+        `[giveaway-prizes] ${created.created} order(s) created, ${created.unresolved} unresolved, ${created.failed} failed`,
+      );
+    }
+  } catch (err) {
+    console.error(`[giveaway-prizes] Could not create pending prize orders: ${String(err)}`);
+  }
+
+  try {
+    const granted = await grantCompletedGiveawayPrizes(deps, batchSize);
+    if (granted.examined > 0) {
+      console.log(`[giveaway-prizes] ${granted.granted} granted, ${granted.failed} failed`);
+    }
+  } catch (err) {
+    console.error(`[giveaway-prizes] Could not grant completed prize orders: ${String(err)}`);
   }
 }

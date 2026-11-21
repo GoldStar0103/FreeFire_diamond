@@ -104,7 +104,8 @@ export default async function SorteoDetailPage({ params }: { params: Promise<{ i
 
       {(giveaway.status === 'drawn' || giveaway.status === 'delivered') && (
         <div className="alert ok">
-          🎉 Ganador: <b>{giveaway.winnerDisplayName ?? 'Jugador de LevelUp'}</b>
+          🎉 {giveaway.winnerDisplayNames.length === 1 ? 'Ganador' : 'Ganadores'}:{' '}
+          <b>{giveaway.winnerDisplayNames.length > 0 ? giveaway.winnerDisplayNames.join(', ') : 'Jugador de LevelUp'}</b>
           {giveaway.status === 'delivered' ? ' — premio entregado.' : ' — premio en camino.'}
         </div>
       )}
@@ -120,6 +121,8 @@ export default async function SorteoDetailPage({ params }: { params: Promise<{ i
           ticketBalance={profile?.ticketBalance ?? 0}
           myEntryCount={myEntry?.entryCount ?? 0}
           maxEntriesPerPlayer={giveaway.maxEntriesPerPlayer}
+          myFreeFireId={myEntry?.freeFireId ?? null}
+          myFreeFireNickname={myEntry?.freeFireNickname ?? null}
         />
       )}
 

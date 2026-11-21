@@ -104,7 +104,9 @@ export default async function SorteosPage() {
                 <span className="art-card-stock">
                   {g.status === 'cancelled'
                     ? 'No alcanzó el mínimo de participantes'
-                    : `Ganó ${g.winnerDisplayName ?? 'un jugador de LevelUp'}`}
+                    : g.winnerDisplayNames.length > 1
+                      ? `Ganaron ${g.winnerDisplayNames.join(', ')}`
+                      : `Ganó ${g.winnerDisplayNames[0] ?? 'un jugador de LevelUp'}`}
                 </span>
                 <span className="art-card-cta">Ver detalle →</span>
               </Link>

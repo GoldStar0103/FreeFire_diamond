@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
-import { adminUsers, giveaways, playerProfiles, ticketTransactions } from '../schema.js';
+import { adminUsers, giveawayEntries, giveaways, playerProfiles, ticketTransactions } from '../schema.js';
 import { DrizzleGiveawayEntryStore } from './giveaway-entry-store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -116,6 +116,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: player.id,
       entryCount: 3,
       costTickets: 30,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     expect(result).toEqual({ ok: true, resultingBalance: 70, totalEntryCount: 3, totalTicketsSpent: 30 });
@@ -139,12 +141,16 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: player.id,
       entryCount: 2,
       costTickets: 20,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
     const second = await store().spendTicketsForEntry({
       giveawayId: giveaway.id,
       playerProfileId: player.id,
       entryCount: 1,
       costTickets: 10,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     expect(second).toEqual({ ok: true, resultingBalance: 70, totalEntryCount: 3, totalTicketsSpent: 30 });
@@ -159,6 +165,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: player.id,
       entryCount: 1,
       costTickets: 10,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     expect(result).toEqual({ ok: false, reason: 'insufficient_tickets', currentBalance: 5 });
@@ -177,6 +185,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: player.id,
       entryCount: 2,
       costTickets: 20,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     const result = await store().spendTicketsForEntry({
@@ -184,6 +194,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: player.id,
       entryCount: 1,
       costTickets: 10,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     expect(result).toEqual({ ok: false, reason: 'max_entries_per_player', currentEntryCount: 2 });
@@ -200,6 +212,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: player.id,
       entryCount: 3,
       costTickets: 30,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     expect(result).toEqual({ ok: true, resultingBalance: 70, totalEntryCount: 3, totalTicketsSpent: 30 });
@@ -215,6 +229,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: first.id,
       entryCount: 1,
       costTickets: 10,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
 
     const blocked = await store().spendTicketsForEntry({
@@ -222,6 +238,8 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: second.id,
       entryCount: 1,
       costTickets: 10,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
     expect(blocked).toEqual({ ok: false, reason: 'giveaway_full' });
 
@@ -230,7 +248,37 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayEntryStore.spendTicketsForEntry',
       playerProfileId: first.id,
       entryCount: 1,
       costTickets: 10,
+      freeFireId: '123456789',
+      freeFireNickname: 'Jugador',
     });
     expect(topUp).toEqual({ ok: true, resultingBalance: 80, totalEntryCount: 2, totalTicketsSpent: 20 });
+  });
+
+  it('locks in the Free Fire ID verified on the first entry — a later entry never overwrites it', async () => {
+    const giveaway = await seedOpenGiveaway();
+    const player = await seedPlayer(100);
+
+    await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: player.id,
+      entryCount: 1,
+      costTickets: 10,
+      freeFireId: '111111111',
+      freeFireNickname: 'PrimerNombre',
+    });
+    await store().spendTicketsForEntry({
+      giveawayId: giveaway.id,
+      playerProfileId: player.id,
+      entryCount: 1,
+      costTickets: 10,
+      freeFireId: '999999999',
+      freeFireNickname: 'OtroNombre',
+    });
+
+    const [entry] = await db
+      .select()
+      .from(giveawayEntries)
+      .where(eq(giveawayEntries.playerProfileId, player.id));
+    expect(entry).toMatchObject({ freeFireId: '111111111', freeFireNickname: 'PrimerNombre' });
   });
 });

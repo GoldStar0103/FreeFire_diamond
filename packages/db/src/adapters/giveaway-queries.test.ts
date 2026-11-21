@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
 import { createDb, type Database } from '../index.js';
-import { adminUsers, giveawayEntries, giveaways, playerProfiles } from '../schema.js';
+import { adminUsers, giveawayEntries, giveaways, giveawayWinners, playerProfiles } from '../schema.js';
 import {
   getGiveawayPublic,
   getMyEntry,
@@ -60,7 +60,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
-  await db.execute(raw`TRUNCATE giveaways, player_profiles, admin_users RESTART IDENTITY CASCADE`);
+  await db.execute(raw`TRUNCATE giveaways, giveaway_winners, player_profiles, admin_users RESTART IDENTITY CASCADE`);
   const [admin] = await db
     .insert(adminUsers)
     .values({ email: `admin-${Math.random()}@test.com`, passwordHash: 'x' })
@@ -95,6 +95,16 @@ async function seedGiveaway(overrides: Partial<typeof giveaways.$inferInsert> = 
     })
     .returning();
   return row!;
+}
+
+async function seedWinner(giveawayId: string, playerProfileId: string, position = 1) {
+  await db.insert(giveawayWinners).values({
+    giveawayId,
+    playerProfileId,
+    freeFireId: '123456789',
+    position,
+    costCentsSnapshot: 1000,
+  });
 }
 
 const NOW = new Date('2026-11-05T00:00:00Z');
@@ -140,17 +150,24 @@ describe.skipIf(!PG_AVAILABLE)('getMyEntry / listMyGiveawayEntries', () => {
     const open = await seedGiveaway();
     const player = await seedPlayer();
     await db.insert(giveawayEntries).values({ giveawayId: open.id, playerProfileId: player.id, entryCount: 2, ticketsSpent: 20 });
-    expect(await getMyEntry(db, open.id, player.id)).toEqual({ entryCount: 2, ticketsSpent: 20 });
+    expect(await getMyEntry(db, open.id, player.id)).toEqual({
+      entryCount: 2,
+      ticketsSpent: 20,
+      freeFireId: null,
+      freeFireNickname: null,
+    });
   });
 
   it('listMyGiveawayEntries includes closed giveaways and flags the winner', async () => {
     const player = await seedPlayer();
     const other = await seedPlayer();
-    const drawn = await seedGiveaway({ status: 'drawn', winnerPlayerProfileId: player.id });
+    const drawn = await seedGiveaway({ status: 'drawn' });
     await db.insert(giveawayEntries).values({ giveawayId: drawn.id, playerProfileId: player.id, entryCount: 1, ticketsSpent: 10 });
+    await seedWinner(drawn.id, player.id);
 
-    const lostOne = await seedGiveaway({ status: 'drawn', winnerPlayerProfileId: other.id });
+    const lostOne = await seedGiveaway({ status: 'drawn' });
     await db.insert(giveawayEntries).values({ giveawayId: lostOne.id, playerProfileId: player.id, entryCount: 1, ticketsSpent: 10 });
+    await seedWinner(lostOne.id, other.id);
 
     const list = await listMyGiveawayEntries(db, player.id);
     expect(list).toHaveLength(2);
@@ -168,16 +185,20 @@ describe.skipIf(!PG_AVAILABLE)('getGiveawayPublic', () => {
   it('returns an open giveaway with no winner yet', async () => {
     const open = await seedGiveaway();
     const found = await getGiveawayPublic(db, open.id);
-    expect(found).toMatchObject({ id: open.id, status: 'open', winnerDisplayName: null, totalEntryCount: 0 });
+    expect(found).toMatchObject({ id: open.id, status: 'open', winnerDisplayNames: [], totalEntryCount: 0 });
   });
 
-  it('includes the winner display name once drawn', async () => {
+  it('includes every winner display name once drawn', async () => {
     const winner = await seedPlayer();
     await db.update(playerProfiles).set({ displayName: 'Ganador123' }).where(eq(playerProfiles.id, winner.id));
-    const drawn = await seedGiveaway({ status: 'drawn', winnerPlayerProfileId: winner.id });
+    const second = await seedPlayer();
+    await db.update(playerProfiles).set({ displayName: 'Ganador456' }).where(eq(playerProfiles.id, second.id));
+    const drawn = await seedGiveaway({ status: 'drawn' });
+    await seedWinner(drawn.id, winner.id, 1);
+    await seedWinner(drawn.id, second.id, 2);
 
     const found = await getGiveawayPublic(db, drawn.id);
-    expect(found).toMatchObject({ status: 'drawn', winnerDisplayName: 'Ganador123' });
+    expect(found).toMatchObject({ status: 'drawn', winnerDisplayNames: ['Ganador123', 'Ganador456'] });
   });
 
   it('surfaces the cancel reason for a cancelled giveaway', async () => {
@@ -223,10 +244,11 @@ describe.skipIf(!PG_AVAILABLE)('listRecentCompletedGiveaways', () => {
 
   it('includes the winner display name and total entries', async () => {
     const winner = await seedPlayer();
-    const drawn = await seedGiveaway({ status: 'drawn', winnerPlayerProfileId: winner.id });
+    const drawn = await seedGiveaway({ status: 'drawn' });
     await db.insert(giveawayEntries).values({ giveawayId: drawn.id, playerProfileId: winner.id, entryCount: 3, ticketsSpent: 30 });
+    await seedWinner(drawn.id, winner.id);
 
     const [row] = await listRecentCompletedGiveaways(db);
-    expect(row).toMatchObject({ id: drawn.id, winnerDisplayName: `Jugador ${winner.playerId}`, totalEntryCount: 3 });
+    expect(row).toMatchObject({ id: drawn.id, winnerDisplayNames: [`Jugador ${winner.playerId}`], totalEntryCount: 3 });
   });
 });

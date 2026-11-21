@@ -5,32 +5,68 @@
  * `Database`, every write takes an `adminUserId`). `closeDueGiveaways` is the
  * sweep-step body the worker's `runGiveawayDraws` calls every tick — it only
  * ever closes-for-draw or cancels-and-refunds, never picks a winner.
- * `drawWinner` is admin-triggered only, never called from the worker (see
- * the plan's "admin-triggered draw" decision).
+ * `drawWinners` is admin-triggered only, never called from the worker (see
+ * the plan's "admin-triggered draw" decision) — it can pick several winners
+ * (`giveaways.winnerCount`), per the client's request.
+ *
+ * This class also implements `GiveawayPrizeDeliveryStore` (the "automatic
+ * diamond-prize delivery" half, see `giveaway-prize-delivery.ts`) — same
+ * dual-interface shape `DrizzleLevelPassStore` already uses for Level Pass
+ * reward delivery, reusing one store instance rather than splitting a
+ * tightly-related set of writes across two classes.
  */
 
-import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
-import { meetsMinimum, pickWinner } from '@levelup/engine';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import {
+  defaultOrderNumber,
+  meetsMinimum,
+  pickWinners,
+  GIVEAWAY_PRIZE_COMBO_KEY,
+  type GiveawayPrizeDeliveryStore,
+  type GrantableGiveawayPrize,
+  type PendingGiveawayWinner,
+  type ResolvedGiveawayPrizeCatalogEntry,
+  type ResolvedGiveawayPrizeItem,
+} from '@levelup/engine';
+import { parseUsd } from '@levelup/provider';
 import type { Database } from '../index.js';
-import { giveawayEntries, giveaways, notifications, playerProfiles, ticketTransactions } from '../schema.js';
+import {
+  baseProducts,
+  financialLedgerEntries,
+  giveawayEntries,
+  giveaways,
+  giveawayWinners,
+  notifications,
+  orderItems,
+  orders,
+  playerProfiles,
+  seasons,
+  ticketTransactions,
+} from '../schema.js';
+import { toNumericString } from './mapping.js';
 
 export type GiveawayStatus = 'draft' | 'open' | 'closed_pending_draw' | 'drawn' | 'delivered' | 'cancelled';
 export type GiveawayScheduleType = 'daily' | 'weekly' | 'monthly' | 'flash';
+export type GiveawayPrizeType = 'manual' | 'diamonds';
+export type GiveawayWinnerDeliveryStatus = 'pending' | 'delivered' | 'failed';
 
 export interface GiveawayAdminRow {
   id: string;
   title: string;
   description: string;
   prizeDescription: string;
+  prizeValueCents: number | null;
   entryCostTickets: number;
   scheduleType: GiveawayScheduleType;
   minEntries: number;
   maxEntriesPerPlayer: number | null;
   maxParticipants: number | null;
+  winnerCount: number;
+  prizeType: GiveawayPrizeType;
+  prizeDiamonds: number | null;
   opensAt: Date;
   closesAt: Date;
   status: GiveawayStatus;
-  winnerPlayerProfileId: string | null;
   drawnAt: Date | null;
   cancelReason: string | null;
   totalEntryCount: number;
@@ -47,15 +83,34 @@ export interface GiveawayEntryAdminRow {
   createdAt: Date;
 }
 
+export interface GiveawayWinnerAdminRow {
+  id: string;
+  playerProfileId: string;
+  playerId: string;
+  playerDisplayName: string | null;
+  freeFireId: string;
+  position: number;
+  costCentsSnapshot: number;
+  deliveryStatus: GiveawayWinnerDeliveryStatus;
+  deliveryNote: string | null;
+  deliveredAt: Date | null;
+}
+
 export interface CreateGiveawayInput {
   title: string;
   description: string;
   prizeDescription: string;
+  prizeValueCents?: number | null;
   entryCostTickets: number;
   scheduleType: GiveawayScheduleType;
   minEntries: number;
   maxEntriesPerPlayer?: number | null;
   maxParticipants?: number | null;
+  winnerCount: number;
+  prizeType: GiveawayPrizeType;
+  prizeDiamonds?: number | null;
+  /** Already-resolved recipe (baseProductId pinned) — see `resolveGiveawayPrizeRecipe` for how a plain denomination draft becomes this. */
+  prizeRecipe?: { baseProductId: string; diamondsBase: number }[] | null;
   opensAt: Date;
   closesAt: Date;
 }
@@ -65,15 +120,18 @@ const ADMIN_ROW_SELECTION = {
   title: giveaways.title,
   description: giveaways.description,
   prizeDescription: giveaways.prizeDescription,
+  prizeValueCents: giveaways.prizeValueCents,
   entryCostTickets: giveaways.entryCostTickets,
   scheduleType: giveaways.scheduleType,
   minEntries: giveaways.minEntries,
   maxEntriesPerPlayer: giveaways.maxEntriesPerPlayer,
   maxParticipants: giveaways.maxParticipants,
+  winnerCount: giveaways.winnerCount,
+  prizeType: giveaways.prizeType,
+  prizeDiamonds: giveaways.prizeDiamonds,
   opensAt: giveaways.opensAt,
   closesAt: giveaways.closesAt,
   status: giveaways.status,
-  winnerPlayerProfileId: giveaways.winnerPlayerProfileId,
   drawnAt: giveaways.drawnAt,
   cancelReason: giveaways.cancelReason,
   createdAt: giveaways.createdAt,
@@ -82,7 +140,29 @@ const ADMIN_ROW_SELECTION = {
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type RefundEntrant = { playerProfileId: string; ticketsSpent: number };
 
-export class DrizzleGiveawayAdminStore {
+/**
+ * Every winner of a giveaway resolved and delivered, so it's safe to show
+ * "premio entregado" at the giveaway level — mirrors `grantReward`'s
+ * idempotency discipline: a no-op update (zero rows, `status = 'drawn'`
+ * already not true) when another process finalized it first.
+ */
+async function maybeFinalizeGiveaway(tx: Tx, giveawayId: string): Promise<void> {
+  const [row] = await tx
+    .select({
+      total: sql<string>`count(*)`,
+      delivered: sql<string>`count(*) filter (where ${giveawayWinners.deliveryStatus} = 'delivered')`,
+    })
+    .from(giveawayWinners)
+    .where(eq(giveawayWinners.giveawayId, giveawayId));
+  if (row && Number(row.total) > 0 && Number(row.total) === Number(row.delivered)) {
+    await tx
+      .update(giveaways)
+      .set({ status: 'delivered', updatedAt: sql`now()` })
+      .where(and(eq(giveaways.id, giveawayId), eq(giveaways.status, 'drawn')));
+  }
+}
+
+export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
   constructor(private readonly db: Database) {}
 
   async listForAdmin(): Promise<GiveawayAdminRow[]> {
@@ -99,15 +179,18 @@ export class DrizzleGiveawayAdminStore {
         giveaways.title,
         giveaways.description,
         giveaways.prizeDescription,
+        giveaways.prizeValueCents,
         giveaways.entryCostTickets,
         giveaways.scheduleType,
         giveaways.minEntries,
         giveaways.maxEntriesPerPlayer,
         giveaways.maxParticipants,
+        giveaways.winnerCount,
+        giveaways.prizeType,
+        giveaways.prizeDiamonds,
         giveaways.opensAt,
         giveaways.closesAt,
         giveaways.status,
-        giveaways.winnerPlayerProfileId,
         giveaways.drawnAt,
         giveaways.cancelReason,
         giveaways.createdAt,
@@ -153,6 +236,60 @@ export class DrizzleGiveawayAdminStore {
       .orderBy(desc(giveawayEntries.entryCount));
   }
 
+  async listWinners(giveawayId: string): Promise<GiveawayWinnerAdminRow[]> {
+    return this.db
+      .select({
+        id: giveawayWinners.id,
+        playerProfileId: giveawayWinners.playerProfileId,
+        playerId: playerProfiles.playerId,
+        playerDisplayName: playerProfiles.displayName,
+        freeFireId: giveawayWinners.freeFireId,
+        position: giveawayWinners.position,
+        costCentsSnapshot: giveawayWinners.costCentsSnapshot,
+        deliveryStatus: giveawayWinners.deliveryStatus,
+        deliveryNote: giveawayWinners.deliveryNote,
+        deliveredAt: giveawayWinners.deliveredAt,
+      })
+      .from(giveawayWinners)
+      .innerJoin(playerProfiles, eq(playerProfiles.id, giveawayWinners.playerProfileId))
+      .where(eq(giveawayWinners.giveawayId, giveawayId))
+      .orderBy(giveawayWinners.position);
+  }
+
+  /**
+   * Resolves a plain-denomination prize recipe draft to real `base_products`
+   * rows, exactly like `saveLevelPassCheckpoints` does for a Level Pass
+   * checkpoint — only ever called for `prizeType = 'diamonds'`. Throws (the
+   * caller surfaces it as a validation error) rather than silently pinning a
+   * denomination the provider no longer sells.
+   */
+  async resolveGiveawayPrizeRecipe(
+    diamondsBase: number[],
+  ): Promise<{ baseProductId: string; diamondsBase: number }[]> {
+    const products = await this.db
+      .select({ id: baseProducts.id, diamondsBase: baseProducts.diamondsBase })
+      .from(baseProducts)
+      .where(eq(baseProducts.active, true));
+
+    const byDenomination = new Map<number, string>();
+    for (const p of products) {
+      if (!byDenomination.has(p.diamondsBase)) byDenomination.set(p.diamondsBase, p.id);
+    }
+
+    const missing = new Set<number>();
+    const recipe = diamondsBase.map((d) => {
+      const baseProductId = byDenomination.get(d);
+      if (!baseProductId) missing.add(d);
+      return { baseProductId: baseProductId ?? '', diamondsBase: d };
+    });
+
+    if (missing.size > 0) {
+      throw new Error(`No hay producto activo del proveedor para: ${[...missing].join(', ')}`);
+    }
+
+    return recipe;
+  }
+
   async create(input: CreateGiveawayInput, adminUserId: string): Promise<string> {
     const [row] = await this.db
       .insert(giveaways)
@@ -178,6 +315,23 @@ export class DrizzleGiveawayAdminStore {
       .where(and(eq(giveaways.id, id), eq(giveaways.status, 'draft')))
       .returning({ id: giveaways.id });
     return updated.length > 0;
+  }
+
+  /**
+   * The scheduling feature the client asked for: a draft saved with a future
+   * `opensAt` publishes itself once that time arrives, no manual "Publicar"
+   * click needed. System-triggered (no `adminUserId` — whoever drafted it
+   * keeps `createdByAdminId`), called from the worker's sweep loop right next
+   * to `closeDueGiveaways`. The `status = 'draft'` clause is the same
+   * idempotency guard every other sweep step in this file relies on.
+   */
+  async autoPublishDue(now: Date): Promise<number> {
+    const updated = await this.db
+      .update(giveaways)
+      .set({ status: 'open', updatedAt: sql`now()` })
+      .where(and(eq(giveaways.status, 'draft'), lte(giveaways.opensAt, now), gt(giveaways.closesAt, now)))
+      .returning({ id: giveaways.id });
+    return updated.length;
   }
 
   /**
@@ -260,60 +414,366 @@ export class DrizzleGiveawayAdminStore {
     });
   }
 
-  /** Admin-triggered only — never called from the worker's sweep loop. */
-  async drawWinner(
+  /**
+   * Admin-triggered only — never called from the worker's sweep loop. Draws
+   * up to `giveaways.winnerCount` distinct winners (`pickWinners`, no
+   * replacement). Requires `prizeValueCents` to already be set — for a
+   * `diamonds`-type giveaway there is no later manual confirmation step to
+   * gate on (delivery is automatic), so this is the one point before the
+   * draw that must enforce it for both prize types alike.
+   */
+  async drawWinners(
     id: string,
     adminUserId: string,
     random: () => number = Math.random,
-  ): Promise<{ ok: true; winnerPlayerProfileId: string } | { ok: false; reason: 'not_found' | 'wrong_status' | 'no_entries' }> {
+  ): Promise<
+    | { ok: true; winnerCount: number }
+    | { ok: false; reason: 'not_found' | 'wrong_status' | 'no_entries' | 'prize_value_required' }
+  > {
     return this.db.transaction(async (tx) => {
       const [giveaway] = await tx
-        .select({ id: giveaways.id, status: giveaways.status, title: giveaways.title, prizeDescription: giveaways.prizeDescription })
+        .select({
+          id: giveaways.id,
+          status: giveaways.status,
+          title: giveaways.title,
+          prizeDescription: giveaways.prizeDescription,
+          winnerCount: giveaways.winnerCount,
+          prizeValueCents: giveaways.prizeValueCents,
+        })
         .from(giveaways)
         .where(eq(giveaways.id, id))
         .limit(1);
       if (!giveaway) return { ok: false, reason: 'not_found' as const };
       if (giveaway.status !== 'closed_pending_draw') return { ok: false, reason: 'wrong_status' as const };
+      if (giveaway.prizeValueCents == null) return { ok: false, reason: 'prize_value_required' as const };
 
       const entries = await tx
-        .select({ playerProfileId: giveawayEntries.playerProfileId, entryCount: giveawayEntries.entryCount })
+        .select({
+          playerProfileId: giveawayEntries.playerProfileId,
+          entryCount: giveawayEntries.entryCount,
+          freeFireId: giveawayEntries.freeFireId,
+          fallbackPlayerId: playerProfiles.playerId,
+        })
         .from(giveawayEntries)
+        .innerJoin(playerProfiles, eq(playerProfiles.id, giveawayEntries.playerProfileId))
         .where(eq(giveawayEntries.giveawayId, id));
 
-      const winnerPlayerProfileId = pickWinner(entries, random);
-      if (!winnerPlayerProfileId) return { ok: false, reason: 'no_entries' as const };
+      const winnerIds = pickWinners(entries, giveaway.winnerCount, random);
+      if (winnerIds.length === 0) return { ok: false, reason: 'no_entries' as const };
+
+      const byPlayer = new Map(entries.map((e) => [e.playerProfileId, e]));
 
       await tx
         .update(giveaways)
-        .set({
-          status: 'drawn',
-          winnerPlayerProfileId,
-          drawnAt: sql`now()`,
-          drawnByAdminId: adminUserId,
-          updatedAt: sql`now()`,
-        })
+        .set({ status: 'drawn', drawnAt: sql`now()`, drawnByAdminId: adminUserId, updatedAt: sql`now()` })
         .where(eq(giveaways.id, id));
 
-      await tx.insert(notifications).values({
-        playerProfileId: winnerPlayerProfileId,
-        type: 'giveaway_won',
-        title: '¡Ganaste un sorteo!',
-        message: `Ganaste "${giveaway.title}": ${giveaway.prizeDescription}`,
-        targetUrl: `/sorteos/${id}`,
-      });
+      for (let i = 0; i < winnerIds.length; i++) {
+        const playerProfileId = winnerIds[i]!;
+        const entry = byPlayer.get(playerProfileId);
 
-      return { ok: true, winnerPlayerProfileId };
+        await tx.insert(giveawayWinners).values({
+          giveawayId: id,
+          playerProfileId,
+          freeFireId: entry?.freeFireId ?? entry?.fallbackPlayerId ?? '',
+          position: i + 1,
+          costCentsSnapshot: giveaway.prizeValueCents,
+        });
+
+        await tx.insert(notifications).values({
+          playerProfileId,
+          type: 'giveaway_won',
+          title: '¡Ganaste un sorteo!',
+          message: `Ganaste "${giveaway.title}": ${giveaway.prizeDescription}`,
+          targetUrl: `/sorteos/${id}`,
+        });
+      }
+
+      return { ok: true, winnerCount: winnerIds.length };
     });
   }
 
-  /** Confirmation that the prize was actually sent — a manual, separate step from drawing. */
-  async markDelivered(id: string, _adminUserId: string): Promise<boolean> {
+  /** Any status except `delivered` — editing after a draw only affects a FUTURE giveaway's snapshot, never an already-drawn one (see `costCentsSnapshot`). */
+  async setPrizeValueCents(id: string, prizeValueCents: number, _adminUserId: string): Promise<boolean> {
     const updated = await this.db
       .update(giveaways)
-      .set({ status: 'delivered', updatedAt: sql`now()` })
-      .where(and(eq(giveaways.id, id), eq(giveaways.status, 'drawn')))
+      .set({ prizeValueCents, updatedAt: sql`now()` })
+      .where(and(eq(giveaways.id, id), ne(giveaways.status, 'delivered')))
       .returning({ id: giveaways.id });
     return updated.length > 0;
+  }
+
+  /**
+   * Manual delivery confirmation for ONE winner of a `prizeType = 'manual'`
+   * giveaway — `diamonds`-type winners are never marked this way, they go
+   * through the automatic `grantGiveawayPrize` path instead. Posts that
+   * winner's frozen `costCentsSnapshot` to the ledger (same
+   * `financialLedgerEntries` convention `level-pass-store.ts`'s `grantReward`
+   * uses), then finalizes the giveaway once every winner is delivered.
+   */
+  async markWinnerDelivered(
+    giveawayId: string,
+    winnerId: string,
+    adminUserId: string,
+  ): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'already_delivered' }> {
+    return this.db.transaction(async (tx) => {
+      const [winner] = await tx
+        .select({ costCentsSnapshot: giveawayWinners.costCentsSnapshot, deliveryStatus: giveawayWinners.deliveryStatus })
+        .from(giveawayWinners)
+        .where(and(eq(giveawayWinners.id, winnerId), eq(giveawayWinners.giveawayId, giveawayId)))
+        .limit(1);
+      if (!winner) return { ok: false, reason: 'not_found' as const };
+
+      const updated = await tx
+        .update(giveawayWinners)
+        .set({ deliveryStatus: 'delivered', deliveredAt: sql`now()` })
+        .where(and(eq(giveawayWinners.id, winnerId), eq(giveawayWinners.deliveryStatus, 'pending')))
+        .returning({ id: giveawayWinners.id });
+      if (updated.length === 0) return { ok: false, reason: 'already_delivered' as const };
+
+      const [giveaway] = await tx
+        .select({ title: giveaways.title, prizeDescription: giveaways.prizeDescription })
+        .from(giveaways)
+        .where(eq(giveaways.id, giveawayId))
+        .limit(1);
+
+      const now = new Date();
+      const [season] = await tx
+        .select({ id: seasons.id })
+        .from(seasons)
+        .where(and(lt(seasons.startsAt, now), gte(seasons.endsAt, now)))
+        .orderBy(desc(seasons.seasonNumber))
+        .limit(1);
+
+      await tx.insert(financialLedgerEntries).values({
+        entryType: 'giveaway_prize',
+        amountCents: -winner.costCentsSnapshot,
+        occurredAt: now,
+        seasonId: season?.id ?? null,
+        sourceType: 'giveaway',
+        sourceId: giveawayId,
+        note: `Premio entregado: "${giveaway?.title}" — ${giveaway?.prizeDescription}`,
+        createdByAdminId: adminUserId,
+      });
+
+      await maybeFinalizeGiveaway(tx, giveawayId);
+
+      return { ok: true };
+    });
+  }
+
+  // ── automatic diamond-prize delivery (GiveawayPrizeDeliveryStore) ────────
+  // Mirrors `DrizzleLevelPassStore`'s reward-delivery section almost exactly
+  // — see `giveaway-prize-delivery.ts`'s module doc for why this reuses the
+  // real order/fulfilment pipeline instead of a second delivery path.
+
+  async findPendingGiveawayWinners(limit: number): Promise<PendingGiveawayWinner[]> {
+    const rows = await this.db
+      .select({
+        winnerId: giveawayWinners.id,
+        giveawayId: giveawayWinners.giveawayId,
+        freeFireId: giveawayWinners.freeFireId,
+        giveawayTitle: giveaways.title,
+        prizeDiamonds: giveaways.prizeDiamonds,
+        prizeRecipe: giveaways.prizeRecipe,
+      })
+      .from(giveawayWinners)
+      .innerJoin(giveaways, eq(giveaways.id, giveawayWinners.giveawayId))
+      .where(
+        and(
+          eq(giveaways.prizeType, 'diamonds'),
+          eq(giveawayWinners.deliveryStatus, 'pending'),
+          isNull(giveawayWinners.deliveryOrderId),
+        ),
+      )
+      .limit(limit);
+
+    return rows.map((r) => ({
+      winnerId: r.winnerId,
+      giveawayId: r.giveawayId,
+      giveawayTitle: r.giveawayTitle,
+      freeFireId: r.freeFireId,
+      prizeDiamonds: r.prizeDiamonds ?? 0,
+      recipe: r.prizeRecipe ?? [],
+    }));
+  }
+
+  async resolveGiveawayPrizeCatalog(baseProductIds: string[]): Promise<ResolvedGiveawayPrizeCatalogEntry[]> {
+    if (baseProductIds.length === 0) return [];
+    const rows = await this.db
+      .select({
+        id: baseProducts.id,
+        provider: baseProducts.provider,
+        providerProductId: baseProducts.providerProductId,
+        endpointKind: baseProducts.endpointKind,
+        diamondsBase: baseProducts.diamondsBase,
+        costUsd: baseProducts.costUsd,
+        active: baseProducts.active,
+      })
+      .from(baseProducts)
+      .where(inArray(baseProducts.id, baseProductIds));
+
+    return rows.map((r) => ({
+      baseProductId: r.id,
+      provider: r.provider,
+      providerProductId: r.providerProductId,
+      endpointKind: r.endpointKind,
+      diamondsBase: r.diamondsBase,
+      costUsd: r.costUsd === null ? null : parseUsd(r.costUsd),
+      active: r.active,
+    }));
+  }
+
+  async createGiveawayPrizeOrder(
+    winner: PendingGiveawayWinner,
+    items: ResolvedGiveawayPrizeItem[],
+  ): Promise<{ created: boolean; orderId: string; orderNumber: string }> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const orderNumber = defaultOrderNumber();
+      try {
+        return await this.db.transaction(async (tx) => {
+          const [winnerRow] = await tx
+            .select({ playerProfileId: giveawayWinners.playerProfileId })
+            .from(giveawayWinners)
+            .where(eq(giveawayWinners.id, winner.winnerId))
+            .limit(1);
+
+          const [created] = await tx
+            .insert(orders)
+            .values({
+              orderNumber,
+              playerId: winner.freeFireId,
+              playerProfileId: winnerRow?.playerProfileId ?? null,
+              comboId: null,
+              comboKey: GIVEAWAY_PRIZE_COMBO_KEY,
+              comboSnapshot: {
+                comboKey: GIVEAWAY_PRIZE_COMBO_KEY,
+                name: `Premio de sorteo — ${winner.giveawayTitle}`,
+                advertisedDiamonds: winner.prizeDiamonds,
+                deliveredDiamonds: items.reduce((sum, i) => sum + i.diamondsBase, 0),
+                recipe: items.map((i) => ({
+                  sequence: i.sequence,
+                  providerProductId: i.providerProductId,
+                  diamondsBase: i.diamondsBase,
+                  costUsd: toNumericString(i.costUsd),
+                })),
+                frozenAt: new Date().toISOString(),
+              },
+              priceMxnCents: 0,
+              // Skips `pending_payment` entirely, same as a Level Pass reward
+              // order — there is no payment to confirm. `paidAt` stays null on
+              // purpose: the Meta CAPI sweep only scans orders where it is
+              // set, so a prize can never be reported to Meta as a purchase.
+              status: 'payment_confirmed',
+            })
+            .returning({ id: orders.id, orderNumber: orders.orderNumber });
+          if (!created) throw new Error('Giveaway prize order insert returned no row');
+
+          await tx.insert(orderItems).values(
+            items.map((item) => ({
+              orderId: created.id,
+              sequence: item.sequence,
+              baseProductId: item.baseProductId,
+              provider: item.provider,
+              providerProductId: item.providerProductId,
+              diamondsBase: item.diamondsBase,
+              costUsd: toNumericString(item.costUsd),
+              status: 'queued' as const,
+            })),
+          );
+
+          // The real idempotency guard: if another process already linked a
+          // prize order onto this winner since we read it, this affects zero
+          // rows and we throw to roll back the order/items just inserted
+          // rather than leave an orphaned duplicate.
+          const linked = await tx
+            .update(giveawayWinners)
+            .set({ deliveryOrderId: created.id })
+            .where(and(eq(giveawayWinners.id, winner.winnerId), isNull(giveawayWinners.deliveryOrderId)))
+            .returning({ id: giveawayWinners.id });
+
+          if (linked.length === 0) {
+            throw new Error(`Winner ${winner.winnerId} already has a prize order`);
+          }
+
+          return { created: true, orderId: created.id, orderNumber: created.orderNumber };
+        });
+      } catch (err) {
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          (err as { code?: string }).code === '23505' &&
+          String(err).includes('orders_number_idx')
+        ) {
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw new Error('Could not allocate a unique order number after 5 attempts');
+  }
+
+  async findCompletedGiveawayPrizeOrders(limit: number): Promise<GrantableGiveawayPrize[]> {
+    const rows = await this.db
+      .select({
+        winnerId: giveawayWinners.id,
+        giveawayId: giveawayWinners.giveawayId,
+        deliveryOrderId: giveawayWinners.deliveryOrderId,
+        costCentsSnapshot: giveawayWinners.costCentsSnapshot,
+      })
+      .from(giveawayWinners)
+      .innerJoin(orders, eq(orders.id, giveawayWinners.deliveryOrderId))
+      .where(and(eq(giveawayWinners.deliveryStatus, 'pending'), eq(orders.status, 'completed')))
+      .limit(limit);
+
+    return rows.map((r) => ({
+      winnerId: r.winnerId,
+      giveawayId: r.giveawayId,
+      // Safe: the inner join on `orders.id = delivery_order_id` requires it.
+      deliveryOrderId: r.deliveryOrderId!,
+      internalCostCents: r.costCentsSnapshot,
+    }));
+  }
+
+  async grantGiveawayPrize(row: GrantableGiveawayPrize): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      // Idempotency guard: a second run after a process died between the
+      // update and the ledger insert affects zero rows here and stops,
+      // rather than double-recording the expense.
+      const granted = await tx
+        .update(giveawayWinners)
+        .set({ deliveryStatus: 'delivered', deliveredAt: sql`now()` })
+        .where(and(eq(giveawayWinners.id, row.winnerId), eq(giveawayWinners.deliveryStatus, 'pending')))
+        .returning({ id: giveawayWinners.id });
+      if (granted.length === 0) return;
+
+      const [giveaway] = await tx
+        .select({ title: giveaways.title, prizeDescription: giveaways.prizeDescription })
+        .from(giveaways)
+        .where(eq(giveaways.id, row.giveawayId))
+        .limit(1);
+
+      const now = new Date();
+      const [season] = await tx
+        .select({ id: seasons.id })
+        .from(seasons)
+        .where(and(lt(seasons.startsAt, now), gte(seasons.endsAt, now)))
+        .orderBy(desc(seasons.seasonNumber))
+        .limit(1);
+
+      await tx.insert(financialLedgerEntries).values({
+        entryType: 'giveaway_prize',
+        amountCents: -row.internalCostCents,
+        occurredAt: now,
+        seasonId: season?.id ?? null,
+        sourceType: 'giveaway',
+        sourceId: row.giveawayId,
+        note: `Premio entregado automáticamente: "${giveaway?.title}" — ${giveaway?.prizeDescription}`,
+      });
+
+      await maybeFinalizeGiveaway(tx, row.giveawayId);
+    });
   }
 }
 

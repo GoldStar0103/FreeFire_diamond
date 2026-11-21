@@ -42,6 +42,8 @@ export class DrizzleGiveawayEntryStore implements GiveawayEntryStore {
     playerProfileId: string;
     entryCount: number;
     costTickets: number;
+    freeFireId: string;
+    freeFireNickname: string | null;
   }): Promise<SpendTicketsResult> {
     return this.db.transaction(async (tx) => {
       const [giveaway] = await tx
@@ -103,12 +105,19 @@ export class DrizzleGiveawayEntryStore implements GiveawayEntryStore {
           playerProfileId: input.playerProfileId,
           entryCount: input.entryCount,
           ticketsSpent: input.costTickets,
+          freeFireId: input.freeFireId,
+          freeFireNickname: input.freeFireNickname,
         })
         .onConflictDoUpdate({
           target: [giveawayEntries.giveawayId, giveawayEntries.playerProfileId],
           set: {
             entryCount: sql`${giveawayEntries.entryCount} + ${input.entryCount}`,
             ticketsSpent: sql`${giveawayEntries.ticketsSpent} + ${input.costTickets}`,
+            // Locked in on the first entry — a later purchase never overwrites
+            // the ID the player already verified, even if the form resubmits
+            // a different value.
+            freeFireId: sql`coalesce(${giveawayEntries.freeFireId}, ${input.freeFireId})`,
+            freeFireNickname: sql`coalesce(${giveawayEntries.freeFireNickname}, ${input.freeFireNickname})`,
             updatedAt: sql`now()`,
           },
         })

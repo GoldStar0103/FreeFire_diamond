@@ -5,6 +5,7 @@ import {
   countCompletedOrdersToday,
   countUniqueCustomers,
   getPublicTop50,
+  listOpenGiveaways,
   listStorefront,
   listTestimonials,
 } from '@levelup/db';
@@ -33,8 +34,8 @@ import { CountUp } from './count-up';
 import { MascotMedia } from './mascot-media';
 import { SiteHeader } from './site-header';
 import { WaFab } from './wa-fab';
+import { GiveawayFabPopup } from './giveaway-fab-popup';
 import { supportUrl } from '../lib/support';
-import { whatsappChannelUrl } from '../lib/whatsapp-channel';
 
 export const dynamic = 'force-dynamic';
 
@@ -106,13 +107,14 @@ function assignFlyerSlots(campaigns: Campaign[], featuredKey: string | null): Ca
 }
 
 export default async function HomePage() {
-  const [campaigns, delivered, customers, today, top50, testimonials] = await Promise.all([
+  const [campaigns, delivered, customers, today, top50, testimonials, openGiveaways] = await Promise.all([
     listStorefront(getDb()),
     countCompletedOrders(getDb()),
     countUniqueCustomers(getDb()),
     countCompletedOrdersToday(getDb()),
     getPublicTop50(getDb()),
     listTestimonials(getDb()),
+    listOpenGiveaways(getDb()),
   ]);
 
   const rated = testimonials.filter((t) => t.rating);
@@ -139,12 +141,19 @@ export default async function HomePage() {
   const liveCountIsToday = today > 0;
   const showLive = liveCount > 0 || customers > 0 || avgRating;
   const chatUrl = supportUrl('Hola, tengo una pregunta sobre mi recarga.');
-  const channelUrl = whatsappChannelUrl();
 
   return (
     <main className="page hm">
       <SiteHeader fadeOnScroll showSocial />
-      {channelUrl && <WaFab />}
+      <WaFab />
+      <GiveawayFabPopup
+        giveaways={openGiveaways.map((g) => ({
+          id: g.id,
+          title: g.title,
+          prizeDescription: g.prizeDescription,
+          closesAt: g.closesAt.toISOString(),
+        }))}
+      />
 
       <div className="hm-layout">
         <div className="hm-col-main">
