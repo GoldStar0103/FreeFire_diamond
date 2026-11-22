@@ -101,4 +101,17 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleItemCatalogAdminStore', () => {
     // The vendor's own name is kept, untouched, for reference.
     expect(item?.rocketpassName).toBe('Universal Evo Token Crate');
   });
+
+  it('a freshly synced item has no price set yet', async () => {
+    await seedCrate();
+    const [item] = await store().listItemsForAdmin();
+    expect(item?.priceMxnCents).toBeNull();
+  });
+
+  it('setItemPriceMxnCents sets the admin-typed sale price', async () => {
+    await seedCrate();
+    await store().setItemPriceMxnCents('crate', 2100, 'admin-1');
+    const [item] = await store().listItemsForAdmin();
+    expect(item?.priceMxnCents).toBe(2100);
+  });
 });

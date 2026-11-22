@@ -54,9 +54,9 @@ beforeEach(async () => {
   await db.execute(raw`TRUNCATE item_catalog, item_stock RESTART IDENTITY CASCADE`);
 });
 
-const PRICING = { arsRate: 0.015, markupPercent: 40 };
-
-async function seedCrate(overrides: Partial<{ active: boolean; rocketpassAvailable: boolean }> = {}) {
+async function seedCrate(
+  overrides: Partial<{ active: boolean; rocketpassAvailable: boolean; priceMxnCents: number | null }> = {},
+) {
   const [row] = await db
     .insert(itemCatalog)
     .values({
@@ -65,6 +65,7 @@ async function seedCrate(overrides: Partial<{ active: boolean; rocketpassAvailab
       rocketpassName: 'Universal Evo Token Crate',
       kind: 'gift',
       priceArs: '1000.00',
+      priceMxnCents: overrides.priceMxnCents === undefined ? 2100 : overrides.priceMxnCents,
       maxQuantity: 10,
       active: overrides.active ?? true,
       rocketpassAvailable: overrides.rocketpassAvailable ?? true,
@@ -78,11 +79,10 @@ async function seedCrate(overrides: Partial<{ active: boolean; rocketpassAvailab
 }
 
 describe.skipIf(!PG_AVAILABLE)('listStorefrontItems', () => {
-  it('computes the sale price from ARS cost plus the markup, never leaking the ARS figure', async () => {
+  it('uses the admin-typed sale price, never leaking the ARS figure', async () => {
     await seedCrate();
-    const items = await listStorefrontItems(db, PRICING);
+    const items = await listStorefrontItems(db);
     expect(items).toHaveLength(1);
-    // cost: 1000 * 0.015 = 15 MXN = 1500 cents; sale: 1500 * 1.4 = 2100
     expect(items[0]).toMatchObject({
       sku: 'crate',
       displayName: 'Evo Crate',
@@ -94,28 +94,38 @@ describe.skipIf(!PG_AVAILABLE)('listStorefrontItems', () => {
 
   it('excludes an item the admin turned off', async () => {
     await seedCrate({ active: false });
-    expect(await listStorefrontItems(db, PRICING)).toHaveLength(0);
+    expect(await listStorefrontItems(db)).toHaveLength(0);
   });
 
   it('excludes an item RocketPass itself no longer reports available', async () => {
     await seedCrate({ rocketpassAvailable: false });
-    expect(await listStorefrontItems(db, PRICING)).toHaveLength(0);
+    expect(await listStorefrontItems(db)).toHaveLength(0);
+  });
+
+  it('excludes an item with no price set yet', async () => {
+    await seedCrate({ priceMxnCents: null });
+    expect(await listStorefrontItems(db)).toHaveLength(0);
   });
 });
 
 describe.skipIf(!PG_AVAILABLE)('getStorefrontItem', () => {
   it('returns null for an item that is off', async () => {
     await seedCrate({ active: false });
-    expect(await getStorefrontItem(db, 'crate', PRICING)).toBeNull();
+    expect(await getStorefrontItem(db, 'crate')).toBeNull();
   });
 
   it('returns the item with per-region stock when sellable', async () => {
     await seedCrate();
-    const item = await getStorefrontItem(db, 'crate', PRICING);
+    const item = await getStorefrontItem(db, 'crate');
     expect(item?.stockByRegion).toEqual({ US: 5, SAC: 0 });
   });
 
+  it('returns null for an item with no price set yet', async () => {
+    await seedCrate({ priceMxnCents: null });
+    expect(await getStorefrontItem(db, 'crate')).toBeNull();
+  });
+
   it('returns null for an unknown sku', async () => {
-    expect(await getStorefrontItem(db, 'nope', PRICING)).toBeNull();
+    expect(await getStorefrontItem(db, 'nope')).toBeNull();
   });
 });

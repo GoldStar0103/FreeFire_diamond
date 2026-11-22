@@ -2,14 +2,13 @@
  * Public read models for the RocketPass item storefront.
  *
  * Same boundary `storefront-queries.ts` documents for combos: cost/ARS
- * figures never cross into these shapes, only the computed MXN sale price a
- * customer actually sees. Computing that price needs the admin-set ARS rate
- * and markup percent (`payment-settings.ts`), so both queries take them as
- * parameters rather than reading settings themselves — keeps this file a
- * pure read model, same as its combo counterpart.
+ * figures never cross into these shapes, only the admin-typed MXN sale price
+ * a customer actually sees (`itemCatalog.priceMxnCents`) — no pricing
+ * settings to pass in anymore, now that it's a manual per-item number
+ * instead of a computed flat-markup figure.
  */
 
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNotNull } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { itemCatalog, itemStock } from '../schema.js';
 
@@ -23,27 +22,25 @@ export interface StorefrontItem {
   stockByRegion: Record<string, number>;
 }
 
-function salePriceMxnCents(priceArs: string, arsRate: number, markupPercent: number): number {
-  const costCents = Math.round(Number(priceArs) * arsRate * 100);
-  return Math.round(costCents * (1 + markupPercent / 100));
-}
-
-/** Everything sellable right now — active AND still reported available by RocketPass. */
-export async function listStorefrontItems(
-  db: Database,
-  pricing: { arsRate: number; markupPercent: number },
-): Promise<StorefrontItem[]> {
+/** Everything sellable right now — active, still reported available by RocketPass, AND priced. */
+export async function listStorefrontItems(db: Database): Promise<StorefrontItem[]> {
   const rows = await db
     .select({
       id: itemCatalog.id,
       sku: itemCatalog.sku,
       displayName: itemCatalog.displayName,
       kind: itemCatalog.kind,
-      priceArs: itemCatalog.priceArs,
+      priceMxnCents: itemCatalog.priceMxnCents,
       maxQuantity: itemCatalog.maxQuantity,
     })
     .from(itemCatalog)
-    .where(and(eq(itemCatalog.active, true), eq(itemCatalog.rocketpassAvailable, true)))
+    .where(
+      and(
+        eq(itemCatalog.active, true),
+        eq(itemCatalog.rocketpassAvailable, true),
+        isNotNull(itemCatalog.priceMxnCents),
+      ),
+    )
     .orderBy(asc(itemCatalog.displayName));
 
   if (rows.length === 0) return [];
@@ -63,25 +60,22 @@ export async function listStorefrontItems(
     sku: r.sku,
     displayName: r.displayName,
     kind: r.kind,
-    salePriceMxnCents: salePriceMxnCents(r.priceArs, pricing.arsRate, pricing.markupPercent),
+    // Safe: the `isNotNull` filter above guarantees this.
+    salePriceMxnCents: r.priceMxnCents!,
     maxQuantity: r.maxQuantity,
     stockByRegion: stockById.get(r.id) ?? {},
   }));
 }
 
-/** One item, for its buy page. Null when it is not currently sellable. */
-export async function getStorefrontItem(
-  db: Database,
-  sku: string,
-  pricing: { arsRate: number; markupPercent: number },
-): Promise<StorefrontItem | null> {
+/** One item, for its buy page. Null when it is not currently sellable (inactive, unavailable, or not priced yet). */
+export async function getStorefrontItem(db: Database, sku: string): Promise<StorefrontItem | null> {
   const [row] = await db
     .select({
       id: itemCatalog.id,
       sku: itemCatalog.sku,
       displayName: itemCatalog.displayName,
       kind: itemCatalog.kind,
-      priceArs: itemCatalog.priceArs,
+      priceMxnCents: itemCatalog.priceMxnCents,
       maxQuantity: itemCatalog.maxQuantity,
       active: itemCatalog.active,
       rocketpassAvailable: itemCatalog.rocketpassAvailable,
@@ -90,7 +84,7 @@ export async function getStorefrontItem(
     .where(eq(itemCatalog.sku, sku))
     .limit(1);
 
-  if (!row || !row.active || !row.rocketpassAvailable) return null;
+  if (!row || !row.active || !row.rocketpassAvailable || row.priceMxnCents == null) return null;
 
   const stockRows =
     row.kind === 'gift'
@@ -107,7 +101,7 @@ export async function getStorefrontItem(
     sku: row.sku,
     displayName: row.displayName,
     kind: row.kind,
-    salePriceMxnCents: salePriceMxnCents(row.priceArs, pricing.arsRate, pricing.markupPercent),
+    salePriceMxnCents: row.priceMxnCents,
     maxQuantity: row.maxQuantity,
     stockByRegion,
   };

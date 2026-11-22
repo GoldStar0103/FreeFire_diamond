@@ -1338,8 +1338,18 @@ export const itemCatalog = pgTable('item_catalog', {
   displayName: text('display_name').notNull(),
   rocketpassName: text('rocketpass_name').notNull(),
   kind: rocketpassItemKind('kind').notNull(),
-  /** Last price RocketPass reported, in ARS. Converted to MXN at purchase time via the admin-set rate. */
+  /** Last price RocketPass reported, in ARS — vendor-synced cost, never hand-edited. Converted to MXN cost via the admin-set rate at order time. */
   priceArs: numeric('price_ars', { precision: 12, scale: 2 }).notNull(),
+  /**
+   * The customer's sale price, in MXN cents — admin-typed per item, exactly
+   * like `combos.priceMxnCents`. Replaced the old flat global markup-percent
+   * approach (Jose's own reversal, 2026-11-22, of his earlier 2026-11-16
+   * decision) so he can see cost/price/profit per item the same way he
+   * already does for combos. Null until he sets it — an unpriced item is
+   * treated as not-yet-sellable (same as zero stock), never defaulted to a
+   * guessed price.
+   */
+  priceMxnCents: integer('price_mxn_cents'),
   maxQuantity: integer('max_quantity').notNull(),
   active: boolean('active').notNull().default(true),
   rocketpassAvailable: boolean('rocketpass_available').notNull().default(true),

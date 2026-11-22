@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {
   getAccountingSummary,
+  getItemSalesBreakdown,
   getSeasonRanges,
   listManualLedgerEntries,
   mexicoCityTodayYmd,
@@ -32,6 +33,7 @@ export default async function ContabilidadPage({
   const fallbackNotice = seasonFallbackNotice(rango, seasons);
 
   const summary = await getAccountingSummary(getDb(), range);
+  const itemSales = await getItemSalesBreakdown(getDb(), range);
   const manualEntries = await listManualLedgerEntries(getDb(), range);
 
   const reportQuery = new URLSearchParams({ rango });
@@ -190,6 +192,74 @@ export default async function ContabilidadPage({
             </table>
           </div>
         </div>
+      )}
+
+      {/*
+        Items (RocketPass) are already counted in the sales figures above —
+        this box exists only so Jose can see their profit on its own,
+        separate from diamonds, without having to do the subtraction himself.
+      */}
+      <h2 className="section-title">Artículos (RocketPass)</h2>
+      {itemSales.summary.orderCount === 0 ? (
+        <div className="card empty">Sin pedidos de artículos completados en este rango.</div>
+      ) : (
+        <>
+          <div className="stat-grid">
+            <div className="card">
+              <div className="stat-label">Ventas brutas — artículos</div>
+              <div className="stat-value">{mxn(itemSales.summary.grossSalesCents)}</div>
+            </div>
+            <div className="card">
+              <div className="stat-label">Costo — artículos</div>
+              <div className="stat-value">{mxn(itemSales.summary.costCents)}</div>
+            </div>
+            <div className="card">
+              <div className="stat-label">Comisión estimada — artículos</div>
+              <div className="stat-value">{mxn(itemSales.summary.estimatedFeeCents)}</div>
+            </div>
+            <div className="card">
+              <div className="stat-label">Ganancia neta — solo artículos</div>
+              <div className={`stat-value${itemSales.summary.netProfitCents < 0 ? ' bad' : ' ok'}`}>
+                {mxn(itemSales.summary.netProfitCents)}
+              </div>
+            </div>
+            <div className="card">
+              <div className="stat-label">Unidades vendidas</div>
+              <div className="stat-value">{itemSales.summary.unitsSold}</div>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Artículo</th>
+                  <th className="num">Unidades</th>
+                  <th className="num">Pedidos</th>
+                  <th className="num">Ventas</th>
+                  <th className="num">Costo</th>
+                  <th className="num">Ganancia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemSales.bySku.map((row) => (
+                  <tr key={row.itemSku}>
+                    <td>
+                      {row.itemName} <span style={{ color: 'var(--muted)' }}>({row.itemSku})</span>
+                    </td>
+                    <td className="num">{row.unitsSold}</td>
+                    <td className="num">{row.orderCount}</td>
+                    <td className="num">{mxn(row.grossRevenueCents)}</td>
+                    <td className="num">{mxn(row.costCents)}</td>
+                    <td className="num">
+                      <span className={row.profitCents < 0 ? 'bad' : 'ok'}>{mxn(row.profitCents)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <ManualEntries

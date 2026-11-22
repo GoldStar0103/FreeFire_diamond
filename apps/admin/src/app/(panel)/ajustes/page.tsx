@@ -3,12 +3,10 @@ import {
   adminUsers,
   DEFAULT_ARS_RATE,
   DEFAULT_FX_RATE,
-  DEFAULT_ITEM_MARKUP_PERCENT,
   getActiveProvider,
   getArsRate,
   getEmergencyMode,
   getFxRate,
-  getItemMarkupPercent,
   getPaymentDetails,
   getPaymentMethodsEnabled,
 } from '@levelup/db';
@@ -37,21 +35,19 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   const session = await requireSession();
 
-  const [payTo, fxRate, arsRate, itemMarkupPercent, methodsEnabled, emergencyMode, activeProvider, [admin]] =
-    await Promise.all([
-      getPaymentDetails(getDb()),
-      getFxRate(getDb()),
-      getArsRate(getDb()),
-      getItemMarkupPercent(getDb()),
-      getPaymentMethodsEnabled(getDb()),
-      getEmergencyMode(getDb()),
-      getActiveProvider(getDb()),
-      getDb()
-        .select({ totpSecret: adminUsers.totpSecret })
-        .from(adminUsers)
-        .where(eq(adminUsers.id, session.adminUserId))
-        .limit(1),
-    ]);
+  const [payTo, fxRate, arsRate, methodsEnabled, emergencyMode, activeProvider, [admin]] = await Promise.all([
+    getPaymentDetails(getDb()),
+    getFxRate(getDb()),
+    getArsRate(getDb()),
+    getPaymentMethodsEnabled(getDb()),
+    getEmergencyMode(getDb()),
+    getActiveProvider(getDb()),
+    getDb()
+      .select({ totpSecret: adminUsers.totpSecret })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, session.adminUserId))
+      .limit(1),
+  ]);
 
   return (
     <>
@@ -69,7 +65,6 @@ export default async function SettingsPage() {
           cardNumber: payTo?.cardNumber ?? '',
           fxRate: String(fxRate || DEFAULT_FX_RATE),
           arsRate: String(arsRate || DEFAULT_ARS_RATE),
-          itemMarkupPercent: String(itemMarkupPercent ?? DEFAULT_ITEM_MARKUP_PERCENT),
         }}
       />
 

@@ -1,0 +1,1 @@
+ALTER TABLE "item_catalog" ADD COLUMN "price_mxn_cents" integer;

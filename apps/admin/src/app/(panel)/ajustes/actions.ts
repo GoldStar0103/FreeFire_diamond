@@ -8,12 +8,10 @@ import {
   DrizzleCatalogSyncStore,
   reviewArsRate,
   reviewFxRate,
-  reviewItemMarkupPercent,
   reviewPaymentDetails,
   saveArsRate,
   saveEmergencyMode,
   saveFxRate,
-  saveItemMarkupPercent,
   savePaymentDetails,
   savePaymentMethodsEnabled,
   setActiveProvider as setActiveProviderSetting,
@@ -55,12 +53,9 @@ export async function saveSettings(
 
   const { rate, issues: fxIssues } = reviewFxRate(String(formData.get('fxRate') ?? ''));
   const { rate: arsRate, issues: arsIssues } = reviewArsRate(String(formData.get('arsRate') ?? ''));
-  const { percent: itemMarkupPercent, issues: markupIssues } = reviewItemMarkupPercent(
-    String(formData.get('itemMarkupPercent') ?? ''),
-  );
 
-  const issues = [...payIssues, ...fxIssues, ...arsIssues, ...markupIssues];
-  if (issues.length > 0 || !details || rate === null || arsRate === null || itemMarkupPercent === null) {
+  const issues = [...payIssues, ...fxIssues, ...arsIssues];
+  if (issues.length > 0 || !details || rate === null || arsRate === null) {
     // Nothing is written if anything is wrong. A half-saved payment screen is
     // the failure this whole change exists to remove.
     return { issues: issues.map((i) => i.message) };
@@ -69,7 +64,6 @@ export async function saveSettings(
   await savePaymentDetails(getDb(), details);
   await saveFxRate(getDb(), rate);
   await saveArsRate(getDb(), arsRate);
-  await saveItemMarkupPercent(getDb(), itemMarkupPercent);
   await savePaymentMethodsEnabled(getDb(), {
     card: formData.get('methodCard') === 'on',
     transfer: formData.get('methodTransfer') === 'on',

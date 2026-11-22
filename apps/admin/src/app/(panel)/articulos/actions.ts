@@ -26,3 +26,18 @@ export async function renameItem(formData: FormData): Promise<void> {
 
   revalidatePath('/articulos');
 }
+
+export async function setItemPrice(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const sku = String(formData.get('sku') ?? '');
+  const priceMxn = Number(String(formData.get('priceMxn') ?? '').trim().replace(',', '.'));
+  if (!Number.isFinite(priceMxn) || priceMxn <= 0) return;
+
+  await new DrizzleItemCatalogAdminStore(getDb()).setItemPriceMxnCents(
+    sku,
+    Math.round(priceMxn * 100),
+    session.adminUserId,
+  );
+
+  revalidatePath('/articulos');
+}

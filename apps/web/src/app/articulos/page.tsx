@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getArsRate, getItemMarkupPercent, listStorefrontItems } from '@levelup/db';
+import { listStorefrontItems } from '@levelup/db';
 import { getDb } from '../../lib/server';
 import { mxn } from '../../lib/format';
 import { SiteHeader } from '../site-header';
@@ -23,9 +23,7 @@ function stockLabel(stockByRegion: Record<string, number>): string | null {
 }
 
 export default async function ArticulosPage() {
-  const db = getDb();
-  const [arsRate, markupPercent] = await Promise.all([getArsRate(db), getItemMarkupPercent(db)]);
-  const items = await listStorefrontItems(db, { arsRate, markupPercent });
+  const items = await listStorefrontItems(getDb());
 
   return (
     <main className="page pr">

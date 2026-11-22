@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { getArsRate, getItemMarkupPercent, getStorefrontItem } from '@levelup/db';
+import { getStorefrontItem } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { mxn } from '../../../lib/format';
 import { SiteHeader } from '../../site-header';
@@ -14,11 +14,7 @@ export async function generateMetadata({
   params: Promise<{ sku: string }>;
 }): Promise<Metadata> {
   const { sku } = await params;
-  const db = getDb();
-  const item = await getStorefrontItem(db, sku, {
-    arsRate: await getArsRate(db),
-    markupPercent: await getItemMarkupPercent(db),
-  });
+  const item = await getStorefrontItem(getDb(), sku);
   return {
     title: item?.displayName ?? 'Artículo',
     alternates: { canonical: `/comprar-articulo/${sku}` },
@@ -35,9 +31,7 @@ export default async function ComprarArticuloPage({
   const { sku } = await params;
   const { cancelado } = await searchParams;
 
-  const db = getDb();
-  const [arsRate, markupPercent] = await Promise.all([getArsRate(db), getItemMarkupPercent(db)]);
-  const item = await getStorefrontItem(db, sku, { arsRate, markupPercent });
+  const item = await getStorefrontItem(getDb(), sku);
   if (!item) notFound();
 
   return (

@@ -6,7 +6,6 @@ import {
   DrizzlePaymentStore,
   findResumableItemOrder,
   getArsRate,
-  getItemMarkupPercent,
 } from '@levelup/db';
 import { createItemOrder, rejectPayment, type CreateItemOrderFailure } from '@levelup/engine';
 import { getDb } from '../../../lib/server';
@@ -35,6 +34,7 @@ function explain(failure: CreateItemOrderFailure): string {
     case 'ITEM_NOT_FOUND':
     case 'ITEM_INACTIVE':
     case 'ITEM_UNAVAILABLE':
+    case 'PRICE_NOT_SET':
       return 'Este artículo ya no está disponible.';
     case 'OUT_OF_STOCK':
       return 'Se agotó el stock de este artículo en esa región. Prueba con otra región o más tarde.';
@@ -84,10 +84,10 @@ export async function payWithItemCard(_prev: CheckoutState, formData: FormData):
   if (resumable) {
     order = resumable;
   } else {
-    const [arsRate, markupPercent] = await Promise.all([getArsRate(db), getItemMarkupPercent(db)]);
+    const arsRate = await getArsRate(db);
     const buyer = await getCustomerSession();
     const created = await createItemOrder(
-      { store: new DrizzleItemOrderingStore(db), arsRate, markupPercent },
+      { store: new DrizzleItemOrderingStore(db), arsRate },
       {
         sku,
         quantity,

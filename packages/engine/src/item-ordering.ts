@@ -3,17 +3,20 @@
  *
  * The item equivalent of `ordering.ts`'s `createOrder`. Three things are
  * frozen at creation and never re-read afterwards, same discipline as a
- * combo order: the item's name, its unit sale price in MXN cents, and its
- * unit cost in MXN cents (RocketPass's own ARS charge, converted at the
- * admin-set rate) — `item_order_details.unit_cost_cents_snapshot` is what
- * `findUnprocessedOrders` later subtracts from the sale price to compute
- * Level Pass LP/Golden Tickets for this order, exactly like a diamond
- * order's profit.
+ * combo order: the item's name, its unit sale price in MXN cents (the
+ * admin-typed `item_catalog.price_mxn_cents`, same manual-price model as
+ * `combos.priceMxnCents` — no markup formula anymore, see `item-catalog-
+ * queries.ts`'s doc comment), and its unit cost in MXN cents (RocketPass's
+ * own ARS charge, converted at the admin-set rate) —
+ * `item_order_details.unit_cost_cents_snapshot` is what `findUnprocessedOrders`
+ * later subtracts from the sale price to compute Level Pass LP/Golden
+ * Tickets for this order, exactly like a diamond order's profit.
  *
- * `arsRate`/`markupPercent` are passed in rather than read from settings
- * here, so this stays a pure function over its inputs like `createOrder` —
- * the caller (the adapter or the web action) is responsible for fetching
- * them first via `getArsRate`/`getItemMarkupPercent`.
+ * `arsRate` is passed in rather than read from settings here, so this stays
+ * a pure function over its inputs like `createOrder` — the caller (the
+ * adapter or the web action) is responsible for fetching it first via
+ * `getArsRate`. It's only used for the internal cost snapshot now; the sale
+ * price itself is read straight off `item.priceMxnCents`.
  *
  * There is no stock-reservation mechanism anywhere in this system (confirmed
  * against `item-fulfillment.ts`'s own design) — the stock check below is a
@@ -34,8 +37,10 @@ export interface ItemForOrder {
   sku: string;
   displayName: string;
   kind: ItemKind;
-  /** RocketPass's last-synced ARS price for one unit. */
+  /** RocketPass's last-synced ARS price for one unit — used only for the internal cost snapshot now. */
   priceArs: number;
+  /** Admin-typed sale price for one unit, in MXN cents. Null means not priced yet — treated as unavailable. */
+  priceMxnCents: number | null;
   maxQuantity: number;
   active: boolean;
   rocketpassAvailable: boolean;
@@ -91,6 +96,7 @@ export type CreateItemOrderFailure =
   | { code: 'ITEM_NOT_FOUND'; message: string }
   | { code: 'ITEM_INACTIVE'; message: string }
   | { code: 'ITEM_UNAVAILABLE'; message: string }
+  | { code: 'PRICE_NOT_SET'; message: string }
   | { code: 'INVALID_QUANTITY'; message: string; max: number }
   | { code: 'REGION_REQUIRED'; message: string }
   | { code: 'OUT_OF_STOCK'; message: string }
@@ -109,10 +115,8 @@ export interface ItemOrderingStore {
 
 export interface ItemOrderingDeps {
   store: ItemOrderingStore;
-  /** MXN per 1 ARS — from `getArsRate`. */
+  /** MXN per 1 ARS — from `getArsRate`. Only feeds the internal cost snapshot now. */
   arsRate: number;
-  /** Flat markup applied to cost to get the sale price — from `getItemMarkupPercent`. */
-  markupPercent: number;
   now?: () => Date;
   generateOrderNumber?: () => string;
 }
@@ -146,6 +150,10 @@ export async function createItemOrder(
     return fail({ code: 'ITEM_UNAVAILABLE', message: `"${item.displayName}" is unavailable right now.` });
   }
 
+  if (item.priceMxnCents == null) {
+    return fail({ code: 'PRICE_NOT_SET', message: `"${item.displayName}" doesn't have a price set yet.` });
+  }
+
   const quantity = Math.trunc(input.quantity);
   if (!Number.isFinite(quantity) || quantity < 1 || quantity > item.maxQuantity) {
     return fail({
@@ -168,7 +176,7 @@ export async function createItemOrder(
   }
 
   const unitCostMxnCents = Math.round(item.priceArs * deps.arsRate * 100);
-  const unitPriceMxnCents = Math.round(unitCostMxnCents * (1 + deps.markupPercent / 100));
+  const unitPriceMxnCents = item.priceMxnCents;
 
   const snapshot: ItemSnapshot = {
     itemSku: item.sku,

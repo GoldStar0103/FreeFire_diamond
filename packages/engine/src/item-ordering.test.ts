@@ -13,6 +13,7 @@ const evoCrate = (overrides: Partial<ItemForOrder> = {}): ItemForOrder => ({
   displayName: 'Evo Crate',
   kind: 'gift',
   priceArs: 1000,
+  priceMxnCents: 2100,
   maxQuantity: 10,
   active: true,
   rocketpassAvailable: true,
@@ -26,6 +27,7 @@ const weeklyMembership = (overrides: Partial<ItemForOrder> = {}): ItemForOrder =
   displayName: 'Booyah Weekly',
   kind: 'membership',
   priceArs: 2000,
+  priceMxnCents: 4200,
   maxQuantity: 1,
   active: true,
   rocketpassAvailable: true,
@@ -56,19 +58,16 @@ const baseInput: CreateItemOrderInput = {
 };
 
 describe('createItemOrder', () => {
-  it('creates an order priced from ARS cost plus the flat markup', async () => {
+  it('creates an order using the admin-typed price, with cost still derived from ARS', async () => {
     const { store, persisted } = harness(evoCrate());
 
-    const result = await createItemOrder(
-      { store, arsRate: 0.015, markupPercent: 40 },
-      baseInput,
-    );
+    const result = await createItemOrder({ store, arsRate: 0.015 }, baseInput);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    // cost: 1000 ARS * 0.015 = 15 MXN = 1500 cents/unit
-    // sale: 1500 * 1.4 = 2100 cents/unit, x2 quantity = 4200
+    // cost: 1000 ARS * 0.015 = 15 MXN = 1500 cents/unit (vendor-derived, internal only)
+    // sale: 2100 cents/unit (admin-typed), x2 quantity = 4200
     expect(result.order.item.unitCostMxnCents).toBe(1500);
     expect(result.order.item.unitPriceMxnCents).toBe(2100);
     expect(result.order.priceMxnCents).toBe(4200);
@@ -79,7 +78,7 @@ describe('createItemOrder', () => {
 
   it('rejects an unknown sku', async () => {
     const { store } = harness(null);
-    const result = await createItemOrder({ store, arsRate: 0.015, markupPercent: 40 }, baseInput);
+    const result = await createItemOrder({ store, arsRate: 0.015 }, baseInput);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('ITEM_NOT_FOUND');
@@ -87,7 +86,7 @@ describe('createItemOrder', () => {
 
   it('rejects a storefront purchase of an item the admin turned off', async () => {
     const { store } = harness(evoCrate({ active: false }));
-    const result = await createItemOrder({ store, arsRate: 0.015, markupPercent: 40 }, baseInput);
+    const result = await createItemOrder({ store, arsRate: 0.015 }, baseInput);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('ITEM_INACTIVE');
@@ -95,24 +94,29 @@ describe('createItemOrder', () => {
 
   it('allows an admin-created order even when the item is off', async () => {
     const { store } = harness(evoCrate({ active: false }));
-    const result = await createItemOrder(
-      { store, arsRate: 0.015, markupPercent: 40 },
-      { ...baseInput, source: 'admin' },
-    );
+    const result = await createItemOrder({ store, arsRate: 0.015 }, { ...baseInput, source: 'admin' });
     expect(result.ok).toBe(true);
   });
 
   it('rejects an item RocketPass itself no longer reports available', async () => {
     const { store } = harness(evoCrate({ rocketpassAvailable: false }));
-    const result = await createItemOrder({ store, arsRate: 0.015, markupPercent: 40 }, baseInput);
+    const result = await createItemOrder({ store, arsRate: 0.015 }, baseInput);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('ITEM_UNAVAILABLE');
   });
 
+  it('rejects an item with no price set yet, even for an admin-created order', async () => {
+    const { store } = harness(evoCrate({ priceMxnCents: null }));
+    const result = await createItemOrder({ store, arsRate: 0.015 }, { ...baseInput, source: 'admin' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure.code).toBe('PRICE_NOT_SET');
+  });
+
   it('rejects a quantity over maxQuantity', async () => {
     const { store } = harness(evoCrate({ maxQuantity: 1 }));
-    const result = await createItemOrder({ store, arsRate: 0.015, markupPercent: 40 }, baseInput);
+    const result = await createItemOrder({ store, arsRate: 0.015 }, baseInput);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('INVALID_QUANTITY');
@@ -120,10 +124,7 @@ describe('createItemOrder', () => {
 
   it('requires a region for a gift-kind item', async () => {
     const { store } = harness(evoCrate());
-    const result = await createItemOrder(
-      { store, arsRate: 0.015, markupPercent: 40 },
-      { ...baseInput, region: null },
-    );
+    const result = await createItemOrder({ store, arsRate: 0.015 }, { ...baseInput, region: null });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('REGION_REQUIRED');
@@ -131,7 +132,7 @@ describe('createItemOrder', () => {
 
   it('rejects a quantity over the mirrored stock for that region', async () => {
     const { store } = harness(evoCrate({ stockByRegion: { US: 1 } }));
-    const result = await createItemOrder({ store, arsRate: 0.015, markupPercent: 40 }, baseInput);
+    const result = await createItemOrder({ store, arsRate: 0.015 }, baseInput);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('OUT_OF_STOCK');
@@ -140,7 +141,7 @@ describe('createItemOrder', () => {
   it('never requires a region for a membership-kind item', async () => {
     const { store } = harness(weeklyMembership());
     const result = await createItemOrder(
-      { store, arsRate: 0.015, markupPercent: 40 },
+      { store, arsRate: 0.015 },
       { ...baseInput, sku: 'weekly', quantity: 1, region: null },
     );
     expect(result.ok).toBe(true);
@@ -150,10 +151,7 @@ describe('createItemOrder', () => {
 
   it('rejects an invalid Free Fire ID', async () => {
     const { store } = harness(evoCrate());
-    const result = await createItemOrder(
-      { store, arsRate: 0.015, markupPercent: 40 },
-      { ...baseInput, targetUid: 'abc' },
-    );
+    const result = await createItemOrder({ store, arsRate: 0.015 }, { ...baseInput, targetUid: 'abc' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('INVALID_PLAYER_ID');

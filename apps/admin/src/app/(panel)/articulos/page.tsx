@@ -1,8 +1,8 @@
-import { DrizzleItemCatalogAdminStore, getArsRate, getItemMarkupPercent } from '@levelup/db';
+import { DrizzleItemCatalogAdminStore, getArsRate } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { mxn } from '../../../lib/format';
-import { renameItem, toggleItemActive } from './actions';
+import { renameItem, setItemPrice, toggleItemActive } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,19 +18,18 @@ export default async function ArticulosAdminPage() {
   await requireSession();
 
   const db = getDb();
-  const [items, arsRate, markupPercent] = await Promise.all([
+  const [items, arsRate] = await Promise.all([
     new DrizzleItemCatalogAdminStore(db).listItemsForAdmin(),
     getArsRate(db),
-    getItemMarkupPercent(db),
   ]);
 
   return (
     <>
       <h1 style={{ marginBottom: 0 }}>Artículos (RocketPass)</h1>
       <p className="subtitle">
-        El catálogo se sincroniza solo desde RocketPass — aquí solo decides cuáles se venden y
-        cómo se llaman en la tienda. El precio al cliente usa el tipo de cambio y el margen de{' '}
-        <a href="/ajustes">Ajustes</a> (ahora mismo: {arsRate} MXN por ARS, +{markupPercent}%).
+        El catálogo se sincroniza solo desde RocketPass. El costo se calcula solo (precio ARS del
+        proveedor × tipo de cambio de <a href="/ajustes">Ajustes</a>, ahora mismo {arsRate} MXN por
+        ARS) — tú escribes el precio al cliente de cada artículo, igual que en Combos.
       </p>
 
       {items.length === 0 && (
@@ -47,8 +46,9 @@ export default async function ArticulosAdminPage() {
               <th>Nombre en la tienda</th>
               <th>SKU / nombre RocketPass</th>
               <th>Tipo</th>
-              <th className="num">Precio ARS</th>
+              <th className="num">Costo</th>
               <th className="num">Precio al cliente</th>
+              <th className="num">Ganancia</th>
               <th>Stock</th>
               <th>Disponible en RocketPass</th>
               <th>Estado</th>
@@ -58,7 +58,9 @@ export default async function ArticulosAdminPage() {
           <tbody>
             {items.map((item) => {
               const costMxnCents = Math.round(item.priceArs * arsRate * 100);
-              const salePriceMxnCents = Math.round(costMxnCents * (1 + markupPercent / 100));
+              const marginMxnCents = item.priceMxnCents == null ? null : item.priceMxnCents - costMxnCents;
+              const marginPct =
+                marginMxnCents != null && item.priceMxnCents ? (marginMxnCents / item.priceMxnCents) * 100 : null;
               return (
                 <tr key={item.sku}>
                   <td>
@@ -76,8 +78,38 @@ export default async function ArticulosAdminPage() {
                     <small>{item.rocketpassName}</small>
                   </td>
                   <td>{KIND_LABEL[item.kind]}</td>
-                  <td className="num">${item.priceArs.toFixed(2)} ARS</td>
-                  <td className="num" style={{ color: 'var(--muted)' }}>{mxn(salePriceMxnCents)}</td>
+                  <td className="num" style={{ color: 'var(--muted)' }}>
+                    {mxn(costMxnCents)}
+                    <br />
+                    <small>${item.priceArs.toFixed(2)} ARS</small>
+                  </td>
+                  <td className="num">
+                    <form action={setItemPrice} className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                      <input type="hidden" name="sku" value={item.sku} />
+                      <input
+                        name="priceMxn"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        defaultValue={item.priceMxnCents != null ? (item.priceMxnCents / 100).toFixed(2) : ''}
+                        placeholder="sin precio"
+                        className="mono"
+                        style={{ maxWidth: 100 }}
+                      />
+                      <button className="btn sm" type="submit">
+                        Guardar
+                      </button>
+                    </form>
+                  </td>
+                  <td className="num">
+                    {marginMxnCents == null ? (
+                      '—'
+                    ) : (
+                      <span className={marginMxnCents < 0 ? 'bad' : 'ok'}>
+                        {mxn(marginMxnCents)} ({marginPct!.toFixed(1)}%)
+                      </span>
+                    )}
+                  </td>
                   <td>{stockLabel(item.stockByRegion)}</td>
                   <td>
                     {item.rocketpassAvailable ? (
@@ -87,7 +119,9 @@ export default async function ArticulosAdminPage() {
                     )}
                   </td>
                   <td>
-                    {item.active ? (
+                    {item.priceMxnCents == null ? (
+                      <span className="badge warn">Falta precio</span>
+                    ) : item.active ? (
                       <span className="badge ok">A la venta</span>
                     ) : (
                       <span className="badge muted">Apagado</span>

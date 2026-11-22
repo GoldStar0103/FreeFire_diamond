@@ -24,6 +24,7 @@ import {
   combos,
   baseProducts,
   financialLedgerEntries,
+  itemOrderDetails,
   orderItems,
   orders,
   payments,
@@ -33,7 +34,7 @@ import { DrizzleOrderingStore } from './ordering-store.js';
 import { saveFxRate } from './payment-settings.js';
 import { mexicoCityDayRange } from './mexico-city-time.js';
 import { syncCatalog } from '@levelup/engine';
-import { getAccountingSummary } from './accounting-queries.js';
+import { getAccountingSummary, getItemSalesBreakdown } from './accounting-queries.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(HERE, '..', '..', 'migrations');
@@ -180,11 +181,77 @@ async function seedCompletedRewardOrder(playerId: string, completedAt: Date, cos
   return order!;
 }
 
+/**
+ * A completed RocketPass item order, inserted directly like
+ * `seedCompletedRewardOrder` above — `createItemOrder`'s own suite already
+ * covers the engine logic, this just needs a realistic completed row with a
+ * frozen `item_order_details` cost/price snapshot (MXN cents, no fxRate
+ * involved, unlike a diamond order's `costUsd`).
+ */
+async function seedCompletedItemOrder(
+  playerId: string,
+  opts: {
+    completedAt: Date;
+    itemSku?: string;
+    itemName?: string;
+    quantity?: number;
+    unitPriceMxnCents: number;
+    unitCostMxnCents: number;
+    method: 'card' | 'transfer_manual';
+    gateway: string | null;
+    amountReceivedCents: number;
+  },
+) {
+  const quantity = opts.quantity ?? 1;
+  const itemSku = opts.itemSku ?? 'crate';
+  const itemName = opts.itemName ?? 'Evo Crate';
+  const priceMxnCents = opts.unitPriceMxnCents * quantity;
+
+  const [order] = await db
+    .insert(orders)
+    .values({
+      orderNumber: `LU-ITEM-${playerId}`,
+      playerId,
+      orderType: 'item',
+      comboId: null,
+      comboKey: null,
+      comboSnapshot: { name: itemName, advertisedDiamonds: 0 },
+      priceMxnCents,
+      status: 'completed',
+      completedAt: opts.completedAt,
+      createdAt: opts.completedAt,
+    })
+    .returning();
+
+  await db.insert(itemOrderDetails).values({
+    orderId: order!.id,
+    itemSku,
+    itemNameSnapshot: itemName,
+    quantity,
+    region: 'US',
+    unitPriceSnapshotCents: opts.unitPriceMxnCents,
+    unitCostCentsSnapshot: opts.unitCostMxnCents,
+    fulfillmentStatus: 'delivered',
+  });
+
+  await db.insert(payments).values({
+    orderId: order!.id,
+    method: opts.method,
+    status: 'paid',
+    gateway: opts.gateway,
+    amountExpectedCents: opts.amountReceivedCents,
+    amountReceivedCents: opts.amountReceivedCents,
+    paidAt: opts.completedAt,
+  });
+
+  return order!;
+}
+
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
   await db.execute(
-    raw`TRUNCATE orders, order_items, payments, combo_items, combos, campaigns, base_products,
-        financial_ledger_entries, seasons RESTART IDENTITY CASCADE`,
+    raw`TRUNCATE orders, order_items, item_order_details, payments, combo_items, combos, campaigns,
+        base_products, financial_ledger_entries, seasons RESTART IDENTITY CASCADE`,
   );
   await seedOneCombo();
   await saveFxRate(db, 20); // round number for easy assertions
@@ -349,6 +416,38 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary', () => {
     expect(summary.movements[0]?.netProfitCents).toBeNull();
   });
 
+  it('includes a RocketPass item order\'s cost in recargaCostCents and its real profit in the movement row', async () => {
+    // Real bug this test guards against: item orders have no `order_items`
+    // row, so before `getSalesTotals` learned to read `item_order_details`,
+    // their revenue was counted in grossSalesCents but their cost was
+    // dropped entirely — overstating net profit by the full cost of every
+    // completed item order.
+    const inRange = new Date('2026-09-14T18:00:00Z');
+    const itemOrder = await seedCompletedItemOrder('9999999999', {
+      completedAt: inRange,
+      unitPriceMxnCents: 2_100,
+      unitCostMxnCents: 1_500,
+      quantity: 2, // price 4,200, cost 3,000
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 4_200,
+    });
+
+    const summary = await getAccountingSummary(db, mexicoCityDayRange(inRange));
+
+    expect(summary.grossSalesCents).toBe(4_200);
+    expect(summary.recargaCostCents).toBe(3_000);
+    expect(summary.costDataIncomplete).toBe(false);
+    expect(summary.netSalesCents).toBe(4_200 - 3_000); // no fee on manual transfer
+    expect(summary.movements).toHaveLength(1);
+    expect(summary.movements[0]).toMatchObject({
+      orderNumber: itemOrder.orderNumber,
+      comboName: 'Evo Crate',
+      priceMxnCents: 4_200,
+      netProfitCents: 4_200 - 3_000,
+    });
+  });
+
   it('buckets order counts by creation date and by the client\'s three words', async () => {
     const inRange = new Date('2026-09-14T18:00:00Z');
 
@@ -483,5 +582,122 @@ describe.skipIf(!PG_AVAILABLE)('getAccountingSummary — real net profit', () =>
 
     expect(summary.realNetProfitCents).toBe(profitBeforeRewards - 20_000);
     expect(summary.realNetProfitCents).toBeLessThan(0);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('getItemSalesBreakdown', () => {
+  const DAY = new Date('2026-09-14T18:00:00Z');
+
+  it('sums gross/cost/profit for item orders only, ignoring the diamond combo seeded by beforeEach', async () => {
+    await placeOrder('1111111111'); // a diamond order sitting around, never completed — must not leak in
+    await seedCompletedItemOrder('9999999999', {
+      completedAt: DAY,
+      unitPriceMxnCents: 2_100,
+      unitCostMxnCents: 1_500,
+      quantity: 2,
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 4_200,
+    });
+
+    const report = await getItemSalesBreakdown(db, mexicoCityDayRange(DAY));
+
+    expect(report.summary).toMatchObject({
+      grossSalesCents: 4_200,
+      costCents: 3_000,
+      estimatedFeeCents: 0,
+      netProfitCents: 1_200,
+      unitsSold: 2,
+      orderCount: 1,
+    });
+  });
+
+  it('breaks totals down per SKU, combining several orders of the same item', async () => {
+    await seedCompletedItemOrder('1010101010', {
+      completedAt: DAY,
+      itemSku: 'crate',
+      itemName: 'Evo Crate',
+      unitPriceMxnCents: 2_100,
+      unitCostMxnCents: 1_500,
+      quantity: 1,
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 2_100,
+    });
+    await seedCompletedItemOrder('2020202020', {
+      completedAt: DAY,
+      itemSku: 'crate',
+      itemName: 'Evo Crate',
+      unitPriceMxnCents: 2_100,
+      unitCostMxnCents: 1_500,
+      quantity: 1,
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 2_100,
+    });
+    await seedCompletedItemOrder('3030303030', {
+      completedAt: DAY,
+      itemSku: 'token',
+      itemName: 'Evo Shard',
+      unitPriceMxnCents: 500,
+      unitCostMxnCents: 300,
+      quantity: 5,
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 2_500,
+    });
+
+    const report = await getItemSalesBreakdown(db, mexicoCityDayRange(DAY));
+
+    expect(report.bySku).toHaveLength(2);
+    const crate = report.bySku.find((r) => r.itemSku === 'crate');
+    const token = report.bySku.find((r) => r.itemSku === 'token');
+    expect(crate).toMatchObject({
+      itemName: 'Evo Crate',
+      unitsSold: 2,
+      orderCount: 2,
+      grossRevenueCents: 4_200,
+      costCents: 3_000,
+      profitCents: 1_200,
+    });
+    expect(token).toMatchObject({
+      itemName: 'Evo Shard',
+      unitsSold: 5,
+      orderCount: 1,
+      grossRevenueCents: 2_500,
+      costCents: 1_500,
+      profitCents: 1_000,
+    });
+  });
+
+  it('excludes an item order completed outside the requested range', async () => {
+    await seedCompletedItemOrder('4040404040', {
+      completedAt: new Date('2026-09-15T18:00:00Z'),
+      unitPriceMxnCents: 2_100,
+      unitCostMxnCents: 1_500,
+      method: 'transfer_manual',
+      gateway: null,
+      amountReceivedCents: 2_100,
+    });
+
+    const report = await getItemSalesBreakdown(db, mexicoCityDayRange(DAY));
+    expect(report.summary.orderCount).toBe(0);
+    expect(report.bySku).toHaveLength(0);
+  });
+
+  it('estimates a card processing fee the same way getAccountingSummary does', async () => {
+    await seedCompletedItemOrder('5050505050', {
+      completedAt: DAY,
+      unitPriceMxnCents: 10_000,
+      unitCostMxnCents: 1_500,
+      method: 'card',
+      gateway: 'stripe',
+      amountReceivedCents: 10_000,
+    });
+
+    const report = await getItemSalesBreakdown(db, mexicoCityDayRange(DAY));
+    // 3.6% of $100 (360) + $3.00 fixed (300) = 660, * 1.16 IVA = 765.6 -> 766
+    expect(report.summary.estimatedFeeCents).toBe(766);
+    expect(report.summary.netProfitCents).toBe(10_000 - 1_500 - 766);
   });
 });

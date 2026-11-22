@@ -12,7 +12,6 @@ interface Props {
     cardNumber: string;
     fxRate: string;
     arsRate: string;
-    itemMarkupPercent: string;
   };
   /** True when nothing is configured yet and the storefront cannot take money. */
   missing: boolean;
@@ -151,28 +150,14 @@ export function SettingsForm({ initial, missing, methodsEnabled }: Props) {
       <div className="card">
         <h2 style={{ marginTop: 0, fontSize: 16 }}>Artículos RocketPass</h2>
         <p className="hint" style={{ marginTop: 0 }}>
-          RocketPass solo da su precio en pesos argentinos (ARS). Estos dos números son lo que
-          convierte ese costo al precio en MXN que ve el cliente en /articulos.
+          RocketPass solo da su costo en pesos argentinos (ARS). Este número es lo que convierte
+          ese costo a MXN para que lo veas en <a href="/articulos">Artículos</a> — ahí escribes el
+          precio de cada artículo, igual que en Combos.
         </p>
-        <div className="row">
-          <label className="field" style={{ maxWidth: 180 }}>
-            <span>MXN por 1 ARS</span>
-            <input name="arsRate" defaultValue={initial.arsRate} inputMode="decimal" required />
-          </label>
-          <label className="field" style={{ maxWidth: 180 }}>
-            <span>Margen (%)</span>
-            <input
-              name="itemMarkupPercent"
-              defaultValue={initial.itemMarkupPercent}
-              inputMode="decimal"
-              required
-            />
-          </label>
-        </div>
-        <p className="hint">
-          El precio al cliente es el costo en MXN más este margen, aplicado igual a todos los
-          artículos.
-        </p>
+        <label className="field" style={{ maxWidth: 180 }}>
+          <span>MXN por 1 ARS</span>
+          <input name="arsRate" defaultValue={initial.arsRate} inputMode="decimal" required />
+        </label>
       </div>
 
       {state.issues?.map((issue) => (

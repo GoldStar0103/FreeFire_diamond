@@ -38,7 +38,7 @@ export interface PaymentDetails {
 }
 
 export interface SettingIssue {
-  field: 'bank' | 'clabe' | 'holder' | 'oxxo' | 'cardNumber' | 'fxRate' | 'arsRate' | 'itemMarkupPercent';
+  field: 'bank' | 'clabe' | 'holder' | 'oxxo' | 'cardNumber' | 'fxRate' | 'arsRate';
   message: string;
 }
 
@@ -331,61 +331,6 @@ export async function saveArsRate(db: Database, rate: number): Promise<void> {
     .insert(settings)
     .values({ key: FX_RATE_ARS_MXN_KEY, value: { rate } })
     .onConflictDoUpdate({ target: settings.key, set: { value: { rate } } });
-}
-
-// ── RocketPass item markup ──────────────────────────────────────────────────
-
-export const ITEM_MARKUP_PERCENT_KEY = 'item_markup_percent';
-
-/**
- * One flat markup over RocketPass's ARS cost, applied to every item
- * uniformly — Jose's own call (2026-11-16) over a per-item manual price,
- * since RocketPass's ARS price moves and a single knob is what stays correct
- * without him revisiting every SKU. `item-ordering.ts`'s `createItemOrder` is
- * the only place this is read for real; the admin panel only previews it.
- */
-export const DEFAULT_ITEM_MARKUP_PERCENT = 40;
-
-export async function getItemMarkupPercent(db: Database): Promise<number> {
-  const [row] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, ITEM_MARKUP_PERCENT_KEY))
-    .limit(1);
-
-  const percent = (row?.value as { percent?: unknown } | undefined)?.percent;
-  if (typeof percent === 'number' && Number.isFinite(percent) && percent >= 0) return percent;
-
-  return DEFAULT_ITEM_MARKUP_PERCENT;
-}
-
-export function reviewItemMarkupPercent(raw: string): { percent: number | null; issues: SettingIssue[] } {
-  const percent = Number(raw.trim().replace(',', '.'));
-
-  if (!Number.isFinite(percent) || percent < 0) {
-    return {
-      percent: null,
-      issues: [{ field: 'itemMarkupPercent', message: 'El margen debe ser un número mayor o igual a cero.' }],
-    };
-  }
-
-  // A fat-finger check: a 0-500% range covers every realistic margin decision
-  // while still catching a stray extra digit (5000 instead of 50).
-  if (percent > 500) {
-    return {
-      percent: null,
-      issues: [{ field: 'itemMarkupPercent', message: 'Ese margen no parece correcto. Debe ser 500 o menos.' }],
-    };
-  }
-
-  return { percent, issues: [] };
-}
-
-export async function saveItemMarkupPercent(db: Database, percent: number): Promise<void> {
-  await db
-    .insert(settings)
-    .values({ key: ITEM_MARKUP_PERCENT_KEY, value: { percent } })
-    .onConflictDoUpdate({ target: settings.key, set: { value: { percent } } });
 }
 
 // ── which payment methods are offered right now ────────────────────────────

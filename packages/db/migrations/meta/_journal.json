@@ -162,6 +162,13 @@
       "when": 1795284180638,
       "tag": "0022_drop_giveaway_single_winner",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795370938049,
+      "tag": "0023_mature_mesmero",
+      "breakpoints": true
     }
   ]
 }

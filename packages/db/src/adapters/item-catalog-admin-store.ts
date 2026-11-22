@@ -18,6 +18,8 @@ export interface AdminItemRow {
   rocketpassName: string;
   kind: 'gift' | 'membership';
   priceArs: number;
+  /** Admin-set sale price in MXN cents, like `combos.priceMxnCents`. Null until set — see schema comment. */
+  priceMxnCents: number | null;
   maxQuantity: number;
   active: boolean;
   rocketpassAvailable: boolean;
@@ -38,6 +40,7 @@ export class DrizzleItemCatalogAdminStore {
         rocketpassName: itemCatalog.rocketpassName,
         kind: itemCatalog.kind,
         priceArs: itemCatalog.priceArs,
+        priceMxnCents: itemCatalog.priceMxnCents,
         maxQuantity: itemCatalog.maxQuantity,
         active: itemCatalog.active,
         rocketpassAvailable: itemCatalog.rocketpassAvailable,
@@ -65,6 +68,7 @@ export class DrizzleItemCatalogAdminStore {
       rocketpassName: r.rocketpassName,
       kind: r.kind,
       priceArs: Number(r.priceArs),
+      priceMxnCents: r.priceMxnCents,
       maxQuantity: r.maxQuantity,
       active: r.active,
       rocketpassAvailable: r.rocketpassAvailable,
@@ -84,6 +88,14 @@ export class DrizzleItemCatalogAdminStore {
     await this.db
       .update(itemCatalog)
       .set({ displayName, updatedAt: new Date() })
+      .where(eq(itemCatalog.sku, sku));
+  }
+
+  /** The manual per-item price Jose sets, mirroring `combos.priceMxnCents`'s own admin write. Must be a whole positive number of cents. */
+  async setItemPriceMxnCents(sku: string, priceMxnCents: number, _adminUserId: string): Promise<void> {
+    await this.db
+      .update(itemCatalog)
+      .set({ priceMxnCents, updatedAt: new Date() })
       .where(eq(itemCatalog.sku, sku));
   }
 }

@@ -11,15 +11,28 @@
  * back from the gateway) that this deliberately does not attempt.
  */
 
-import { and, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { GIVEAWAY_PRIZE_COMBO_KEY, LEVEL_PASS_REWARD_COMBO_KEY } from '@levelup/engine';
 import type { Database } from '../index.js';
-import { financialLedgerEntries, orderItems, orders, payments } from '../schema.js';
+import { financialLedgerEntries, itemOrderDetails, orderItems, orders, payments } from '../schema.js';
 import { getFxRate } from './payment-settings.js';
 import type { DateRange } from './mexico-city-time.js';
 
 /** Synthetic `orders.comboKey`s that deliver something free (a reward or a prize), never counted as a sale. */
 const NON_SALE_COMBO_KEYS = [LEVEL_PASS_REWARD_COMBO_KEY, GIVEAWAY_PRIZE_COMBO_KEY];
+
+/**
+ * `notInArray(orders.comboKey, NON_SALE_COMBO_KEYS)` alone silently drops
+ * every row with a NULL `comboKey` — SQL's `NULL NOT IN (...)` evaluates to
+ * NULL, which `WHERE` treats as false. Every RocketPass item order has
+ * `comboKey = null` (it has no combo), so that bare check was excluding
+ * item orders from gross sales entirely, not just under-costing them. A real
+ * bug found via a failing test, not by inspection — this explicit `OR
+ * isNull(...)` is the fix.
+ */
+function notASyntheticOrder() {
+  return or(isNull(orders.comboKey), notInArray(orders.comboKey, NON_SALE_COMBO_KEYS));
+}
 
 // ── estimated gateway fees ───────────────────────────────────────────────────
 
@@ -76,8 +89,15 @@ export interface SalesTotals {
   estimatedFeeCents: number;
   netSalesCents: number;
   totalsByMethod: Array<{ method: string; gateway: string | null; totalCents: number; count: number }>;
-  /** Per completed order: USD cost sum (only orders with at least one costed item). */
+  /** Per completed order: USD cost sum (only orders with at least one costed item). Diamond orders only. */
   costByOrder: Map<string, number>;
+  /**
+   * Per completed order: RocketPass item cost, already in MXN cents (no
+   * fxRate conversion needed, unlike `costByOrder`'s USD) —
+   * `item_order_details.unit_cost_cents_snapshot * quantity`. Item orders
+   * only, disjoint from `costByOrder`.
+   */
+  itemCostCentsByOrder: Map<string, number>;
   /** Per completed order: the settled payment's method/gateway, for per-order enrichment. */
   paymentInfoByOrder: Map<string, { method: string; gateway: string | null }>;
   /** Per completed order: the settled payment's estimated fee. */
@@ -115,7 +135,7 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     inArray(orders.status, ['completed', 'refunded']),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
-    notInArray(orders.comboKey, NON_SALE_COMBO_KEYS),
+    notASyntheticOrder(),
   );
 
   const [gross] = await db
@@ -148,7 +168,32 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     costUsdTotal += usd;
     costByOrder.set(row.orderId, (costByOrder.get(row.orderId) ?? 0) + usd);
   }
-  const recargaCostCents = Math.round(costUsdTotal * fxRate * 100);
+  // RocketPass item orders have no `order_items` row at all — their cost
+  // lives in `item_order_details` instead, already in MXN cents (frozen at
+  // order time from `priceArs * arsRate`, see `item-ordering.ts`), so it
+  // never needs `fxRate`. Before this query existed, an item order's revenue
+  // was counted in `grossSalesCents` while its cost was silently dropped —
+  // net profit was overstated by the full cost of every completed item
+  // order. This closes that gap.
+  const itemCostRows = await db
+    .select({
+      orderId: itemOrderDetails.orderId,
+      quantity: itemOrderDetails.quantity,
+      unitCostCentsSnapshot: itemOrderDetails.unitCostCentsSnapshot,
+    })
+    .from(itemOrderDetails)
+    .innerJoin(orders, eq(orders.id, itemOrderDetails.orderId))
+    .where(completedFilter);
+
+  let itemCostCentsTotal = 0;
+  const itemCostCentsByOrder = new Map<string, number>();
+  for (const row of itemCostRows) {
+    const cost = row.unitCostCentsSnapshot * row.quantity;
+    itemCostCentsTotal += cost;
+    itemCostCentsByOrder.set(row.orderId, cost);
+  }
+
+  const recargaCostCents = Math.round(costUsdTotal * fxRate * 100) + itemCostCentsTotal;
 
   // The PAID payment per order — never sum across attempts. An order can have
   // a failed/expired try before a successful retry; only the row that
@@ -199,6 +244,7 @@ export async function getSalesTotals(db: Database, range: DateRange): Promise<Sa
     netSalesCents,
     totalsByMethod: [...methodTotals.values()],
     costByOrder,
+    itemCostCentsByOrder,
     paymentInfoByOrder,
     feeByOrder,
     fxRate,
@@ -348,13 +394,7 @@ export async function getAccountingSummary(
   const statusRows = await db
     .select({ status: orders.status, n: sql<string>`COUNT(*)::text` })
     .from(orders)
-    .where(
-      and(
-        gte(orders.createdAt, range.start),
-        lt(orders.createdAt, range.end),
-        notInArray(orders.comboKey, NON_SALE_COMBO_KEYS),
-      ),
-    )
+    .where(and(gte(orders.createdAt, range.start), lt(orders.createdAt, range.end), notASyntheticOrder()))
     .groupBy(orders.status);
 
   const orderCounts = { completed: 0, pending: 0, cancelled: 0 };
@@ -369,7 +409,7 @@ export async function getAccountingSummary(
     eq(orders.status, 'completed'),
     gte(orders.completedAt, range.start),
     lt(orders.completedAt, range.end),
-    notInArray(orders.comboKey, NON_SALE_COMBO_KEYS),
+    notASyntheticOrder(),
   );
 
   const movementRows = await db
@@ -389,11 +429,14 @@ export async function getAccountingSummary(
     const snapshot = row.comboSnapshot as { name?: string };
     const payment = totals.paymentInfoByOrder.get(row.id);
     const costUsd = totals.costByOrder.get(row.id);
+    const itemCostCents = totals.itemCostCentsByOrder.get(row.id);
     const estimatedFeeCents = totals.feeByOrder.get(row.id) ?? 0;
     const netProfitCents =
-      costUsd === undefined
-        ? null
-        : row.priceMxnCents - Math.round(costUsd * totals.fxRate * 100) - estimatedFeeCents;
+      itemCostCents !== undefined
+        ? row.priceMxnCents - itemCostCents - estimatedFeeCents
+        : costUsd === undefined
+          ? null
+          : row.priceMxnCents - Math.round(costUsd * totals.fxRate * 100) - estimatedFeeCents;
 
     return {
       orderNumber: row.orderNumber,
@@ -436,5 +479,129 @@ export async function getAccountingSummary(
     orderCounts,
     totalsByMethod: totals.totalsByMethod,
     movements,
+  };
+}
+
+// ── RocketPass item sales breakdown ─────────────────────────────────────────
+
+export interface ItemSalesRow {
+  itemSku: string;
+  itemName: string;
+  unitsSold: number;
+  orderCount: number;
+  grossRevenueCents: number;
+  costCents: number;
+  profitCents: number;
+}
+
+export interface ItemSalesSummary {
+  grossSalesCents: number;
+  costCents: number;
+  estimatedFeeCents: number;
+  /** grossSalesCents − costCents − estimatedFeeCents, for items alone — the counterpart to `AccountingSummary.realNetProfitCents`, scoped to RocketPass items. */
+  netProfitCents: number;
+  unitsSold: number;
+  orderCount: number;
+}
+
+export interface ItemSalesReport {
+  summary: ItemSalesSummary;
+  bySku: ItemSalesRow[];
+}
+
+/**
+ * The "Jose can see items separately from diamonds" report: a standalone
+ * query (not folded into `getAccountingSummary`) so a caller that only wants
+ * the overall, correct totals never has to pay for a per-SKU breakdown it
+ * didn't ask for. Completed `orderType = 'item'` orders only, same
+ * completed-or-refunded-in-range shape as `getSalesTotals`'s own filter,
+ * minus the `NON_SALE_COMBO_KEYS` exclusion — no item order is ever a reward
+ * or a giveaway prize (those stay `orderType = 'diamonds'`), so there is
+ * nothing to exclude.
+ */
+export async function getItemSalesBreakdown(db: Database, range: DateRange): Promise<ItemSalesReport> {
+  const completedFilter = and(
+    inArray(orders.status, ['completed', 'refunded']),
+    gte(orders.completedAt, range.start),
+    lt(orders.completedAt, range.end),
+    eq(orders.orderType, 'item'),
+  );
+
+  const rows = await db
+    .select({
+      orderId: orders.id,
+      priceMxnCents: orders.priceMxnCents,
+      itemSku: itemOrderDetails.itemSku,
+      itemNameSnapshot: itemOrderDetails.itemNameSnapshot,
+      quantity: itemOrderDetails.quantity,
+      unitCostCentsSnapshot: itemOrderDetails.unitCostCentsSnapshot,
+    })
+    .from(orders)
+    .innerJoin(itemOrderDetails, eq(itemOrderDetails.orderId, orders.id))
+    .where(completedFilter);
+
+  const bySku = new Map<string, ItemSalesRow>();
+  let grossSalesCents = 0;
+  let costCents = 0;
+  let unitsSold = 0;
+
+  for (const row of rows) {
+    const cost = row.unitCostCentsSnapshot * row.quantity;
+    grossSalesCents += row.priceMxnCents;
+    costCents += cost;
+    unitsSold += row.quantity;
+
+    const existing =
+      bySku.get(row.itemSku) ??
+      ({
+        itemSku: row.itemSku,
+        itemName: row.itemNameSnapshot,
+        unitsSold: 0,
+        orderCount: 0,
+        grossRevenueCents: 0,
+        costCents: 0,
+        profitCents: 0,
+      } satisfies ItemSalesRow);
+    existing.itemName = row.itemNameSnapshot; // latest snapshot wins — cosmetic only
+    existing.unitsSold += row.quantity;
+    existing.orderCount += 1;
+    existing.grossRevenueCents += row.priceMxnCents;
+    existing.costCents += cost;
+    bySku.set(row.itemSku, existing);
+  }
+
+  // Same fee-estimation pass as `getSalesTotals`, scoped to item orders only.
+  const paidRows =
+    rows.length === 0
+      ? []
+      : await db
+          .select({
+            orderId: payments.orderId,
+            method: payments.method,
+            gateway: payments.gateway,
+            amountReceivedCents: payments.amountReceivedCents,
+          })
+          .from(payments)
+          .where(and(inArray(payments.orderId, rows.map((r) => r.orderId)), eq(payments.status, 'paid')));
+
+  let estimatedFeeCents = 0;
+  for (const row of paidRows) {
+    estimatedFeeCents += estimateFeeCents(row.gateway, row.method, row.amountReceivedCents ?? 0);
+  }
+
+  for (const row of bySku.values()) {
+    row.profitCents = row.grossRevenueCents - row.costCents;
+  }
+
+  return {
+    summary: {
+      grossSalesCents,
+      costCents,
+      estimatedFeeCents,
+      netProfitCents: grossSalesCents - costCents - estimatedFeeCents,
+      unitsSold,
+      orderCount: rows.length,
+    },
+    bySku: [...bySku.values()].sort((a, b) => b.grossRevenueCents - a.grossRevenueCents),
   };
 }
