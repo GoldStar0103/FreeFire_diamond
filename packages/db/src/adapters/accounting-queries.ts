@@ -62,6 +62,18 @@ const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number
     oxxo: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN
     spei: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN — same as OXXO on Checkout Pro
   },
+  // Embedded (Orders API) rates carried over from Checkout Pro's published
+  // Mexico figure as a working placeholder — NOT confirmed against Mercado
+  // Pago's actual embedded-card rate, which can differ from a redirect
+  // integration's rate (especially for credit vs. debit, or with
+  // installments). Update this once the real rate is confirmed in the
+  // Mercado Pago dashboard; leaving it unconfirmed here is safer than
+  // silently returning 0 for every new card sale, which would make this
+  // estimate look more profitable than reality rather than just imprecise.
+  'mercadopago-embedded': {
+    card: { pct: 0.0349, fixedCents: 400 },
+    spei: { pct: 0.0349, fixedCents: 400 },
+  },
 };
 
 /**

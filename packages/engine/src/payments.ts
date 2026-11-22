@@ -224,30 +224,33 @@ export async function rejectPayment(
     };
   }
 
-  // There is no comprobante to reject on a Stripe-routed payment — card,
-  // OXXO, or SPEI — Stripe's webhook is what settles it, on its own, with no
-  // human step. One sitting here is simply a customer still on Stripe's page,
-  // or one who paid an OXXO/SPEI reference and is waiting on Stripe to hear
-  // it back (which can take hours), or one who abandoned checkout (which the
+  // There is no comprobante to reject on a gateway-routed payment — card,
+  // OXXO, or SPEI, through Stripe or Mercado Pago (Checkout Pro or embedded) —
+  // the gateway's own webhook is what settles it, on its own, with no human
+  // step. One sitting here is simply a customer still mid-checkout, or one
+  // who paid an OXXO/SPEI reference and is waiting on the gateway to hear it
+  // back (which can take hours), or one who abandoned checkout (which the
   // expiry sweep already handles once the session's grace period actually
   // passes). Rejecting it by hand can beat that webhook to the punch: a real
   // incident (2026-09-18, order LU-260918-0RTQ) had a card order rejected as
   // "sin comprobante" 22 seconds after checkout started — the customer's $750
-  // MXN charge succeeded in Stripe six minutes later, but by then the order
-  // was already cancelled and the approval was refused. This used to only
-  // check for 'card' specifically, back when every Stripe order was recorded
-  // that way regardless of which method actually settled it; once OXXO/SPEI
-  // checkouts started recording their real method, this stopped catching
-  // them too.
+  // MXN charge succeeded six minutes later, but by then the order was already
+  // cancelled and the approval was refused. This check is on `method` alone,
+  // deliberately never on `gateway` — it used to only check for 'card'
+  // specifically, back when every Stripe order was recorded that way
+  // regardless of which method actually settled it; once OXXO/SPEI checkouts
+  // started recording their real method, this stopped catching them too. The
+  // same reasoning holds across every gateway this method is ever routed
+  // through: whichever one settles it, there is nothing here to reject by hand.
   if (payable.method === 'card' || payable.method === 'oxxo' || payable.method === 'spei') {
     return {
       ok: false,
       failure: {
         code: 'CARD_PAYMENT_NOT_REJECTABLE',
         message:
-          `${payable.orderNumber} is a ${payable.method} payment through Stripe — it confirms ` +
-          `itself automatically once Stripe reports it. There is nothing to reject; wait for it ` +
-          `to settle or expire.`,
+          `${payable.orderNumber} is a ${payable.method} payment through a payment gateway — it ` +
+          `confirms itself automatically once the gateway reports it. There is nothing to reject; ` +
+          `wait for it to settle or expire.`,
       },
     };
   }

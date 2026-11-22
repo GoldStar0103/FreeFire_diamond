@@ -1,19 +1,25 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   payWithCard,
+  payWithMercadoPagoCard,
   payWithMercadoPagoOxxo,
   payWithMercadoPagoSpei,
+  payWithMercadoPagoSpeiEmbedded,
   payWithStripeOxxo,
   payWithStripeSpei,
   placeOrder,
   validatePlayer,
   type CheckoutState,
+  type EmbeddedCheckoutState,
   type ValidateState,
 } from './actions';
+import { CardPaymentBrick } from './card-payment-brick';
 import { setPixelUserData, trackPixel } from '../../../lib/pixel';
 import { GatewayTabNotice, useStripeTabRedirect } from '../../../lib/gateway-tab-redirect';
+import { getMercadoPagoDeviceSessionId, loadMercadoPagoSecurity } from '../../../lib/mercadopago-device';
 import { BankIcon, CardIcon, StoreIcon } from '../../icons';
 
 interface PayTo {
@@ -61,6 +67,22 @@ interface Props {
    * SPEI settlement via PPRO proved unreliable too.
    */
   mercadoPagoSpeiEnabled: boolean;
+  /**
+   * Mercado Pago's embedded Checkout (Orders API) is configured for card —
+   * takes priority over Stripe's card whenever it's on, per the client's own
+   * instruction to move card off Stripe. Stripe stays wired as a dormant
+   * fallback (see lib/stripe.ts) until this has run a full billing cycle
+   * with no rollback needed.
+   */
+  mercadoPagoCardEnabled: boolean;
+  /**
+   * Mercado Pago's embedded Checkout is configured for SPEI — takes priority
+   * over both the Checkout-Pro Mercado Pago SPEI and Stripe's own, per the
+   * client's ask to move SPEI off Checkout Pro onto an embedded flow too.
+   */
+  mercadoPagoSpeiEmbeddedEnabled: boolean;
+  /** Public (non-secret) key for Mercado Pago's client-side SDK — null means the embedded flow can't render even if the flags above are on. */
+  mercadoPagoPublicKey: string | null;
   /** Owner switch for the manual (human-reviewed) transfer — only matters when neither gateway's SPEI is on. */
   transferEnabled: boolean;
   /** Owner switch for the manual (human-reviewed) OXXO reference — only matters when Stripe's OXXO is off. */
@@ -217,6 +239,9 @@ export function Checkout({
   cardIncludesSpei,
   mercadoPagoOxxoEnabled,
   mercadoPagoSpeiEnabled,
+  mercadoPagoCardEnabled,
+  mercadoPagoSpeiEmbeddedEnabled,
+  mercadoPagoPublicKey,
   transferEnabled,
   oxxoEnabled,
   cancelledNotice,
@@ -251,12 +276,40 @@ export function Checkout({
     payWithMercadoPagoSpei,
     {},
   );
+  const [mpSpeiEmbedded, mpSpeiEmbeddedAction, mpSpeiEmbeddedProcessing] = useActionState<
+    EmbeddedCheckoutState,
+    FormData
+  >(payWithMercadoPagoSpeiEmbedded, {});
   const openCardTab = useStripeTabRedirect(card);
   const openOxxoTab = useStripeTabRedirect(stripeOxxo);
   const openSpeiTab = useStripeTabRedirect(stripeSpei);
   const openMpOxxoTab = useStripeTabRedirect(mpOxxo);
   const openMpSpeiTab = useStripeTabRedirect(mpSpei);
   const [step, setStep] = useState<Step>('datos');
+  const router = useRouter();
+
+  // Mercado Pago's Card Payment Brick owns its own submit round trip (see
+  // card-payment-brick.tsx's doc comment) — it needs the real result the
+  // instant the charge resolves, which `useActionState`'s own dispatch does
+  // not hand back synchronously, so this one path calls the server action
+  // directly instead of going through a `<form action={...}>`.
+  const [mpCardResult, setMpCardResult] = useState<EmbeddedCheckoutState | null>(null);
+  const [mpCardSubmitting, setMpCardSubmitting] = useState(false);
+  const [mpCardWhatsapp, setMpCardWhatsapp] = useState('');
+  const mpCardWhatsappRef = useRef(mpCardWhatsapp);
+  mpCardWhatsappRef.current = mpCardWhatsapp;
+
+  // The embedded SPEI form has no Brick on screen to collect the device id
+  // automatically — read it fresh right before submit instead of baking a
+  // possibly-stale value into the hidden input at render time.
+  const deviceInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Harmless to load even when only SPEI (or neither) is on — a few KB of
+    // script, and the device id it sets is simply unused if no embedded
+    // method ends up charging anything.
+    loadMercadoPagoSecurity();
+  }, []);
 
   const found = validation.status === 'found';
 
@@ -275,13 +328,24 @@ export function Checkout({
     : cardIncludesOxxo
       ? 'stripe'
       : null;
-  const transferAutomatic: 'mercadopago' | 'stripe' | null = mercadoPagoSpeiEnabled
-    ? 'mercadopago'
-    : cardIncludesSpei
-      ? 'stripe'
-      : null;
+  // Embedded SPEI wins over Checkout-Pro Mercado Pago, which wins over
+  // Stripe — same "newest automatic integration wins" ladder as OXXO above,
+  // extended by one rung now that SPEI has two possible Mercado Pago paths.
+  const transferAutomatic: 'mercadopago-embedded' | 'mercadopago' | 'stripe' | null =
+    mercadoPagoSpeiEmbeddedEnabled && mercadoPagoPublicKey
+      ? 'mercadopago-embedded'
+      : mercadoPagoSpeiEnabled
+        ? 'mercadopago'
+        : cardIncludesSpei
+          ? 'stripe'
+          : null;
+  // Embedded Mercado Pago wins over Stripe for card, per the client's ask —
+  // but only once a public key is actually configured, since there is
+  // nothing to render the Brick with otherwise.
+  const cardAutomatic: 'mercadopago' | 'stripe' | null =
+    mercadoPagoCardEnabled && mercadoPagoPublicKey ? 'mercadopago' : cardEnabled ? 'stripe' : null;
 
-  const cardOption = cardEnabled;
+  const cardOption = cardAutomatic !== null;
   const transferOption = transferAutomatic !== null || manualTransfer;
   const oxxoOption = oxxoAutomatic !== null || manualOxxo;
   const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
@@ -749,7 +813,80 @@ export function Checkout({
             </div>
           </div>
 
-          {payView === 'tarjeta' ? (
+          {payView === 'tarjeta' && cardAutomatic === 'mercadopago' && mercadoPagoPublicKey ? (
+            <div>
+              <label className="field">
+                <span>Tu WhatsApp</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="Solo por si necesitamos contactarte"
+                  value={mpCardWhatsapp}
+                  onChange={(e) => setMpCardWhatsapp(e.target.value)}
+                  disabled={mpCardSubmitting}
+                  required
+                />
+              </label>
+
+              {mpCardResult?.error && <div className="alert bad">{mpCardResult.error}</div>}
+              {mpCardResult?.instructions?.kind === 'resolved' &&
+                mpCardResult.instructions.state === 'failed' && (
+                  <div className="alert bad">
+                    Tu banco rechazó el pago. Revisa los datos de tu tarjeta o intenta con otra.
+                  </div>
+                )}
+              {mpCardResult?.instructions?.kind === 'resolved' &&
+                mpCardResult.instructions.state === 'pending' && (
+                  <div className="alert warn">
+                    Tu pago está siendo verificado por tu banco. Te avisaremos en cuanto se confirme.
+                  </div>
+                )}
+
+              {mpCardWhatsapp.trim() ? (
+                <CardPaymentBrick
+                  amountMxn={priceMxn}
+                  publicKey={mercadoPagoPublicKey}
+                  onToken={async ({ token, paymentMethodId, installments }) => {
+                    setMpCardSubmitting(true);
+                    const fd = new FormData();
+                    fd.set('comboKey', comboKey);
+                    fd.set('playerId', validation.playerId ?? '');
+                    if (vaultOfferId) fd.set('vaultOfferId', vaultOfferId);
+                    fd.set('whatsapp', mpCardWhatsappRef.current.trim());
+                    fd.set('cardToken', token);
+                    fd.set('paymentMethodId', paymentMethodId);
+                    fd.set('installments', String(installments));
+                    fd.set('deviceSessionId', getMercadoPagoDeviceSessionId() ?? '');
+
+                    setPixelUserData({ whatsapp: mpCardWhatsappRef.current.trim() });
+                    trackPixel('AddPaymentInfo', pixel);
+
+                    const result = await payWithMercadoPagoCard({}, fd);
+                    setMpCardResult(result);
+                    setMpCardSubmitting(false);
+
+                    const approved =
+                      result.instructions?.kind === 'resolved' && result.instructions.state === 'paid';
+                    if (approved) {
+                      trackPixel('Purchase', pixel);
+                      router.push(result.orderPageUrl ?? '/');
+                      return;
+                    }
+                    // Any other outcome — declined, still pending, or an
+                    // outright error — throws so the Brick shows its own
+                    // inline error state too, matching its expected contract.
+                    throw new Error(result.error ?? 'not approved');
+                  }}
+                />
+              ) : (
+                <p className="hint center">Ingresa tu WhatsApp para continuar.</p>
+              )}
+
+              <p className="hint center">
+                🔒 Pagas directo con Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
+              </p>
+            </div>
+          ) : payView === 'tarjeta' ? (
             <form
               action={cardAction}
               onSubmit={(e) => {
@@ -820,6 +957,58 @@ export function Checkout({
               </button>
               <p className="hint center">🔒 Stripe te da tu referencia de depósito OXXO al continuar.</p>
             </form>
+          ) : payView === 'transferencia' && transferAutomatic === 'mercadopago-embedded' ? (
+            mpSpeiEmbedded.instructions?.kind === 'spei' ? (
+              <div>
+                <div className="pay-box">
+                  <CopyRow
+                    label="CLABE"
+                    value={mpSpeiEmbedded.instructions.clabe}
+                    display={groupClabe(mpSpeiEmbedded.instructions.clabe)}
+                  />
+                  {mpSpeiEmbedded.instructions.bank && (
+                    <div className="pay-row">
+                      <span>Banco</span>
+                      <strong>{mpSpeiEmbedded.instructions.bank}</strong>
+                    </div>
+                  )}
+                  <div className="pay-row total">
+                    <span>Monto exacto</span>
+                    <strong>{price}</strong>
+                  </div>
+                </div>
+                <p className="hint center">
+                  🏦 Transfiere desde tu app bancaria usando esta CLABE. Tu recarga se confirma sola
+                  en cuanto llegue.
+                </p>
+              </div>
+            ) : (
+              <form
+                action={mpSpeiEmbeddedAction}
+                onSubmit={(e) => {
+                  if (deviceInputRef.current) {
+                    deviceInputRef.current.value = getMercadoPagoDeviceSessionId() ?? '';
+                  }
+                  trackPaymentInfo(e.currentTarget);
+                }}
+              >
+                <input type="hidden" name="comboKey" value={comboKey} />
+                <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
+                {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
+                <input type="hidden" name="deviceSessionId" ref={deviceInputRef} defaultValue="" />
+
+                {whatsappField(mpSpeiEmbeddedProcessing)}
+
+                {mpSpeiEmbedded.error && <div className="alert bad">{mpSpeiEmbedded.error}</div>}
+
+                <button className="btn-primary" type="submit" disabled={mpSpeiEmbeddedProcessing}>
+                  {mpSpeiEmbeddedProcessing ? 'Generando tu CLABE…' : `Confirmar pedido — ${price}`}
+                </button>
+                <p className="hint center">
+                  🏦 Te damos tu cuenta CLABE para SPEI al continuar, en esta misma pantalla.
+                </p>
+              </form>
+            )
           ) : payView === 'transferencia' && transferAutomatic === 'mercadopago' ? (
             <form
               action={mpSpeiAction}

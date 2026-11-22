@@ -12,6 +12,7 @@ import { getDb } from '../../../lib/server';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago } from '../../../lib/mercadopago';
+import { getMercadoPagoEmbedded } from '../../../lib/mercadopago-embedded';
 import { diamonds, mxn } from '../../../lib/format';
 import { supportNumber } from '../../../lib/support';
 import { SiteHeader } from '../../site-header';
@@ -152,6 +153,7 @@ export default async function BuyPage({
 
   const stripe = getStripe();
   const mercadoPago = getMercadoPago();
+  const mercadoPagoEmbedded = getMercadoPagoEmbedded();
 
   // Null means nobody has configured where the money goes. Previously these
   // were environment variables defaulting to empty strings, so an
@@ -189,6 +191,11 @@ export default async function BuyPage({
           cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
           mercadoPagoOxxoEnabled={mercadoPago?.supportedMethods.includes('oxxo') ?? false}
           mercadoPagoSpeiEnabled={mercadoPago?.supportedMethods.includes('spei') ?? false}
+          mercadoPagoCardEnabled={
+            methodsEnabled.card && (mercadoPagoEmbedded?.supportedMethods.includes('card') ?? false)
+          }
+          mercadoPagoSpeiEmbeddedEnabled={mercadoPagoEmbedded?.supportedMethods.includes('spei') ?? false}
+          mercadoPagoPublicKey={process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? null}
           transferEnabled={methodsEnabled.transfer}
           oxxoEnabled={methodsEnabled.oxxo}
           cancelledNotice={cancelledNotice}

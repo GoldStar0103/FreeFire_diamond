@@ -35,6 +35,23 @@ export interface CreateChargeInput {
    */
   returnUrl?: string;
   cancelUrl?: string;
+  /**
+   * Card-only, embedded-checkout fields. A card payment's raw number/CVV never
+   * reaches this server — the gateway's own client-side JS tokenizes it in the
+   * browser, and `cardToken` is the single-use result of that, not the card
+   * itself. Ignored by gateways/methods that don't need them.
+   */
+  cardToken?: string;
+  paymentMethodId?: string;
+  installments?: number;
+  /**
+   * The gateway's own device/session fingerprint, collected client-side by its
+   * fraud-scoring script and forwarded here verbatim — this is the actual
+   * anti-fraud signal on an embedded card/bank-transfer charge, not something
+   * this layer computes itself.
+   */
+  deviceSessionId?: string | null;
+  payerIdentification?: { type: string; number: string } | null;
 }
 
 /**
@@ -47,7 +64,16 @@ export interface CreateChargeInput {
 export type PaymentInstructions =
   | { kind: 'spei'; clabe: string; bank: string; reference: string | null }
   | { kind: 'oxxo'; reference: string; voucherUrl: string | null; barcodeUrl: string | null }
-  | { kind: 'redirect'; url: string };
+  | { kind: 'redirect'; url: string }
+  /**
+   * An embedded card charge that is already decided (or nearly so) by the time
+   * `createCharge` returns — there is no voucher, CLABE, or URL to hand the
+   * customer, only an outcome. `state` is the same `ChargeState` a webhook
+   * would eventually report; a synchronous `'resolved'` result and the later
+   * webhook for the same charge are expected to agree and both route through
+   * the same idempotent `settleGatewayCharge`, not two separate decisions.
+   */
+  | { kind: 'resolved'; state: ChargeState; reference: string | null };
 
 export interface ChargeCreated {
   gateway: string;

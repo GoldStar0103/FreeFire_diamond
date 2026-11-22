@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getStorefrontItem } from '@levelup/db';
 import { getDb } from '../../../lib/server';
 import { mxn } from '../../../lib/format';
+import { getMercadoPagoEmbedded } from '../../../lib/mercadopago-embedded';
 import { SiteHeader } from '../../site-header';
 import { CheckoutArticulo } from './checkout-articulo';
 
@@ -34,6 +35,8 @@ export default async function ComprarArticuloPage({
   const item = await getStorefrontItem(getDb(), sku);
   if (!item) notFound();
 
+  const mercadoPagoEmbedded = getMercadoPagoEmbedded();
+
   return (
     <main className="page narrow">
       <SiteHeader />
@@ -46,6 +49,8 @@ export default async function ComprarArticuloPage({
         maxQuantity={item.maxQuantity}
         stockByRegion={item.stockByRegion}
         cancelledNotice={cancelado ? 'No se completó tu pago anterior. Puedes intentarlo de nuevo.' : null}
+        mercadoPagoCardEnabled={mercadoPagoEmbedded?.supportedMethods.includes('card') ?? false}
+        mercadoPagoPublicKey={process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? null}
       />
     </main>
   );

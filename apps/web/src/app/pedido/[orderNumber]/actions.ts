@@ -6,6 +6,11 @@ import { diamonds } from '../../../lib/format';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
+import {
+  applyMercadoPagoEmbeddedReport,
+  getMercadoPagoEmbedded,
+  MERCADOPAGO_EMBEDDED,
+} from '../../../lib/mercadopago-embedded';
 import { siteUrl } from '../../../lib/site';
 
 export interface ContinueState {
@@ -58,12 +63,73 @@ export async function continuePendingOrder(
 
   const method = order.paymentMethod as 'card' | 'oxxo' | 'spei';
   const gatewayName = order.gateway;
+
+  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
+
+  if (gatewayName === MERCADOPAGO_EMBEDDED) {
+    // A card charge through the embedded flow is created and settled
+    // synchronously, in the same request that submits the Brick's token —
+    // there is no abandoned hosted session to reopen the way there is for
+    // Stripe/Checkout-Pro. If this order is still `pending`, the charge
+    // itself is either still mid-review (3DS/issuer) or was never actually
+    // attempted — either way, re-running `createCharge` on the same order
+    // with a stale or absent token risks an idempotency-key conflict at
+    // Mercado Pago (the same bug class Stripe's checkout-session retries
+    // once hit — see stripe.ts's own history). Safer to say so plainly and
+    // send the customer back to a fresh checkout than to guess at retry
+    // semantics never verified against a real sandbox response.
+    if (method === 'card') {
+      return {
+        error:
+          'Tu pago con tarjeta sigue en verificación con tu banco. Si ya pasó un rato, escríbenos por WhatsApp.',
+      };
+    }
+    // SPEI is safe to re-request: it carries no per-attempt token, and the
+    // same idempotency key (`levelup-mp-${orderId}`) makes Mercado Pago
+    // return the same order/CLABE rather than create a second one.
+    const embedded = getMercadoPagoEmbedded();
+    if (!embedded || !embedded.supportedMethods.includes('spei')) {
+      return { error: 'Este método de pago ya no está disponible. Escríbenos por WhatsApp.' };
+    }
+    try {
+      const charge = await embedded.createCharge({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        amountCents: order.priceMxnCents,
+        method: 'spei',
+        description: `${order.comboName} · ${diamonds(order.advertisedDiamonds)} diamantes Free Fire`,
+        customerPhone: order.contactWhatsapp,
+      });
+      if (charge.instructions.kind !== 'spei') {
+        throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+      }
+      const attached = await attachGatewayCharge(getDb(), {
+        orderId: order.id,
+        gateway: MERCADOPAGO_EMBEDDED,
+        gatewayChargeId: charge.gatewayChargeId,
+        expiresAt: charge.expiresAt,
+      });
+      if (!attached) return { error: 'Este pedido ya no está esperando pago.' };
+      await applyMercadoPagoEmbeddedReport({
+        gatewayChargeId: charge.gatewayChargeId,
+        state: 'pending',
+        amountReceivedCents: null,
+        reference: charge.instructions.reference,
+        voucherIssued: true,
+      });
+      // No tab/URL to open — the order-tracking page itself is expected to
+      // show the CLABE once it re-reads the order; nothing further to return.
+      return { orderPageUrl: orderPage };
+    } catch (err) {
+      console.error(`[pedido] ${order.orderNumber}: could not reopen a ${MERCADOPAGO_EMBEDDED}/spei charge`, err);
+      return { error: 'No pudimos generar tu referencia. Intenta de nuevo o escríbenos por WhatsApp.' };
+    }
+  }
+
   const gateway = gatewayName === STRIPE ? getStripe() : gatewayName === MERCADOPAGO ? getMercadoPago() : null;
   if (!gateway || !gateway.supportedMethods.includes(method)) {
     return { error: 'Este método de pago ya no está disponible. Escríbenos por WhatsApp.' };
   }
-
-  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
 
   try {
     const charge = await gateway.createCharge({

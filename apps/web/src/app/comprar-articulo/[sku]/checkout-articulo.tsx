@@ -1,9 +1,12 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
-import { payWithItemCard, type CheckoutState } from './actions';
+import { useActionState, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { payWithItemCard, payWithItemMercadoPagoCard, type CheckoutState, type EmbeddedCheckoutState } from './actions';
+import { CardPaymentBrick } from '../../comprar/[combo]/card-payment-brick';
 import { setPixelUserData, trackPixel } from '../../../lib/pixel';
 import { GatewayTabNotice, useStripeTabRedirect } from '../../../lib/gateway-tab-redirect';
+import { getMercadoPagoDeviceSessionId, loadMercadoPagoSecurity } from '../../../lib/mercadopago-device';
 
 type Step = 'datos' | 'confirmacion';
 
@@ -17,6 +20,9 @@ interface Props {
   /** Region code -> quantity. Empty for a membership. */
   stockByRegion: Record<string, number>;
   cancelledNotice: string | null;
+  /** Mercado Pago's embedded Checkout is configured for card — takes priority over Stripe, same ladder as the combo checkout. */
+  mercadoPagoCardEnabled: boolean;
+  mercadoPagoPublicKey: string | null;
 }
 
 const REGION_LABEL: Record<string, string> = { US: 'Estados Unidos', SAC: 'Sudamérica' };
@@ -38,6 +44,8 @@ export function CheckoutArticulo({
   maxQuantity,
   stockByRegion,
   cancelledNotice,
+  mercadoPagoCardEnabled,
+  mercadoPagoPublicKey,
 }: Props) {
   const regions = Object.keys(stockByRegion);
   const [step, setStep] = useState<Step>('datos');
@@ -45,9 +53,30 @@ export function CheckoutArticulo({
   const [targetNickname, setTargetNickname] = useState('');
   const [region, setRegion] = useState<string | null>(kind === 'gift' ? (regions[0] ?? null) : null);
   const [quantity, setQuantity] = useState(1);
+  const router = useRouter();
 
   const [card, cardAction, redirecting] = useActionState<CheckoutState, FormData>(payWithItemCard, {});
   const openCardTab = useStripeTabRedirect(card);
+
+  const cardAutomatic: 'mercadopago' | 'stripe' | null =
+    mercadoPagoCardEnabled && mercadoPagoPublicKey ? 'mercadopago' : 'stripe';
+  const [mpCardResult, setMpCardResult] = useState<EmbeddedCheckoutState | null>(null);
+  const [mpCardSubmitting, setMpCardSubmitting] = useState(false);
+  const [mpCardWhatsapp, setMpCardWhatsapp] = useState('');
+  const mpCardWhatsappRef = useRef(mpCardWhatsapp);
+  mpCardWhatsappRef.current = mpCardWhatsapp;
+  const targetUidRef = useRef(targetUid);
+  targetUidRef.current = targetUid;
+  const regionRef = useRef(region);
+  regionRef.current = region;
+  const quantityRef = useRef(quantity);
+  quantityRef.current = quantity;
+  const targetNicknameRef = useRef(targetNickname);
+  targetNicknameRef.current = targetNickname;
+
+  useEffect(() => {
+    loadMercadoPagoSecurity();
+  }, []);
 
   const pixel = {
     value: priceMxn,
@@ -208,40 +237,114 @@ export function CheckoutArticulo({
             </div>
           </div>
 
-          <form
-            action={cardAction}
-            onSubmit={(e) => {
-              openCardTab();
-              trackPaymentInfo(e.currentTarget);
-            }}
-          >
-            <input type="hidden" name="sku" value={sku} />
-            <input type="hidden" name="targetUid" value={targetUid} />
-            <input type="hidden" name="targetNickname" value={targetNickname} />
-            <input type="hidden" name="region" value={region ?? ''} />
-            <input type="hidden" name="quantity" value={quantity} />
+          {cardAutomatic === 'mercadopago' && mercadoPagoPublicKey ? (
+            <div>
+              <label className="field">
+                <span>Tu WhatsApp</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="Solo por si necesitamos contactarte"
+                  value={mpCardWhatsapp}
+                  onChange={(e) => setMpCardWhatsapp(e.target.value)}
+                  disabled={mpCardSubmitting}
+                  required
+                />
+              </label>
 
-            <label className="field">
-              <span>Tu WhatsApp</span>
-              <input
-                type="tel"
-                name="whatsapp"
-                inputMode="tel"
-                placeholder="Solo por si necesitamos contactarte"
-                disabled={redirecting}
-                required
-              />
-            </label>
+              {mpCardResult?.error && <div className="alert bad">{mpCardResult.error}</div>}
+              {mpCardResult?.instructions?.kind === 'resolved' &&
+                mpCardResult.instructions.state === 'failed' && (
+                  <div className="alert bad">
+                    Tu banco rechazó el pago. Revisa los datos de tu tarjeta o intenta con otra.
+                  </div>
+                )}
+              {mpCardResult?.instructions?.kind === 'resolved' &&
+                mpCardResult.instructions.state === 'pending' && (
+                  <div className="alert warn">
+                    Tu pago está siendo verificado por tu banco. Te avisaremos en cuanto se confirme.
+                  </div>
+                )}
 
-            <GatewayTabNotice provider="Stripe" />
+              {mpCardWhatsapp.trim() ? (
+                <CardPaymentBrick
+                  amountMxn={priceMxn}
+                  publicKey={mercadoPagoPublicKey}
+                  onToken={async ({ token, paymentMethodId, installments }) => {
+                    setMpCardSubmitting(true);
+                    const fd = new FormData();
+                    fd.set('sku', sku);
+                    fd.set('targetUid', targetUidRef.current);
+                    fd.set('targetNickname', targetNicknameRef.current);
+                    fd.set('region', regionRef.current ?? '');
+                    fd.set('quantity', String(quantityRef.current));
+                    fd.set('whatsapp', mpCardWhatsappRef.current.trim());
+                    fd.set('cardToken', token);
+                    fd.set('paymentMethodId', paymentMethodId);
+                    fd.set('installments', String(installments));
+                    fd.set('deviceSessionId', getMercadoPagoDeviceSessionId() ?? '');
 
-            {card.error && <div className="alert bad">{card.error}</div>}
+                    setPixelUserData({ whatsapp: mpCardWhatsappRef.current.trim() });
+                    trackPixel('AddPaymentInfo', pixel);
 
-            <button className="btn-primary" type="submit" disabled={redirecting}>
-              {redirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${price}`}
-            </button>
-            <p className="hint center">🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.</p>
-          </form>
+                    const result = await payWithItemMercadoPagoCard({}, fd);
+                    setMpCardResult(result);
+                    setMpCardSubmitting(false);
+
+                    const approved =
+                      result.instructions?.kind === 'resolved' && result.instructions.state === 'paid';
+                    if (approved) {
+                      trackPixel('Purchase', pixel);
+                      router.push(result.orderPageUrl ?? '/');
+                      return;
+                    }
+                    throw new Error(result.error ?? 'not approved');
+                  }}
+                />
+              ) : (
+                <p className="hint center">Ingresa tu WhatsApp para continuar.</p>
+              )}
+
+              <p className="hint center">
+                🔒 Pagas directo con Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
+              </p>
+            </div>
+          ) : (
+            <form
+              action={cardAction}
+              onSubmit={(e) => {
+                openCardTab();
+                trackPaymentInfo(e.currentTarget);
+              }}
+            >
+              <input type="hidden" name="sku" value={sku} />
+              <input type="hidden" name="targetUid" value={targetUid} />
+              <input type="hidden" name="targetNickname" value={targetNickname} />
+              <input type="hidden" name="region" value={region ?? ''} />
+              <input type="hidden" name="quantity" value={quantity} />
+
+              <label className="field">
+                <span>Tu WhatsApp</span>
+                <input
+                  type="tel"
+                  name="whatsapp"
+                  inputMode="tel"
+                  placeholder="Solo por si necesitamos contactarte"
+                  disabled={redirecting}
+                  required
+                />
+              </label>
+
+              <GatewayTabNotice provider="Stripe" />
+
+              {card.error && <div className="alert bad">{card.error}</div>}
+
+              <button className="btn-primary" type="submit" disabled={redirecting}>
+                {redirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${price}`}
+              </button>
+              <p className="hint center">🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.</p>
+            </form>
+          )}
 
           <button type="button" className="btn-ghost" onClick={() => setStep('datos')}>
             ← Volver

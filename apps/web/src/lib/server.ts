@@ -31,6 +31,8 @@ declare global {
   // eslint-disable-next-line no-var
   var __webStuckRedirectLimiter: RateLimiter | undefined;
   // eslint-disable-next-line no-var
+  var __webPaymentAttemptLimiter: RateLimiter | undefined;
+  // eslint-disable-next-line no-var
   var __webProviders: Partial<Record<ProviderName, TopupProvider>> | undefined;
 }
 
@@ -124,6 +126,26 @@ export const stuckRedirectLimiter: RateLimiter =
     windowMs: Number(process.env.STUCK_REDIRECT_RATE_WINDOW_MS ?? 10 * 60_000),
   });
 if (process.env.NODE_ENV !== 'production') globalThis.__webStuckRedirectLimiter = stuckRedirectLimiter;
+
+/**
+ * Guards embedded gateway charge creation (card/SPEI via Mercado Pago) — the
+ * one payment-attempt limiter this storefront has, added alongside the
+ * embedded checkout. Keyed per IP, not per player: the real cost here is a
+ * gateway API call that also feeds Mercado Pago's own fraud-scoring engine, so
+ * what's being rate-limited is "how many charge attempts can one network
+ * origin spend," regardless of which Free Fire ID is typed into the form.
+ * Looser than `stuckRedirectLimiter` because a declined card retried with a
+ * different one is ordinary, legitimate behavior that must not be punished
+ * too fast; tighter than `validationLimiter` because this one actually spends
+ * money-adjacent API calls, not a free lookup.
+ */
+export const paymentAttemptLimiter: RateLimiter =
+  globalThis.__webPaymentAttemptLimiter ??
+  createRateLimiter({
+    limit: Number(process.env.PAYMENT_ATTEMPT_RATE_LIMIT ?? 8),
+    windowMs: Number(process.env.PAYMENT_ATTEMPT_RATE_WINDOW_MS ?? 10 * 60_000),
+  });
+if (process.env.NODE_ENV !== 'production') globalThis.__webPaymentAttemptLimiter = paymentAttemptLimiter;
 
 function buildProvider(name: ProviderName): TopupProvider {
   if (process.env.WEB_DRY_RUN === 'true') {

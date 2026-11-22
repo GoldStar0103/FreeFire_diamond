@@ -64,7 +64,11 @@ const RESOLUTION_LABELS: Record<string, string> = {
   manual: 'decisión manual',
 };
 
-const GATEWAY_LABELS: Record<string, string> = { stripe: 'Stripe', mercadopago: 'Mercado Pago' };
+const GATEWAY_LABELS: Record<string, string> = {
+  stripe: 'Stripe',
+  mercadopago: 'Mercado Pago',
+  'mercadopago-embedded': 'Mercado Pago',
+};
 
 export const orderStatusLabel = (s: string): string => ORDER_STATUS_LABELS[s] ?? s;
 export const itemStatusLabel = (s: string): string => ITEM_STATUS_LABELS[s] ?? s;
@@ -72,19 +76,18 @@ export const resolutionLabel = (s: string | null): string =>
   s === null ? '—' : (RESOLUTION_LABELS[s] ?? s);
 
 /**
- * `oxxo`/`spei` alone don't say which gateway settled it, and both have moved
- * between Stripe and Mercado Pago at different times — a flat label per
- * method would either be wrong or merge two different gateways' money under
- * one name. `card` and `transfer_manual` never carry more than one gateway
- * (card is always Stripe; transfer_manual has none), so they stay plain.
+ * `oxxo`/`spei`/`card` alone don't say which gateway settled it, and all three
+ * have moved between gateways at different times (card: Stripe, then Mercado
+ * Pago embedded; oxxo/spei: Stripe, then Mercado Pago Checkout Pro) — a flat
+ * label per method would either be wrong or merge two different gateways'
+ * money under one name. Only `transfer_manual` never carries a gateway at all.
  */
 export function methodLabel(method: string, gateway: string | null): string {
-  if (method === 'oxxo' || method === 'spei') {
-    const base = method === 'oxxo' ? 'OXXO' : 'SPEI';
+  if (method === 'oxxo' || method === 'spei' || method === 'card') {
+    const base = method === 'oxxo' ? 'OXXO' : method === 'spei' ? 'SPEI' : 'Tarjeta';
     const via = gateway ? (GATEWAY_LABELS[gateway] ?? gateway) : 'gateway desconocido';
     return `${base} (${via})`;
   }
-  if (method === 'card') return 'Tarjeta';
   if (method === 'transfer_manual') return 'Transferencia/OXXO manual';
   if (method === 'paypal') return 'PayPal';
   return method;

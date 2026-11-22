@@ -238,7 +238,7 @@ describe('rejection', () => {
   });
 
   it.each(['card', 'oxxo', 'spei'] as const)(
-    'refuses to reject a %s payment — Stripe settles it, there is no comprobante',
+    'refuses to reject a %s payment — a gateway settles it, there is no comprobante',
     async (method) => {
       // Real incident, 2026-09-18: a card order was rejected as "sin
       // comprobante" 22 seconds after checkout started; the customer's $750
@@ -252,6 +252,11 @@ describe('rejection', () => {
       // their real method, this stopped catching them — two customers' paid
       // OXXO vouchers became rejectable exactly like a stalled manual order,
       // while Stripe was still waiting on the deposit to report back.
+      //
+      // Deliberately checked on `method` alone — `PayableOrder` carries no
+      // `gateway` field at all, so this guard can't help but apply the same
+      // way whether the eventual webhook comes from Stripe or from either
+      // Mercado Pago integration (Checkout Pro or embedded).
       const { deps, store } = harness(payable({ method, paymentStatus: 'pending' }));
 
       expect(

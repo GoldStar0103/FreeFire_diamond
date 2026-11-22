@@ -13,15 +13,23 @@ import {
 import { createOrder, rejectPayment, type CreateOrderFailure, type CreateOrderInput } from '@levelup/engine';
 import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
-import type { PaymentGateway } from '@levelup/payments';
+import type { PaymentGateway, PaymentInstructions } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
-import { callerIp, getActiveProvider, getDb, stuckRedirectLimiter, validationLimiter } from '../../../lib/server';
+import {
+  callerIp,
+  getActiveProvider,
+  getDb,
+  paymentAttemptLimiter,
+  stuckRedirectLimiter,
+  validationLimiter,
+} from '../../../lib/server';
 import { validationProductId } from '../../../lib/player-validation';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
+import { applyMercadoPagoEmbeddedReport, getMercadoPagoEmbedded, MERCADOPAGO_EMBEDDED } from '../../../lib/mercadopago-embedded';
 import { notifyNewOrder, notifyStuckGatewayRedirect } from '../../../lib/telegram';
 import { trackingContext } from '../../../lib/tracking';
 
@@ -581,6 +589,200 @@ export async function payWithMercadoPagoSpei(
   const gateway = getMercadoPago();
   if (!gateway) return { error: MERCADOPAGO_SPEI_COPY.unavailable };
   return payWithGatewayMethod(gateway, MERCADOPAGO, 'spei', MERCADOPAGO_SPEI_COPY, formData);
+}
+
+// ── step 2, through Mercado Pago's embedded Checkout (card, SPEI) ──────────────
+
+export interface EmbeddedCheckoutState {
+  error?: string;
+  /** 'resolved' (card) or 'spei' — never 'redirect'/'oxxo', there is nothing to open a tab to. */
+  instructions?: PaymentInstructions;
+  orderPageUrl?: string;
+}
+
+const EMBEDDED_METHOD_COPY: Record<'card' | 'spei', { unavailable: string; openFailed: string }> = {
+  card: {
+    unavailable: 'El pago con tarjeta no está disponible en este momento. Paga por transferencia.',
+    openFailed: 'No pudimos procesar tu tarjeta. Revisa los datos o intenta con otra.',
+  },
+  spei: {
+    unavailable: 'La transferencia SPEI no está disponible en este momento. Paga con tarjeta.',
+    openFailed: 'No pudimos generar tu referencia SPEI. Intenta de nuevo o paga con tarjeta.',
+  },
+};
+
+/**
+ * The embedded-checkout counterpart of `payWithGatewayMethod` — shares its
+ * order-reservation steps exactly (re-confirm the player, resolve any Vault
+ * purchase, reuse a resumable order), but cannot share its body past that:
+ * `payWithGatewayMethod` hard-asserts `instructions.kind === 'redirect'` and
+ * returns a URL for the client to open in a tab. Here there is no tab — a
+ * card result is already known by the time `createCharge` returns, and a
+ * SPEI reference is rendered on this same page instead of a Mercado-Pago-
+ * hosted one. So the synchronous result is settled immediately, through the
+ * exact same `settleGatewayCharge` path a webhook would use (the webhook for
+ * this same charge, delivered moments later, lands as a no-op
+ * `already_approved` — not a second, parallel decision).
+ */
+async function payWithEmbeddedMethod(
+  method: 'card' | 'spei',
+  formData: FormData,
+): Promise<EmbeddedCheckoutState> {
+  const copy = EMBEDDED_METHOD_COPY[method];
+  const gateway = getMercadoPagoEmbedded();
+  if (!gateway || !gateway.supportedMethods.includes(method)) {
+    return { error: copy.unavailable };
+  }
+
+  const comboKey = String(formData.get('comboKey') ?? '');
+  const playerId = String(formData.get('playerId') ?? '').trim();
+  const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
+  const deviceSessionId = String(formData.get('deviceSessionId') ?? '').trim() || null;
+
+  const combo = await getStorefrontCombo(getDb(), comboKey);
+  if (!combo) return { error: 'Esta promoción ya no está disponible.' };
+
+  if (!whatsapp) {
+    return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
+  }
+
+  // Spends a real gateway call and feeds Mercado Pago's own fraud engine —
+  // checked before anything else gateway-related, same spot `confirmPlayer`'s
+  // own limiter sits relative to the rest of this flow.
+  const rateDecision = paymentAttemptLimiter.check(await callerIp());
+  if (!rateDecision.allowed) {
+    return {
+      error: `Demasiados intentos. Espera ${Math.ceil(rateDecision.retryAfterMs / 1000)} segundos.`,
+    };
+  }
+
+  let cardToken: string | null = null;
+  let paymentMethodId: string | null = null;
+  let installments = 1;
+  if (method === 'card') {
+    cardToken = String(formData.get('cardToken') ?? '').trim() || null;
+    paymentMethodId = String(formData.get('paymentMethodId') ?? '').trim() || null;
+    const rawInstallments = Number(formData.get('installments'));
+    installments = Number.isInteger(rawInstallments) && rawInstallments > 0 ? rawInstallments : 1;
+    if (!cardToken) return { error: copy.openFailed };
+  }
+
+  const confirmed = await confirmPlayer(playerId);
+  if (!confirmed.ok) return { error: confirmed.message };
+
+  const vault = await resolveVaultPurchase(formData);
+  if (!vault.ok) return { error: vault.message };
+
+  const resumable = await findResumableOrder(getDb(), { playerId, comboKey });
+
+  let order: { id: string; orderNumber: string; priceMxnCents: number };
+  if (resumable) {
+    order = resumable;
+  } else {
+    const buyer = await getCustomerSession();
+    const created = await createOrder(
+      { store: new DrizzleOrderingStore(getDb()) },
+      {
+        comboKey,
+        playerId,
+        playerNickname: confirmed.nickname,
+        contactWhatsapp: whatsapp,
+        paymentMethod: method,
+        source: 'storefront',
+        tracking: await trackingContext(),
+        buyerProfileId: buyer?.playerProfileId ?? null,
+        ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
+      },
+    );
+    if (!created.ok) return { error: explain(created.failure) };
+    order = created.order;
+  }
+
+  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
+
+  try {
+    const charge = await gateway.createCharge({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amountCents: order.priceMxnCents,
+      method,
+      description: `${combo.name} · ${diamonds(combo.advertisedDiamonds)} diamantes Free Fire`,
+      customerPhone: whatsapp,
+      deviceSessionId,
+      ...(method === 'card'
+        ? { cardToken: cardToken!, ...(paymentMethodId ? { paymentMethodId } : {}), installments }
+        : {}),
+    });
+
+    if (charge.instructions.kind !== 'resolved' && charge.instructions.kind !== 'spei') {
+      throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+    }
+
+    const attached = await attachGatewayCharge(getDb(), {
+      orderId: order.id,
+      gateway: MERCADOPAGO_EMBEDDED,
+      gatewayChargeId: charge.gatewayChargeId,
+      expiresAt: charge.expiresAt,
+      ...(resumable ? { method } : {}),
+    });
+    if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    // Settle synchronously, right now, through the same engine path a
+    // webhook would use — the customer gets an instant answer instead of
+    // waiting on redelivery, and the later webhook for this same charge is
+    // an idempotent no-op.
+    if (charge.instructions.kind === 'resolved') {
+      await applyMercadoPagoEmbeddedReport({
+        gatewayChargeId: charge.gatewayChargeId,
+        state: charge.instructions.state,
+        amountReceivedCents: charge.instructions.state === 'paid' ? charge.amountCents : null,
+        reference: charge.instructions.reference,
+        voucherIssued: false,
+      });
+    } else {
+      // A SPEI reference was just issued — money is hours away, not seconds.
+      await applyMercadoPagoEmbeddedReport({
+        gatewayChargeId: charge.gatewayChargeId,
+        state: 'pending',
+        amountReceivedCents: null,
+        reference: charge.instructions.reference,
+        voucherIssued: true,
+      });
+    }
+
+    return { instructions: charge.instructions, orderPageUrl: orderPage };
+  } catch (err) {
+    console.error(`[checkout] ${order.orderNumber}: could not process a ${MERCADOPAGO_EMBEDDED}/${method} charge`, err);
+    // Unlike the redirect-based helper, a thrown error here (network/gateway
+    // outage, not a card decline — a decline comes back as a normal
+    // `'resolved'` result above, never a thrown error) still leaves a
+    // freshly-created order sitting unpaid. Cancel it the same way the
+    // redirect path does, so a retry does not collide with an order nobody
+    // can ever pay.
+    if (!resumable) {
+      await rejectPayment(
+        { store: new DrizzlePaymentStore(getDb()) },
+        { orderId: order.id, adminUserId: null, reason: `No se pudo procesar el pago (${method})` },
+      ).catch((cancelErr: unknown) =>
+        console.error(`[checkout] ${order.orderNumber}: and could not cancel it`, cancelErr),
+      );
+    }
+    return { error: copy.openFailed };
+  }
+}
+
+export async function payWithMercadoPagoCard(
+  _prev: EmbeddedCheckoutState,
+  formData: FormData,
+): Promise<EmbeddedCheckoutState> {
+  return payWithEmbeddedMethod('card', formData);
+}
+
+export async function payWithMercadoPagoSpeiEmbedded(
+  _prev: EmbeddedCheckoutState,
+  formData: FormData,
+): Promise<EmbeddedCheckoutState> {
+  return payWithEmbeddedMethod('spei', formData);
 }
 
 /**
