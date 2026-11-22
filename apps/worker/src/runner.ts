@@ -638,23 +638,25 @@ export async function runRewardDelivery(
 }
 
 /**
- * Golden Tickets giveaways (Module 2): close any giveaway past its `closesAt`
- * — to `closed_pending_draw` if it met its minimum, or `cancelled` with every
- * entrant refunded otherwise. Every giveaway has its own due time (a row
- * query, not a single global timer), so this rides the plain sweep cadence
- * like `runLevelPassSync`/`runSeasonClose` rather than needing a
- * `CatalogSyncSchedule`-style schedule of its own. Winner selection is
- * deliberately NOT done here — `drawWinner` is admin-triggered only, never
- * called from the worker.
+ * Golden Tickets giveaways (Module 2): close any giveaway past its
+ * `closesAt`. If it met its minimum AND already has a prize value set, the
+ * winner(s) are drawn right here, automatically — no admin click needed
+ * (per the client's request to stop waiting on a manual draw). If it met
+ * its minimum but has no prize value yet, it falls back to
+ * `closed_pending_draw` for a manual draw once that's set. Below the
+ * minimum, it's `cancelled` with every entrant refunded. Every giveaway has
+ * its own due time (a row query, not a single global timer), so this rides
+ * the plain sweep cadence like `runLevelPassSync`/`runSeasonClose` rather
+ * than needing a `CatalogSyncSchedule`-style schedule of its own.
  */
 export async function runGiveawayDraws(deps: {
   store: Pick<DrizzleGiveawayAdminStore, 'closeDueGiveaways'>;
-}): Promise<{ closedPendingDraw: number; cancelledAndRefunded: number } | null> {
+}): Promise<{ closedPendingDraw: number; autoDrawn: number; cancelledAndRefunded: number } | null> {
   try {
     const result = await deps.store.closeDueGiveaways(new Date());
-    if (result.closedPendingDraw > 0 || result.cancelledAndRefunded > 0) {
+    if (result.closedPendingDraw > 0 || result.autoDrawn > 0 || result.cancelledAndRefunded > 0) {
       console.log(
-        `[giveaways] ${result.closedPendingDraw} closed for draw, ${result.cancelledAndRefunded} cancelled and refunded`,
+        `[giveaways] ${result.autoDrawn} auto-drawn, ${result.closedPendingDraw} closed awaiting a manual draw (no prize value set), ${result.cancelledAndRefunded} cancelled and refunded`,
       );
     }
     return result;

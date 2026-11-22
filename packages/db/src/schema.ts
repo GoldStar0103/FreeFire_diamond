@@ -1083,10 +1083,12 @@ export const giveawayWinnerDeliveryStatus = pgEnum('giveaway_winner_delivery_sta
 
 /**
  * A single raffle: players spend Golden Tickets (`giveawayEntries`) for a
- * chance at one of `winnerCount` prizes, drawn by an admin (not automatic —
- * see the plan) once `closesAt` has passed and `closeDueGiveaways` has moved
- * it to `closed_pending_draw`. Winners themselves live in `giveawayWinners`,
- * not on this row — multiple winners per giveaway, per the client's request.
+ * chance at one of `winnerCount` prizes. Once `closesAt` passes,
+ * `closeDueGiveaways` draws the winner(s) automatically if a prize value is
+ * already set; otherwise it moves the row to `closed_pending_draw` for a
+ * manual `drawWinners` call once that's filled in. Winners themselves live
+ * in `giveawayWinners`, not on this row — multiple winners per giveaway, per
+ * the client's request.
  */
 export const giveaways = pgTable(
   'giveaways',

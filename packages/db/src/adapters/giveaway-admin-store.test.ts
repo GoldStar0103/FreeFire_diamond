@@ -134,7 +134,7 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayAdminStore create/update/publish'
 });
 
 describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayAdminStore.closeDueGiveaways', () => {
-  it('moves a past-due giveaway that met its minimum to closed_pending_draw without touching tickets', async () => {
+  it('moves a past-due giveaway that met its minimum to closed_pending_draw without touching tickets, when no prize value is set yet', async () => {
     const id = await store().create({ ...baseInput, closesAt: new Date('2026-01-01T00:00:00Z') }, adminId);
     await store().publish(id, adminId);
     const p1 = await seedPlayer(50);
@@ -143,12 +143,35 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayAdminStore.closeDueGiveaways', ()
     await enterGiveaway(id, p2.id, 1, 10);
 
     const result = await store().closeDueGiveaways(new Date('2026-01-02T00:00:00Z'));
-    expect(result).toEqual({ closedPendingDraw: 1, cancelledAndRefunded: 0 });
+    expect(result).toEqual({ closedPendingDraw: 1, autoDrawn: 0, cancelledAndRefunded: 0 });
 
     const row = await store().getForAdmin(id);
     expect(row?.status).toBe('closed_pending_draw');
     const [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.id, p1.id));
     expect(profile?.ticketBalance).toBe(50);
+  });
+
+  it('draws the winner automatically when the minimum is met and a prize value is already set', async () => {
+    const id = await store().create({ ...baseInput, closesAt: new Date('2026-01-01T00:00:00Z') }, adminId);
+    await store().setPrizeValueCents(id, 75000, adminId);
+    await store().publish(id, adminId);
+    const p1 = await seedPlayer();
+    const p2 = await seedPlayer();
+    await enterGiveaway(id, p1.id, 1, 10);
+    await enterGiveaway(id, p2.id, 1, 10);
+
+    const result = await store().closeDueGiveaways(new Date('2026-01-02T00:00:00Z'), () => 0.9);
+    expect(result).toEqual({ closedPendingDraw: 0, autoDrawn: 1, cancelledAndRefunded: 0 });
+
+    const row = await store().getForAdmin(id);
+    expect(row?.status).toBe('drawn');
+
+    const winners = await store().listWinners(id);
+    expect(winners).toHaveLength(1);
+    expect(winners[0]).toMatchObject({ playerProfileId: p2.id, costCentsSnapshot: 75000, deliveryStatus: 'pending' });
+
+    const [notif] = await db.select().from(notifications).where(eq(notifications.playerProfileId, p2.id));
+    expect(notif?.type).toBe('giveaway_won');
   });
 
   it('cancels and refunds every entrant when the minimum was not met', async () => {
@@ -158,7 +181,7 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayAdminStore.closeDueGiveaways', ()
     await enterGiveaway(id, p1.id, 1, 10);
 
     const result = await store().closeDueGiveaways(new Date('2026-01-02T00:00:00Z'));
-    expect(result).toEqual({ closedPendingDraw: 0, cancelledAndRefunded: 1 });
+    expect(result).toEqual({ closedPendingDraw: 0, autoDrawn: 0, cancelledAndRefunded: 1 });
 
     const row = await store().getForAdmin(id);
     expect(row?.status).toBe('cancelled');
@@ -180,7 +203,7 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleGiveawayAdminStore.closeDueGiveaways', ()
     const id = await store().create(baseInput, adminId);
     await store().publish(id, adminId);
     const result = await store().closeDueGiveaways(new Date('2026-01-01T00:00:00Z'));
-    expect(result).toEqual({ closedPendingDraw: 0, cancelledAndRefunded: 0 });
+    expect(result).toEqual({ closedPendingDraw: 0, autoDrawn: 0, cancelledAndRefunded: 0 });
     const row = await store().getForAdmin(id);
     expect(row?.status).toBe('open');
   });

@@ -127,7 +127,9 @@ export default async function GiveawayDetailPage({ params }: { params: Promise<{
           <p className="hint" style={{ marginTop: 0 }}>
             {giveaway.prizeType === 'diamonds'
               ? 'Hace falta antes de poder sortear — se congela por cada ganador y se registra como gasto en Contabilidad cuando se entrega el premio.'
-              : 'Hace falta antes de poder sortear. Se registra como gasto en Contabilidad cuando marques a cada ganador como entregado.'}
+              : 'Hace falta antes de poder sortear. Se registra como gasto en Contabilidad cuando marques a cada ganador como entregado.'}{' '}
+            {(giveaway.status === 'draft' || giveaway.status === 'open') &&
+              'Defínelo antes de que cierre y el ganador se sortea solo en cuanto cierre — sin tener que volver aquí.'}
           </p>
           <SetPrizeValueForm
             giveawayId={giveaway.id}
@@ -143,6 +145,10 @@ export default async function GiveawayDetailPage({ params }: { params: Promise<{
       {giveaway.status === 'closed_pending_draw' && (
         <div className="card">
           <h2 style={{ marginTop: 0, fontSize: 16 }}>Sortear {giveaway.winnerCount === 1 ? 'ganador' : 'ganadores'}</h2>
+          <p className="hint" style={{ marginTop: 0 }}>
+            Esto ya cerró sin sortearse solo porque no tenía un valor de premio definido a tiempo —
+            el sorteo se hace solo apenas cierra cuando ese valor ya está puesto.
+          </p>
           <DrawWinnerForm giveawayId={giveaway.id} winnerCount={giveaway.winnerCount} />
         </div>
       )}

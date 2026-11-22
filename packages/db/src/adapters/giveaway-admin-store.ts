@@ -3,10 +3,16 @@
  *
  * Mirrors `item-catalog-admin-store.ts`'s shape (constructor takes a
  * `Database`, every write takes an `adminUserId`). `closeDueGiveaways` is the
- * sweep-step body the worker's `runGiveawayDraws` calls every tick — it only
- * ever closes-for-draw or cancels-and-refunds, never picks a winner.
- * `drawWinners` is admin-triggered only, never called from the worker (see
- * the plan's "admin-triggered draw" decision) — it can pick several winners
+ * sweep-step body the worker's `runGiveawayDraws` calls every tick: it closes
+ * a past-due giveaway and, the moment it meets its minimum AND already has a
+ * `prizeValueCents` set, draws the winner(s) in the same pass — no admin
+ * click needed (per the client's request to stop waiting on a manual draw).
+ * If `prizeValueCents` hasn't been set yet, it falls back to leaving the
+ * giveaway in `closed_pending_draw` for a manual `drawWinners` call — the
+ * one thing a missing prize value still requires. `drawWinners` itself stays
+ * public/admin-callable for that fallback and for re-running a draw by hand;
+ * both paths share the same `drawWinnersInTx` winner-picking logic so a
+ * giveaway is decided identically either way. It can pick several winners
  * (`giveaways.winnerCount`), per the client's request.
  *
  * This class also implements `GiveawayPrizeDeliveryStore` (the "automatic
@@ -335,20 +341,28 @@ export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
   }
 
   /**
-   * The sweep-step body: every `open` giveaway past `closesAt` either moves
-   * to `closed_pending_draw` (minimum met, awaiting an admin's draw action)
-   * or `cancelled` with every entrant refunded (minimum not met). The
-   * `status = 'open'` clause in each UPDATE's WHERE is the idempotency
-   * guard against a racing/duplicate sweep tick processing the same giveaway
-   * twice — same pattern `expireOverduePayments` already relies on.
+   * The sweep-step body: every `open` giveaway past `closesAt` either gets
+   * drawn immediately (minimum met AND a `prizeValueCents` is already set —
+   * the one precondition `drawWinnersInTx` enforces), left in
+   * `closed_pending_draw` awaiting a manual draw (minimum met but no prize
+   * value yet), or `cancelled` with every entrant refunded (minimum not
+   * met). The `status = 'open'` clause in each UPDATE's WHERE is the
+   * idempotency guard against a racing/duplicate sweep tick processing the
+   * same giveaway twice — same pattern `expireOverduePayments` already
+   * relies on. `random` is injected (defaults to `Math.random`) purely so
+   * tests can assert exact winners, same convention `drawWinners` uses.
    */
-  async closeDueGiveaways(now: Date): Promise<{ closedPendingDraw: number; cancelledAndRefunded: number }> {
+  async closeDueGiveaways(
+    now: Date,
+    random: () => number = Math.random,
+  ): Promise<{ closedPendingDraw: number; autoDrawn: number; cancelledAndRefunded: number }> {
     const due = await this.db
       .select({ id: giveaways.id, minEntries: giveaways.minEntries })
       .from(giveaways)
       .where(and(eq(giveaways.status, 'open'), lte(giveaways.closesAt, now)));
 
     let closedPendingDraw = 0;
+    let autoDrawn = 0;
     let cancelledAndRefunded = 0;
 
     for (const g of due) {
@@ -359,12 +373,34 @@ export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
       const totalEntries = Number(totalRow!.total);
 
       if (meetsMinimum(g.minEntries, totalEntries)) {
-        const updated = await this.db
-          .update(giveaways)
-          .set({ status: 'closed_pending_draw', updatedAt: sql`now()` })
-          .where(and(eq(giveaways.id, g.id), eq(giveaways.status, 'open')))
-          .returning({ id: giveaways.id });
-        if (updated.length > 0) closedPendingDraw++;
+        const outcome = await this.db.transaction(async (tx) => {
+          const updated = await tx
+            .update(giveaways)
+            .set({ status: 'closed_pending_draw', updatedAt: sql`now()` })
+            .where(and(eq(giveaways.id, g.id), eq(giveaways.status, 'open')))
+            .returning({
+              id: giveaways.id,
+              title: giveaways.title,
+              prizeDescription: giveaways.prizeDescription,
+              winnerCount: giveaways.winnerCount,
+              prizeValueCents: giveaways.prizeValueCents,
+            });
+          if (updated.length === 0) return 'raced' as const;
+
+          const giveaway = updated[0]!;
+          if (giveaway.prizeValueCents == null) return 'awaiting_prize_value' as const;
+
+          const winnerCount = await drawWinnersInTx(
+            tx,
+            { ...giveaway, prizeValueCents: giveaway.prizeValueCents },
+            null,
+            random,
+          );
+          return winnerCount > 0 ? ('auto_drawn' as const) : ('awaiting_prize_value' as const);
+        });
+
+        if (outcome === 'auto_drawn') autoDrawn++;
+        else if (outcome === 'awaiting_prize_value') closedPendingDraw++;
         continue;
       }
 
@@ -391,7 +427,7 @@ export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
       if (refunded) cancelledAndRefunded++;
     }
 
-    return { closedPendingDraw, cancelledAndRefunded };
+    return { closedPendingDraw, autoDrawn, cancelledAndRefunded };
   }
 
   /** Manual cancel — any state before `drawn`. Refunds every entrant exactly like the below-minimum auto-cancel. */
@@ -415,8 +451,10 @@ export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
   }
 
   /**
-   * Admin-triggered only — never called from the worker's sweep loop. Draws
-   * up to `giveaways.winnerCount` distinct winners (`pickWinners`, no
+   * Admin-callable fallback/re-run path — also what `closeDueGiveaways` uses
+   * internally (via `drawWinnersInTx`) to draw automatically the moment a
+   * giveaway closes with a prize value already set. Draws up to
+   * `giveaways.winnerCount` distinct winners (`pickWinners`, no
    * replacement). Requires `prizeValueCents` to already be set — for a
    * `diamonds`-type giveaway there is no later manual confirmation step to
    * gate on (delivery is automatic), so this is the one point before the
@@ -447,49 +485,15 @@ export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
       if (giveaway.status !== 'closed_pending_draw') return { ok: false, reason: 'wrong_status' as const };
       if (giveaway.prizeValueCents == null) return { ok: false, reason: 'prize_value_required' as const };
 
-      const entries = await tx
-        .select({
-          playerProfileId: giveawayEntries.playerProfileId,
-          entryCount: giveawayEntries.entryCount,
-          freeFireId: giveawayEntries.freeFireId,
-          fallbackPlayerId: playerProfiles.playerId,
-        })
-        .from(giveawayEntries)
-        .innerJoin(playerProfiles, eq(playerProfiles.id, giveawayEntries.playerProfileId))
-        .where(eq(giveawayEntries.giveawayId, id));
+      const winnerCount = await drawWinnersInTx(
+        tx,
+        { ...giveaway, prizeValueCents: giveaway.prizeValueCents },
+        adminUserId,
+        random,
+      );
+      if (winnerCount === 0) return { ok: false, reason: 'no_entries' as const };
 
-      const winnerIds = pickWinners(entries, giveaway.winnerCount, random);
-      if (winnerIds.length === 0) return { ok: false, reason: 'no_entries' as const };
-
-      const byPlayer = new Map(entries.map((e) => [e.playerProfileId, e]));
-
-      await tx
-        .update(giveaways)
-        .set({ status: 'drawn', drawnAt: sql`now()`, drawnByAdminId: adminUserId, updatedAt: sql`now()` })
-        .where(eq(giveaways.id, id));
-
-      for (let i = 0; i < winnerIds.length; i++) {
-        const playerProfileId = winnerIds[i]!;
-        const entry = byPlayer.get(playerProfileId);
-
-        await tx.insert(giveawayWinners).values({
-          giveawayId: id,
-          playerProfileId,
-          freeFireId: entry?.freeFireId ?? entry?.fallbackPlayerId ?? '',
-          position: i + 1,
-          costCentsSnapshot: giveaway.prizeValueCents,
-        });
-
-        await tx.insert(notifications).values({
-          playerProfileId,
-          type: 'giveaway_won',
-          title: '¡Ganaste un sorteo!',
-          message: `Ganaste "${giveaway.title}": ${giveaway.prizeDescription}`,
-          targetUrl: `/sorteos/${id}`,
-        });
-      }
-
-      return { ok: true, winnerCount: winnerIds.length };
+      return { ok: true, winnerCount };
     });
   }
 
@@ -775,6 +779,73 @@ export class DrizzleGiveawayAdminStore implements GiveawayPrizeDeliveryStore {
       await maybeFinalizeGiveaway(tx, row.giveawayId);
     });
   }
+}
+
+type DrawableGiveaway = {
+  id: string;
+  title: string;
+  prizeDescription: string;
+  winnerCount: number;
+  prizeValueCents: number;
+};
+
+/**
+ * The actual winner-picking write, shared by `drawWinners` (admin-triggered)
+ * and `closeDueGiveaways` (automatic, right after close). `adminUserId` is
+ * `null` for an automatic draw — `giveaways.drawnByAdminId` is nullable for
+ * exactly this. Returns the number of distinct winners actually drawn (0 for
+ * an empty entry pool); callers decide what that means for their own result
+ * shape rather than this helper picking an error reason for them.
+ */
+async function drawWinnersInTx(
+  tx: Tx,
+  giveaway: DrawableGiveaway,
+  adminUserId: string | null,
+  random: () => number,
+): Promise<number> {
+  const entries = await tx
+    .select({
+      playerProfileId: giveawayEntries.playerProfileId,
+      entryCount: giveawayEntries.entryCount,
+      freeFireId: giveawayEntries.freeFireId,
+      fallbackPlayerId: playerProfiles.playerId,
+    })
+    .from(giveawayEntries)
+    .innerJoin(playerProfiles, eq(playerProfiles.id, giveawayEntries.playerProfileId))
+    .where(eq(giveawayEntries.giveawayId, giveaway.id));
+
+  const winnerIds = pickWinners(entries, giveaway.winnerCount, random);
+  if (winnerIds.length === 0) return 0;
+
+  const byPlayer = new Map(entries.map((e) => [e.playerProfileId, e]));
+
+  await tx
+    .update(giveaways)
+    .set({ status: 'drawn', drawnAt: sql`now()`, drawnByAdminId: adminUserId, updatedAt: sql`now()` })
+    .where(eq(giveaways.id, giveaway.id));
+
+  for (let i = 0; i < winnerIds.length; i++) {
+    const playerProfileId = winnerIds[i]!;
+    const entry = byPlayer.get(playerProfileId);
+
+    await tx.insert(giveawayWinners).values({
+      giveawayId: giveaway.id,
+      playerProfileId,
+      freeFireId: entry?.freeFireId ?? entry?.fallbackPlayerId ?? '',
+      position: i + 1,
+      costCentsSnapshot: giveaway.prizeValueCents,
+    });
+
+    await tx.insert(notifications).values({
+      playerProfileId,
+      type: 'giveaway_won',
+      title: '¡Ganaste un sorteo!',
+      message: `Ganaste "${giveaway.title}": ${giveaway.prizeDescription}`,
+      targetUrl: `/sorteos/${giveaway.id}`,
+    });
+  }
+
+  return winnerIds.length;
 }
 
 async function refundEntrants(
