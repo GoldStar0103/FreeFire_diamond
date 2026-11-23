@@ -64,6 +64,10 @@ type MpTransactionStatus =
   | 'action_required'
   | 'accredited'
   | 'rejected'
+  // Confirmed against the real sandbox (2026-11-22): a declined card's
+  // transaction comes back with this status, not 'rejected' — both are
+  // real and both land in TERMINAL_FAILED below.
+  | 'failed'
   | 'cancelled'
   | 'refunded'
   | 'charged_back';
@@ -376,6 +380,19 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
     }
 
     if (response.ok) return body as T;
+
+    // A declined card is not a failed request: Mercado Pago still creates the
+    // order, it just answers with a non-2xx status (402, confirmed against
+    // the real sandbox) and nests the actual order under `data` instead of
+    // returning it at the top level the way a 2xx response does. Surface
+    // that order like any other successful response so `createCharge` can
+    // resolve it through the normal `orderState()` path — the caller's own
+    // contract (see `apps/web`'s checkout action) depends on a decline never
+    // being a thrown error.
+    const declinedOrder = (body as { data?: { id?: unknown; status?: unknown } } | null)?.data;
+    if (typeof declinedOrder?.id === 'string' && typeof declinedOrder?.status === 'string') {
+      return declinedOrder as T;
+    }
 
     const message = (body as { message?: string } | null)?.message ?? text.slice(0, 200);
     if (response.status === 404) throw new MpNotFound(message);

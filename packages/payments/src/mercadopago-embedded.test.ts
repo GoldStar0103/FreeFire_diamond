@@ -107,7 +107,7 @@ describe('createCharge — card', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('reports a declined card as a resolved, failed result — not a thrown error', async () => {
+  it('reports a declined card as a resolved, failed result if it ever arrives on a 2xx — not a thrown error', async () => {
     const { impl } = fakeFetch([
       {
         status: 200,
@@ -122,6 +122,33 @@ describe('createCharge — card', () => {
     ]);
     const created = await gateway(impl).createCharge(cardInput);
     expect(created.instructions).toEqual({ kind: 'resolved', state: 'failed', reference: 'txn_2' });
+  });
+
+  it('reports a declined card as resolved/failed on the real 402 shape — order nested under `data`, not thrown', async () => {
+    // Confirmed against Mercado Pago's real sandbox (2026-11-22, OTHE test
+    // card): a declined card comes back as HTTP 402 with the order under
+    // `data`, not the 2xx-with-rejected-status shape the test above assumes
+    // and not a request-level error either — the order was genuinely
+    // created, the transaction was just declined.
+    const { impl } = fakeFetch([
+      {
+        status: 402,
+        body: {
+          errors: [{ code: 'failed', message: 'The following transactions failed', details: ['PAY1: rejected_by_issuer'] }],
+          data: {
+            id: 'ord_mp_3',
+            status: 'failed',
+            status_detail: 'failed',
+            external_reference: 'LU-260924-AB12',
+            total_amount: '18.00',
+            transactions: { payments: [{ id: 'txn_3', status: 'failed', status_detail: 'rejected_by_issuer' }] },
+          },
+        },
+      },
+    ]);
+    const created = await gateway(impl).createCharge(cardInput);
+    expect(created.instructions).toEqual({ kind: 'resolved', state: 'failed', reference: 'txn_3' });
+    expect(created.gatewayChargeId).toBe('ord_mp_3');
   });
 
   it('keys the idempotency on the order, not the card token or amount', async () => {
