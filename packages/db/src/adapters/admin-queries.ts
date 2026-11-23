@@ -436,6 +436,13 @@ export interface OrderDetail {
     reference: string | null;
     expiresAt: Date | null;
     paidAt: Date | null;
+    /**
+     * The real gateway-side charge id — for the embedded Mercado Pago
+     * adapter this IS the order id `getCharge` needs (unlike the Checkout
+     * Pro adapter, which looks itself up by `orderNumber` instead — see
+     * that adapter's own comment on why).
+     */
+    gatewayChargeId: string | null;
   } | null;
   items: OrderItemDetail[];
   /** Diamonds actually delivered so far, against what was promised. */
@@ -516,6 +523,7 @@ export async function getOrderDetail(db: Database, orderId: string): Promise<Ord
           reference: payment.reference,
           expiresAt: payment.expiresAt,
           paidAt: payment.paidAt,
+          gatewayChargeId: payment.gatewayChargeId,
         }
       : null,
     items: items.map((i) => ({

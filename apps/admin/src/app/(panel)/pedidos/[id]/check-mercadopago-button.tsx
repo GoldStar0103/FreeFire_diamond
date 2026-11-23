@@ -6,6 +6,10 @@ import { dateTime, mxn } from '../../../../lib/format';
 
 interface Props {
   orderNumber: string;
+  /** 'mercadopago' (Checkout Pro) or 'mercadopago-embedded' (card/SPEI, Orders API). */
+  gatewayName: string;
+  /** Required for 'mercadopago-embedded' — its `getCharge` looks up by this, not the order number. */
+  gatewayChargeId: string | null;
 }
 
 const STATE_LABEL: Record<string, string> = {
@@ -22,7 +26,7 @@ const STATE_LABEL: Record<string, string> = {
  * it has on file, it never changes anything here. See `checkMercadoPagoPayment`
  * for why (dispute resolution — "the customer says they paid").
  */
-export function CheckMercadoPagoButton({ orderNumber }: Props) {
+export function CheckMercadoPagoButton({ orderNumber, gatewayName, gatewayChargeId }: Props) {
   const [state, action, pending] = useActionState<MpCheckState, FormData>(checkMercadoPagoPayment, {
     status: 'idle',
   });
@@ -75,6 +79,8 @@ export function CheckMercadoPagoButton({ orderNumber }: Props) {
 
       <form action={action}>
         <input type="hidden" name="orderNumber" value={orderNumber} />
+        <input type="hidden" name="gatewayName" value={gatewayName} />
+        <input type="hidden" name="gatewayChargeId" value={gatewayChargeId ?? ''} />
         <button className="btn" type="submit" disabled={pending}>
           {pending ? 'Consultando…' : 'Verificar pago'}
         </button>

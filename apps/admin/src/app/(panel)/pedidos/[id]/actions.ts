@@ -11,6 +11,7 @@ import {
 } from '@levelup/db';
 import { getDb } from '../../../../lib/db';
 import { getMercadoPago } from '../../../../lib/mercadopago';
+import { getMercadoPagoEmbedded } from '../../../../lib/mercadopago-embedded';
 import { requireSession } from '../../../../lib/session';
 
 export interface ReviewState {
@@ -330,12 +331,22 @@ export async function checkMercadoPagoPayment(_prev: MpCheckState, formData: For
   const orderNumber = String(formData.get('orderNumber') ?? '');
   if (!orderNumber) return { status: 'error', message: 'Falta el pedido.' };
 
-  const gateway = getMercadoPago();
+  // The embedded (Checkout API/Orders) gateway's `getCharge` takes the real
+  // Mercado Pago order id, not the order number — unlike Checkout Pro, whose
+  // Preference is closed the instant it's created and is only ever findable
+  // again by `external_reference` (see that adapter's own comment).
+  const isEmbedded = String(formData.get('gatewayName') ?? '') === 'mercadopago-embedded';
+  const gatewayChargeId = String(formData.get('gatewayChargeId') ?? '').trim();
+
+  const gateway = isEmbedded ? getMercadoPagoEmbedded() : getMercadoPago();
   if (!gateway) return { status: 'error', message: 'Mercado Pago no está configurado en este servidor.' };
+  if (isEmbedded && !gatewayChargeId) {
+    return { status: 'error', message: 'Este pedido no tiene un id de Mercado Pago registrado todavía.' };
+  }
 
   let snapshot;
   try {
-    snapshot = await gateway.getCharge(orderNumber);
+    snapshot = await gateway.getCharge(isEmbedded ? gatewayChargeId : orderNumber);
   } catch (err) {
     return {
       status: 'error',

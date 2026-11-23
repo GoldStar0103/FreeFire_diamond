@@ -281,10 +281,15 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <ReleasePaymentButton orderId={order.orderId} orderNumber={order.orderNumber} />
         )}
 
-      {/* Mercado Pago only — Stripe's own dashboard link above already covers
-          card, and manual transfers have no gateway to ask. */}
-      {order.payment?.gateway === 'mercadopago' && (
-        <CheckMercadoPagoButton orderNumber={order.orderNumber} />
+      {/* Mercado Pago only (either gateway) — Stripe's own dashboard link
+          above already covers card, and manual transfers have no gateway to
+          ask. */}
+      {(order.payment?.gateway === 'mercadopago' || order.payment?.gateway === 'mercadopago-embedded') && (
+        <CheckMercadoPagoButton
+          orderNumber={order.orderNumber}
+          gatewayName={order.payment.gateway}
+          gatewayChargeId={order.payment.gatewayChargeId}
+        />
       )}
 
       {/* Not gated to this order's own gateway: a customer disputing a
