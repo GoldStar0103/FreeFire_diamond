@@ -1009,6 +1009,11 @@ export function Checkout({
           ) : payView === 'transferencia' && transferAutomatic === 'mercadopago-embedded' ? (
             mpSpeiEmbedded.instructions?.kind === 'spei' ? (
               <div>
+                <div className="estado-card revisando" role="status">
+                  <div className="spin" aria-hidden="true" />
+                  <h2>Esperando tu pago</h2>
+                  <p>En cuanto recibamos tu transferencia, tu recarga entra sola — no cierres esta página.</p>
+                </div>
                 <div className="pay-box">
                   <CopyRow
                     label="CLABE"
@@ -1025,6 +1030,10 @@ export function Checkout({
                     <span>Monto exacto</span>
                     <strong>{price}</strong>
                   </div>
+                </div>
+                <div className="alert bad" style={{ marginTop: 10 }}>
+                  ⚠️ Transfiere exactamente <strong>{price}</strong> — ni un peso más, ni un peso menos.
+                  Un monto distinto puede causar problemas con tu pedido.
                 </div>
                 <p className="hint center">
                   🏦 Transfiere desde tu app bancaria usando esta CLABE. Tu recarga se confirma sola

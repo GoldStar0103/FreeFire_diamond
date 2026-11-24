@@ -421,6 +421,12 @@ export default async function OrderPage({
                 )}
               </div>
             )}
+            {bankTransfer && (
+              <div className="alert bad" style={{ marginTop: 10, textAlign: 'left' }}>
+                ⚠️ Transfiere exactamente <strong>{mxn(order.priceMxnCents)}</strong> — ni un peso más, ni un
+                peso menos. Un monto distinto puede causar problemas con tu pedido.
+              </div>
+            )}
             {challengeUrl && (
               <a
                 className="btn-primary"
