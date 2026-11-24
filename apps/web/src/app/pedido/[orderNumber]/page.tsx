@@ -393,38 +393,60 @@ export default async function OrderPage({
               </a>
             )}
             {bankTransfer && (
-              <div className="pay-box" style={{ marginTop: 12, textAlign: 'left' }}>
-                {/* Field order matches Mercado Pago's own hosted voucher
-                    (CLABE, Nombre del beneficiario, Referencia) — Jose asked
-                    for this to look like that voucher, confirmed live
-                    2026-11-24. "LevelUp Store" is a fixed display label, not
-                    whatever name the CLABE is actually registered under
-                    (Mercado Pago's own voucher shows "Mercado Libre" there,
-                    the processor, not the merchant) — Jose's explicit ask. */}
-                {bankTransfer.clabe && (
-                  <CopyRow label="CLABE" value={bankTransfer.clabe} display={groupClabe(bankTransfer.clabe)} />
-                )}
-                <CopyRow label="Nombre del beneficiario" value="LevelUp Store" display="LevelUp Store" />
-                {bankTransfer.reference && (
-                  <CopyRow label="Referencia" value={bankTransfer.reference} display={bankTransfer.reference} />
-                )}
-                {bankTransfer.bankName && (
-                  <div className="pay-row">
-                    <span>Banco</span>
-                    <strong>{bankTransfer.bankName}</strong>
-                  </div>
-                )}
-                {bankTransfer.hostedInstructionsUrl && (
-                  <a
-                    className="btn-primary"
-                    style={{ marginTop: 12 }}
-                    href={bankTransfer.hostedInstructionsUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Ver instrucciones de transferencia
-                  </a>
-                )}
+              <div className="alert warn" style={{ marginTop: 12, textAlign: 'left' }}>
+                ⚠️ <strong>Importante:</strong> estos datos de pago son únicos para este pedido. Úsalos
+                solo para pagar esta orden — cada pedido genera su propia ficha.
+              </div>
+            )}
+            {bankTransfer && (
+              <div style={{ marginTop: 12, textAlign: 'left' }}>
+                <p className="hint" style={{ marginBottom: 6, fontWeight: 700, letterSpacing: '.02em' }}>
+                  DATOS PARA TRANSFERIR
+                </p>
+                <div className="pay-box">
+                  {/* Field order and labels match Mercado Pago's own hosted
+                      voucher (CLABE, Titular, Referencia, Monto exacto, each
+                      with its own copy button) — Jose's explicit design,
+                      confirmed live 2026-11-24. "LevelUp Store" is a fixed
+                      display label for Titular, not whatever name the CLABE
+                      is actually registered under (Mercado Pago's own
+                      voucher shows "Mercado Libre" there, the processor, not
+                      the merchant). */}
+                  {bankTransfer.clabe && (
+                    <CopyRow label="CLABE" value={bankTransfer.clabe} display={groupClabe(bankTransfer.clabe)} />
+                  )}
+                  <CopyRow label="Titular" value="LevelUp Store" display="LevelUp Store" />
+                  {bankTransfer.reference && (
+                    <>
+                      <CopyRow label="Referencia" value={bankTransfer.reference} display={bankTransfer.reference} />
+                      <p className="hint" style={{ margin: '-6px 0 10px' }}>
+                        Ponla en el concepto o referencia de tu transferencia.
+                      </p>
+                    </>
+                  )}
+                  <CopyRow
+                    label="Monto exacto"
+                    value={(order.priceMxnCents / 100).toFixed(2)}
+                    display={mxn(order.priceMxnCents)}
+                  />
+                  {bankTransfer.bankName && (
+                    <div className="pay-row">
+                      <span>Banco</span>
+                      <strong>{bankTransfer.bankName}</strong>
+                    </div>
+                  )}
+                  {bankTransfer.hostedInstructionsUrl && (
+                    <a
+                      className="btn-primary"
+                      style={{ marginTop: 12 }}
+                      href={bankTransfer.hostedInstructionsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver instrucciones de transferencia
+                    </a>
+                  )}
+                </div>
               </div>
             )}
             {bankTransfer && (
@@ -432,6 +454,12 @@ export default async function OrderPage({
                 ⚠️ Transfiere exactamente <strong>{mxn(order.priceMxnCents)}</strong> — ni un peso más, ni un
                 peso menos. Un monto distinto puede causar problemas con tu pedido.
               </div>
+            )}
+            {bankTransfer && (
+              <p className="hint" style={{ textAlign: 'left' }}>
+                🏦 Transfiere desde tu app bancaria con estos datos. Tu recarga se confirma sola en
+                cuanto llegue.
+              </p>
             )}
             {challengeUrl && (
               <a
@@ -498,6 +526,9 @@ export default async function OrderPage({
           })}
         </div>
 
+        <p className="hint" style={{ marginBottom: 6, fontWeight: 700, letterSpacing: '.02em' }}>
+          DETALLES DEL PEDIDO
+        </p>
         <div className="datos">
           <div className="fila">
             <span className="k">Pedido</span>
