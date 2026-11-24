@@ -435,13 +435,11 @@ export function Checkout({
   const mpEmailField = (disabled: boolean) => (
     <label className="field">
       <span>Tu correo</span>
-      <input
-        type="email"
-        name="email"
-        placeholder="Para generar tu pago con Mercado Pago"
-        disabled={disabled}
-        required
-      />
+      {/* Confirmed in production 2026-11-24 (Jose, screenshot): the old
+          placeholder ("Para generar tu pago con Mercado Pago") was too long
+          for a mobile input and got cut off mid-word — read as broken/unfinished
+          text. The label above already says what the field is for. */}
+      <input type="email" name="email" placeholder="tu@correo.com" disabled={disabled} required />
     </label>
   );
 
