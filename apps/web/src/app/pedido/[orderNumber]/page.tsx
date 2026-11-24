@@ -6,6 +6,11 @@ import { getCustomerSession } from '../../../lib/customer-session';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
 import { MERCADOPAGO } from '../../../lib/mercadopago';
+import {
+  applyMercadoPagoEmbeddedReport,
+  getMercadoPagoEmbedded,
+  MERCADOPAGO_EMBEDDED,
+} from '../../../lib/mercadopago-embedded';
 import { AutoRefresh, PurchasePixel } from './live';
 import { CancelOrderButton, ContinuePaymentButton } from './order-actions';
 import { VipGroupPopup } from './vip-group-popup';
@@ -147,45 +152,78 @@ type BankTransfer = {
 };
 
 /**
- * Ask Stripe directly when a card order is still waiting.
+ * Ask the gateway directly when a card/SPEI order is still waiting.
  *
  * The webhook is the real confirmation, but it is also the part most likely to
  * be misconfigured on day one, and it can lag. The customer has just paid and
  * is looking at this page; asking costs one request and turns "why does it say
  * waiting" into their diamonds arriving. Idempotent with the webhook.
+ *
+ * Covers both gateways this page knows how to re-check live — Stripe (the
+ * legacy card/OXXO/SPEI flow) and the embedded Mercado Pago Orders API. Each
+ * has its own report-applying function (same `ChargeSnapshot` shape, see
+ * their own gateway files), so which one to call is picked by `order.gateway`.
  */
 async function reconcileCard(
   order: CustomerOrder,
 ): Promise<{ voucherUrl: string | null; bankTransfer: BankTransfer | null }> {
   const none = { voucherUrl: null, bankTransfer: null };
-  const gateway = getStripe();
-  if (!gateway || order.gateway !== STRIPE || !order.gatewayChargeId) return none;
-  if (order.status !== 'esperando_pago') return none;
+  if (order.status !== 'esperando_pago' || !order.gatewayChargeId) return none;
 
-  try {
-    const snapshot = await gateway.getCharge(order.gatewayChargeId);
-    if (!snapshot) return none;
+  if (order.gateway === STRIPE) {
+    const gateway = getStripe();
+    if (!gateway) return none;
+    try {
+      const snapshot = await gateway.getCharge(order.gatewayChargeId);
+      if (!snapshot) return none;
 
-    const issued = Boolean(snapshot.voucherUrl) || Boolean(snapshot.bankTransfer);
-    if (snapshot.state !== 'pending' || issued) {
-      await applyStripeReport({
-        gatewayChargeId: snapshot.gatewayChargeId,
-        state: snapshot.state,
-        amountReceivedCents: snapshot.amountReceivedCents,
-        reference: snapshot.reference ?? null,
-        voucherIssued: issued,
-      });
+      const issued = Boolean(snapshot.voucherUrl) || Boolean(snapshot.bankTransfer);
+      if (snapshot.state !== 'pending' || issued) {
+        await applyStripeReport({
+          gatewayChargeId: snapshot.gatewayChargeId,
+          state: snapshot.state,
+          amountReceivedCents: snapshot.amountReceivedCents,
+          reference: snapshot.reference ?? null,
+          voucherIssued: issued,
+        });
+      }
+      if (snapshot.state !== 'pending') return none;
+      return {
+        voucherUrl: snapshot.voucherUrl ?? null,
+        bankTransfer: snapshot.bankTransfer ?? null,
+      };
+    } catch (err) {
+      // The webhook will get there. Showing the page matters more.
+      console.error(`[pedido] could not re-check ${order.orderNumber} with Stripe`, err);
+      return none;
     }
-    if (snapshot.state !== 'pending') return none;
-    return {
-      voucherUrl: snapshot.voucherUrl ?? null,
-      bankTransfer: snapshot.bankTransfer ?? null,
-    };
-  } catch (err) {
-    // The webhook will get there. Showing the page matters more.
-    console.error(`[pedido] could not re-check ${order.orderNumber} with Stripe`, err);
-    return none;
   }
+
+  if (order.gateway === MERCADOPAGO_EMBEDDED) {
+    const gateway = getMercadoPagoEmbedded();
+    if (!gateway) return none;
+    try {
+      const snapshot = await gateway.getCharge(order.gatewayChargeId);
+      if (!snapshot) return none;
+
+      if (snapshot.state !== 'pending') {
+        await applyMercadoPagoEmbeddedReport({
+          gatewayChargeId: snapshot.gatewayChargeId,
+          state: snapshot.state,
+          amountReceivedCents: snapshot.amountReceivedCents,
+          reference: snapshot.reference ?? null,
+          voucherIssued: false,
+        });
+        return none;
+      }
+      return { voucherUrl: null, bankTransfer: snapshot.bankTransfer ?? null };
+    } catch (err) {
+      console.error(`[pedido] could not re-check ${order.orderNumber} with Mercado Pago embedded`, err);
+      return none;
+    }
+  }
+
+  return none;
 }
 
 export default async function OrderPage({
@@ -219,14 +257,15 @@ export default async function OrderPage({
   }
 
   const { voucherUrl, bankTransfer } = await reconcileCard(order);
-  if (order.status === 'esperando_pago' && order.gateway === STRIPE) {
+  if (order.status === 'esperando_pago' && (order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED)) {
     // The re-check may just have confirmed it.
     order = (await findCustomerOrder(getDb(), orderNumber, id)) ?? order;
   }
 
   const byCard = order.gateway === STRIPE;
+  const byGatewayWaiting = order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED;
   const status =
-    order.status === 'esperando_pago' && byCard
+    order.status === 'esperando_pago' && byGatewayWaiting
       ? voucherUrl
         ? OXXO_WAITING
         : bankTransfer
@@ -242,7 +281,16 @@ export default async function OrderPage({
   // anyone trying to read a barcode or copy a CLABE off of it — the client
   // asked for this specifically so people can watch their order advance here
   // while they pay in the other tab.
-  const refreshing = order.status === 'procesando' || (byCard && order.status === 'esperando_pago');
+  //
+  // The embedded gateway has no separate tab — its own CLABE renders right on
+  // THIS page (`bankTransfer` below) — so once that's showing, stop polling:
+  // unlike Stripe's case, refreshing here really would be refreshing out from
+  // under someone mid-copy. Keep polling for its pending-card (3DS/bank
+  // review) state, which has nothing on screen to disturb.
+  const refreshing =
+    order.status === 'procesando' ||
+    (byCard && order.status === 'esperando_pago') ||
+    (order.gateway === MERCADOPAGO_EMBEDDED && order.status === 'esperando_pago' && !bankTransfer);
   const pct =
     order.advertisedDiamonds === 0
       ? 0
