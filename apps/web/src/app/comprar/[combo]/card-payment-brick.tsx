@@ -46,6 +46,7 @@ export function CardPaymentBrick({ amountMxn, publicKey, onToken }: CardPaymentB
   return (
     <CardPayment
       initialization={{ amount: amountMxn }}
+      customization={{ paymentMethods: { minInstallments: 1, maxInstallments: 1 } }}
       locale="es-MX"
       onSubmit={async (formData) => {
         await onTokenRef.current({
