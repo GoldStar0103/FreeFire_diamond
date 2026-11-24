@@ -288,6 +288,21 @@ export function Checkout({
   const [step, setStep] = useState<Step>('datos');
   const router = useRouter();
 
+  // The order page already builds exactly the layout a CLABE result needs —
+  // loading state up top, payment details (CLABE/beneficiary/reference) in
+  // the middle swapping to a confirmed state once paid, order summary at the
+  // bottom — and already polls for that confirmation. Sending the customer
+  // there once the CLABE exists avoids maintaining a second, static copy of
+  // the same screen here that never updates once payment lands. Confirmed
+  // needed in production 2026-11-24 (Jose): the inline version here had the
+  // order summary above the payment details, the reverse of what he wanted,
+  // and no account-holder/reference fields.
+  useEffect(() => {
+    if (mpSpeiEmbedded.instructions?.kind === 'spei' && mpSpeiEmbedded.orderPageUrl) {
+      router.push(mpSpeiEmbedded.orderPageUrl);
+    }
+  }, [mpSpeiEmbedded, router]);
+
   // Mercado Pago's Card Payment Brick owns its own submit round trip (see
   // card-payment-brick.tsx's doc comment) — it needs the real result the
   // instant the charge resolves, which `useActionState`'s own dispatch does
@@ -1070,37 +1085,13 @@ export function Checkout({
             </form>
           ) : payView === 'transferencia' && transferAutomatic === 'mercadopago-embedded' ? (
             mpSpeiEmbedded.instructions?.kind === 'spei' ? (
-              <div>
-                <div className="estado-card revisando" role="status">
-                  <div className="spin" aria-hidden="true" />
-                  <h2>Esperando tu pago</h2>
-                  <p>En cuanto recibamos tu transferencia, tu recarga entra sola — no cierres esta página.</p>
-                </div>
-                <div className="pay-box">
-                  <CopyRow
-                    label="CLABE"
-                    value={mpSpeiEmbedded.instructions.clabe}
-                    display={groupClabe(mpSpeiEmbedded.instructions.clabe)}
-                  />
-                  {mpSpeiEmbedded.instructions.bank && (
-                    <div className="pay-row">
-                      <span>Banco</span>
-                      <strong>{mpSpeiEmbedded.instructions.bank}</strong>
-                    </div>
-                  )}
-                  <div className="pay-row total">
-                    <span>Monto exacto</span>
-                    <strong>{price}</strong>
-                  </div>
-                </div>
-                <div className="alert bad" style={{ marginTop: 10 }}>
-                  ⚠️ Transfiere exactamente <strong>{price}</strong> — ni un peso más, ni un peso menos.
-                  Un monto distinto puede causar problemas con tu pedido.
-                </div>
-                <p className="hint center">
-                  🏦 Transfiere desde tu app bancaria usando esta CLABE. Tu recarga se confirma sola
-                  en cuanto llegue.
-                </p>
+              // Transient — the effect above redirects to the order page the
+              // instant this renders, which already has the real CLABE
+              // screen (loading state, payment details, order summary, in
+              // that order). Nothing here needs to be built twice.
+              <div className="estado-card revisando" role="status">
+                <div className="spin" aria-hidden="true" />
+                <h2>Generando tu CLABE…</h2>
               </div>
             ) : (
               <form

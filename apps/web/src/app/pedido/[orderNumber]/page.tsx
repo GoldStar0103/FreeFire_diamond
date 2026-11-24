@@ -12,6 +12,7 @@ import {
   MERCADOPAGO_EMBEDDED,
 } from '../../../lib/mercadopago-embedded';
 import { AutoRefresh, PurchasePixel } from './live';
+import { CopyRow } from './copy-row';
 import { CancelOrderButton, ContinuePaymentButton } from './order-actions';
 import { VipGroupPopup } from './vip-group-popup';
 import { diamonds, mxn } from '../../../lib/format';
@@ -150,6 +151,9 @@ type BankTransfer = {
   bankName: string | null;
   reference: string | null;
 };
+
+/** Same grouping as the checkout page's CLABE field — easier to read and verify in four-digit chunks. */
+const groupClabe = (clabe: string): string => clabe.replace(/^(\d{3})(\d{3})(\d{11})(\d)$/, '$1 $2 $3 $4');
 
 /**
  * Ask the gateway directly when a card/SPEI order is still waiting.
@@ -390,22 +394,24 @@ export default async function OrderPage({
             )}
             {bankTransfer && (
               <div className="pay-box" style={{ marginTop: 12, textAlign: 'left' }}>
+                {/* Field order matches Mercado Pago's own hosted voucher
+                    (CLABE, Nombre del beneficiario, Referencia) — Jose asked
+                    for this to look like that voucher, confirmed live
+                    2026-11-24. "LevelUp Store" is a fixed display label, not
+                    whatever name the CLABE is actually registered under
+                    (Mercado Pago's own voucher shows "Mercado Libre" there,
+                    the processor, not the merchant) — Jose's explicit ask. */}
                 {bankTransfer.clabe && (
-                  <div className="pay-row">
-                    <span>CLABE</span>
-                    <strong className="mono">{bankTransfer.clabe}</strong>
-                  </div>
+                  <CopyRow label="CLABE" value={bankTransfer.clabe} display={groupClabe(bankTransfer.clabe)} />
+                )}
+                <CopyRow label="Nombre del beneficiario" value="LevelUp Store" display="LevelUp Store" />
+                {bankTransfer.reference && (
+                  <CopyRow label="Referencia" value={bankTransfer.reference} display={bankTransfer.reference} />
                 )}
                 {bankTransfer.bankName && (
                   <div className="pay-row">
                     <span>Banco</span>
                     <strong>{bankTransfer.bankName}</strong>
-                  </div>
-                )}
-                {bankTransfer.reference && (
-                  <div className="pay-row">
-                    <span>Referencia</span>
-                    <strong className="mono">{bankTransfer.reference}</strong>
                   </div>
                 )}
                 {bankTransfer.hostedInstructionsUrl && (
