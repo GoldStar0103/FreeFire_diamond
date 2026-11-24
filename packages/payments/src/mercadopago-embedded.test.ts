@@ -89,7 +89,7 @@ describe('createCharge — card', () => {
     const [call] = calls;
     expect(call?.url).toBe('https://api.mercadopago.com/v1/orders');
     expect(call?.headers.Authorization).toBe('Bearer APP_USR-test-token');
-    expect(call?.headers['X-Idempotency-Key']).toBe('levelup-mp-ord-uuid-1');
+    expect(call?.headers['X-Idempotency-Key']).toBe('levelup-mp-ord-uuid-1-card_tok_abc123');
     expect(call?.headers['X-meli-session-id']).toBe('device-session-xyz');
 
     const body = JSON.parse(call!.body!);
@@ -151,7 +151,7 @@ describe('createCharge — card', () => {
     expect(created.gatewayChargeId).toBe('ord_mp_3');
   });
 
-  it('keys the idempotency on the order, not the card token or amount', async () => {
+  it('keys the idempotency on the order plus card token — a literal duplicate submission coalesces', async () => {
     const ok = {
       status: 200,
       body: { id: 'ord_mp_1', status: 'processing', external_reference: 'LU-1', transactions: { payments: [{ status: 'processing' }] } },
@@ -163,6 +163,25 @@ describe('createCharge — card', () => {
     await gw.createCharge(cardInput);
 
     expect(calls[0]?.headers['X-Idempotency-Key']).toBe(calls[1]?.headers['X-Idempotency-Key']);
+  });
+
+  it('gives a real retry (a new card token) a different idempotency key', async () => {
+    // Confirmed in production 2026-11-24: keying purely on the order id (the
+    // original design) broke every single retry — a customer resuming a
+    // pending order after a decline, or switching payment method, always
+    // gets a fresh card token, so Mercado Pago rejected every retry with a
+    // 409 idempotency_key_already_used. This is the regression test for that.
+    const ok = {
+      status: 200,
+      body: { id: 'ord_mp_1', status: 'processing', external_reference: 'LU-1', transactions: { payments: [{ status: 'processing' }] } },
+    };
+    const { impl, calls } = fakeFetch([ok, ok]);
+    const gw = gateway(impl);
+
+    await gw.createCharge(cardInput);
+    await gw.createCharge({ ...cardInput, cardToken: 'card_tok_a_different_one' });
+
+    expect(calls[0]?.headers['X-Idempotency-Key']).not.toBe(calls[1]?.headers['X-Idempotency-Key']);
   });
 
   it('refuses spei when only card is configured', async () => {
@@ -221,6 +240,24 @@ describe('createCharge — spei', () => {
 
     const body = JSON.parse(calls[0]!.body!);
     expect(body.transactions.payments[0].payment_method).toEqual({ id: 'clabe', type: 'bank_transfer' });
+  });
+
+  it('gives each SPEI attempt on the same order its own idempotency key', async () => {
+    // SPEI's payment body is static (no card token to vary it between
+    // attempts), so a retry on the same resumed order needs a fresh random
+    // nonce instead — the same production bug the card regression test
+    // above covers, confirmed for SPEI too on 2026-11-24.
+    const ok = {
+      status: 200,
+      body: { id: 'ord_mp_3', status: 'processing', external_reference: 'LU-1', transactions: { payments: [{ status: 'pending' }] } },
+    };
+    const { impl, calls } = fakeFetch([ok, ok]);
+    const gw = gateway(impl, { methods: ['spei'] });
+
+    await gw.createCharge(speiInput);
+    await gw.createCharge(speiInput);
+
+    expect(calls[0]?.headers['X-Idempotency-Key']).not.toBe(calls[1]?.headers['X-Idempotency-Key']);
   });
 });
 

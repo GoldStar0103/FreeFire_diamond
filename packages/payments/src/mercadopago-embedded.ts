@@ -31,7 +31,7 @@
  * of REST calls don't justify a dependency to keep patched.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   GatewayError,
   type ChargeCreated,
@@ -224,8 +224,21 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       transactions: { payments: [payment] },
     };
 
+    // Keyed on the order plus whatever actually makes this attempt distinct —
+    // the card token for card (unique per tokenization, so a genuine retry
+    // with a new/different card always gets a fresh key, while a literal
+    // double-submit of the exact same token still coalesces safely) or a
+    // fresh random nonce for SPEI (no token exists to key on there, and the
+    // static SPEI payment body is otherwise identical on every attempt).
+    //
+    // Keying purely on the order id (as this used to) seemed safer on paper
+    // but broke every single retry in practice: confirmed in production
+    // 2026-11-24, a real customer resuming a pending order and trying again
+    // (same or different method, always a new card token) hit Mercado Pago's
+    // own 409 idempotency_key_already_used on every attempt after the first.
+    const idempotencySuffix = input.method === 'card' ? input.cardToken : randomUUID();
     const headers: Record<string, string> = {
-      'X-Idempotency-Key': `levelup-mp-${input.orderId}`,
+      'X-Idempotency-Key': `levelup-mp-${input.orderId}-${idempotencySuffix}`,
     };
     if (input.deviceSessionId) headers['X-meli-session-id'] = input.deviceSessionId;
 

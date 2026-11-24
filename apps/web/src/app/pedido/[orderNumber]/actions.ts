@@ -84,9 +84,15 @@ export async function continuePendingOrder(
           'Tu pago con tarjeta sigue en verificación con tu banco. Si ya pasó un rato, escríbenos por WhatsApp.',
       };
     }
-    // SPEI is safe to re-request: it carries no per-attempt token, and the
-    // same idempotency key (`levelup-mp-${orderId}`) makes Mercado Pago
-    // return the same order/CLABE rather than create a second one.
+    // SPEI is safe to re-request — but note what "safe" means here: Mercado
+    // Pago consumes an idempotency key exactly once, full stop, regardless of
+    // whether the retried body matches (confirmed in production 2026-11-24,
+    // see mercadopago-embedded.ts's own history on this). So this does NOT
+    // hand back the same CLABE as any earlier attempt — it mints a fresh
+    // Mercado Pago order/CLABE each time. If the customer already transferred
+    // to an earlier CLABE from this same order before clicking this again,
+    // that transfer is no longer tracked by `gatewayChargeId` — a real,
+    // known gap, not something this comment should pretend doesn't exist.
     const embedded = getMercadoPagoEmbedded();
     if (!embedded || !embedded.supportedMethods.includes('spei')) {
       return { error: 'Este método de pago ya no está disponible. Escríbenos por WhatsApp.' };
