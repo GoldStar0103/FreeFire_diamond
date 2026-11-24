@@ -926,6 +926,16 @@ export function Checkout({
                       throw new Error(result.error);
                     }
                   }}
+                  onBrickError={() => {
+                    // Mercado Pago's own tokenization failed — before our
+                    // server ever sees a request. Nothing to retry on our
+                    // side, but at least show something specific instead of
+                    // leaving only the Brick's own opaque overlay on screen.
+                    setMpCardResult({
+                      error:
+                        'No pudimos procesar tu tarjeta en este momento. Verifica los datos o intenta de nuevo en unos minutos.',
+                    });
+                  }}
                 />
               ) : (
                 <p className="hint center">Ingresa tu WhatsApp para continuar.</p>

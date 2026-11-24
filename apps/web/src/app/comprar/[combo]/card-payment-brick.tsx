@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { CardPayment, initMercadoPago } from '@mercadopago/sdk-react';
+import { logCardBrickError } from '../../../lib/log-card-brick-error';
 
 /**
  * Wraps Mercado Pago's own Card Payment Brick — the one piece of this
@@ -30,11 +31,21 @@ export interface CardPaymentBrickProps {
     payerEmail: string | null;
     payerIdentification: { type: string; number: string } | null;
   }) => Promise<void>;
+  /**
+   * Fires when the Brick itself fails — tokenization, not our own backend —
+   * which `onSubmit` is never even called for. Optional only so existing
+   * callers don't break; every real caller should pass this, since without
+   * it a customer who hits this has nothing on screen but Mercado Pago's own
+   * opaque generic overlay and we have no server-side record it happened.
+   */
+  onBrickError?: (error: { type: 'non_critical' | 'critical'; cause: string; message: string }) => void;
 }
 
-export function CardPaymentBrick({ amountMxn, publicKey, onToken }: CardPaymentBrickProps) {
+export function CardPaymentBrick({ amountMxn, publicKey, onToken, onBrickError }: CardPaymentBrickProps) {
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
+  const onBrickErrorRef = useRef(onBrickError);
+  onBrickErrorRef.current = onBrickError;
 
   useEffect(() => {
     if (mpInitialized !== publicKey) {
@@ -81,6 +92,10 @@ export function CardPaymentBrick({ amountMxn, publicKey, onToken }: CardPaymentB
       }}
       onError={(error) => {
         console.error('[mercadopago-brick] error', error);
+        logCardBrickError(error).catch(() => {
+          /* Best-effort — losing the log is better than breaking the page over it. */
+        });
+        onBrickErrorRef.current?.(error);
       }}
     />
   );
