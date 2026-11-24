@@ -897,10 +897,18 @@ export function Checkout({
                       router.push(result.orderPageUrl ?? '/');
                       return;
                     }
-                    // Any other outcome — declined, still pending, or an
-                    // outright error — throws so the Brick shows its own
-                    // inline error state too, matching its expected contract.
-                    throw new Error(result.error ?? 'not approved');
+                    // Only a genuine gateway/order-creation error rejects the
+                    // Brick's promise — that's the one case its own inline
+                    // error UI is actually right for. A real resolved outcome
+                    // (declined, or pending on 3DS/bank review) must resolve
+                    // normally: rejecting here makes the Brick render ITS OWN
+                    // generic overlay on top of the specific Spanish messages
+                    // above, which a real production test (2026-11-24, a
+                    // SPEI-style action_required/declined card) confirmed
+                    // completely hides them from the customer.
+                    if (result.error) {
+                      throw new Error(result.error);
+                    }
                   }}
                 />
               ) : (

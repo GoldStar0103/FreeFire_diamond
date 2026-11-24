@@ -303,7 +303,15 @@ export function CheckoutArticulo({
                       router.push(result.orderPageUrl ?? '/');
                       return;
                     }
-                    throw new Error(result.error ?? 'not approved');
+                    // Only a genuine gateway/order-creation error rejects the
+                    // Brick's promise — a real resolved outcome (declined, or
+                    // pending on 3DS/bank review) must resolve normally, or
+                    // the Brick's own generic overlay hides this screen's own
+                    // specific Spanish messages (confirmed in production,
+                    // see the combo checkout's identical fix, 2026-11-24).
+                    if (result.error) {
+                      throw new Error(result.error);
+                    }
                   }}
                 />
               ) : (
