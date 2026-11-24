@@ -1108,17 +1108,24 @@ export function Checkout({
                 {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
                 <input type="hidden" name="deviceSessionId" ref={deviceInputRef} defaultValue="" />
 
-                {whatsappField(mpSpeiEmbeddedProcessing)}
-                {mpEmailField(mpSpeiEmbeddedProcessing)}
+                {/* Boxed to match the polished-card look the rest of this
+                    flow already has (the CLABE/payment-details screen) —
+                    flagged live 2026-11-24 (Jose, circled repeatedly): bare
+                    labels/inputs floating directly on the page background
+                    read as unfinished next to everything else. */}
+                <div className="pay-box">
+                  {whatsappField(mpSpeiEmbeddedProcessing)}
+                  {mpEmailField(mpSpeiEmbeddedProcessing)}
 
-                {mpSpeiEmbedded.error && <div className="alert bad">{mpSpeiEmbedded.error}</div>}
+                  {mpSpeiEmbedded.error && <div className="alert bad">{mpSpeiEmbedded.error}</div>}
 
-                <button className="btn-primary" type="submit" disabled={mpSpeiEmbeddedProcessing}>
-                  {mpSpeiEmbeddedProcessing ? 'Generando tu CLABE…' : `Confirmar pedido — ${price}`}
-                </button>
-                <p className="hint center">
-                  🏦 Te damos tu cuenta CLABE para SPEI al continuar, en esta misma pantalla.
-                </p>
+                  <button className="btn-primary" type="submit" disabled={mpSpeiEmbeddedProcessing}>
+                    {mpSpeiEmbeddedProcessing ? 'Generando tu CLABE…' : `Confirmar pedido — ${price}`}
+                  </button>
+                  <p className="hint center">
+                    🏦 Te damos tu cuenta CLABE para SPEI al continuar, en esta misma pantalla.
+                  </p>
+                </div>
               </form>
             )
           ) : payView === 'transferencia' && transferAutomatic === 'mercadopago' ? (
