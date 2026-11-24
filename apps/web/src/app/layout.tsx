@@ -9,6 +9,7 @@ import { AppBg } from './app-bg';
 import { BottomNav } from './bottom-nav';
 import { SiteFooter } from './site-footer';
 import { ViewportBack } from './viewport-back';
+import { StaleDeployRecovery } from './stale-deploy-recovery';
 import { WhatsappChannelPopup } from './whatsapp-channel-popup';
 import { whatsappChannelUrl } from '../lib/whatsapp-channel';
 import './globals.css';
@@ -99,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AppBg />
         <ViewportBack />
+        <StaleDeployRecovery />
         {metaId && <MetaPixel pixelId={metaId} />}
         {tiktokId && <TikTokPixel pixelId={tiktokId} />}
         {channelUrl && <WhatsappChannelPopup channelUrl={channelUrl} />}

@@ -173,6 +173,52 @@ describe('createCharge — card', () => {
     expect(body.transactions.payments[0].payment_method).toMatchObject({ id: 'visa', type: 'debit_card' });
   });
 
+  it('retries once with the exact payment_method.id Mercado Pago\'s own 400 names, when the first guess is wrong', async () => {
+    // Confirmed in production 2026-11-24: a second real debit card hit the
+    // mirror-image failure of the one above — our stripped bare id was
+    // rejected, and Mercado Pago's own error said only the prefixed id would
+    // work for this token. No static prefix rule survives every card, so the
+    // adapter must retry using exactly what the error names.
+    const rejection = {
+      status: 400,
+      body: {
+        errors: [
+          {
+            code: 'property_value',
+            message: 'Invalid value for property',
+            details: ["'$.transactions.payments[0].payment_method.id' - value must be one of 'debmaster', 'debvisa'"],
+          },
+        ],
+      },
+    };
+    const ok = {
+      status: 200,
+      body: { id: 'ord_mp_retry', status: 'processed', external_reference: 'LU-1', transactions: { payments: [{ id: 'txn_retry', status: 'accredited' }] } },
+    };
+    const { impl, calls } = fakeFetch([rejection, ok]);
+    const result = await gateway(impl).createCharge({ ...cardInput, paymentMethodId: 'master' });
+
+    expect(calls).toHaveLength(2);
+    const firstBody = JSON.parse(calls[0]!.body!);
+    expect(firstBody.transactions.payments[0].payment_method).toMatchObject({ id: 'master', type: 'credit_card' });
+    const retryBody = JSON.parse(calls[1]!.body!);
+    expect(retryBody.transactions.payments[0].payment_method).toMatchObject({ id: 'debmaster', type: 'debit_card' });
+    expect(calls[1]!.headers['X-Idempotency-Key']).not.toBe(calls[0]!.headers['X-Idempotency-Key']);
+    expect(result.gatewayChargeId).toBe('ord_mp_retry');
+  });
+
+  it('does not retry a payment_method.id rejection it cannot resolve, and surfaces the original error', async () => {
+    const rejection = {
+      status: 400,
+      body: {
+        errors: [{ code: 'property_value', message: 'Invalid value for property', details: ['some other unrelated field'] }],
+      },
+    };
+    const { impl, calls } = fakeFetch([rejection]);
+    await expect(gateway(impl).createCharge({ ...cardInput, paymentMethodId: 'master' })).rejects.toBeInstanceOf(GatewayError);
+    expect(calls).toHaveLength(1);
+  });
+
   it('refuses a card charge with no token, before calling Mercado Pago', async () => {
     const { impl, calls } = fakeFetch([]);
     const { cardToken: _t, ...noToken } = cardInput;

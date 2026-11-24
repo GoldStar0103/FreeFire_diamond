@@ -183,98 +183,119 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       throw new GatewayError(`Mercado Pago embedded does not have ${input.method} enabled`, this.name, false);
     }
 
-    const payment: Record<string, unknown> =
-      input.method === 'card'
-        ? (() => {
-            if (!input.cardToken) {
-              throw new GatewayError('A card charge needs a cardToken from the Card Payment Brick', this.name, false);
-            }
-            // The Brick's own `payment_method_id` distinguishes debit at the
-            // id level — 'debvisa', 'debmaster' — but the Orders API's
-            // payment_method.id only accepts the bare network name ('visa',
-            // 'master', 'amex') and wants debit-vs-credit conveyed through
-            // `type` instead. Confirmed in production 2026-11-24: a real
-            // debit card reported 'debvisa' and was rejected outright with
-            // "'payment_method.id' - value must be one of 'amex', 'master',
-            // 'visa'" — this was silently blocking every debit-card payment,
-            // not just a rare edge case, since Mexican cards are
-            // predominantly debit.
-            const rawId = input.paymentMethodId ?? '';
-            const isDebit = rawId.startsWith('deb');
-            const normalizedId = isDebit ? rawId.slice(3) : rawId;
-            return {
+    if (input.method === 'card' && !input.cardToken) {
+      throw new GatewayError('A card charge needs a cardToken from the Card Payment Brick', this.name, false);
+    }
+
+    const buildBody = (paymentMethodId: string, cardType: 'debit_card' | 'credit_card', idempotencySuffix: string) => {
+      const payment: Record<string, unknown> =
+        input.method === 'card'
+          ? {
               amount: (input.amountCents / 100).toFixed(2),
               payment_method: {
-                id: normalizedId,
-                type: isDebit ? 'debit_card' : 'credit_card',
+                id: paymentMethodId,
+                type: cardType,
                 token: input.cardToken,
                 installments: input.installments && input.installments > 0 ? input.installments : 1,
               },
+            }
+          : {
+              amount: (input.amountCents / 100).toFixed(2),
+              payment_method: { id: 'clabe', type: 'bank_transfer' },
             };
-          })()
-        : {
-            amount: (input.amountCents / 100).toFixed(2),
-            payment_method: { id: 'clabe', type: 'bank_transfer' },
-          };
 
-    const body = {
-      type: 'online',
-      processing_mode: 'automatic',
-      external_reference: input.orderNumber,
-      total_amount: (input.amountCents / 100).toFixed(2),
-      description: input.description,
-      // Card only — SPEI has no card/3DS concept. `on_fraud_risk` is Mercado
-      // Pago's own documented middle ground between 'never' (binary
-      // approve/reject, confirmed live 2026-11-24 to outright decline
-      // borderline-but-legitimate cards as 'high_risk' with no recourse) and
-      // 'always' (forces a bank challenge on every charge). This lets a
-      // risky-looking charge go to the customer's bank for verification
-      // instead of being flatly rejected. `liability_shift: 'required'` is
-      // mandatory whenever validation isn't 'never' (Mercado Pago's own
-      // docs) and must be omitted when it is — nested inside
-      // `transaction_security` itself, confirmed live 2026-11-24 after a
-      // first attempt at the top level broke every single card charge
-      // ("additionalProperties '$.liability_shift' not allowed" /
-      // "'$.config.online.transaction_security' - missing properties:
-      // 'liability_shift'").
-      ...(input.method === 'card'
-        ? { config: { online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }
-        : {}),
-      payer: input.customerEmail
-        ? {
-            email: input.customerEmail,
-            ...(input.payerIdentification
-              ? {
-                  identification: {
-                    type: input.payerIdentification.type,
-                    number: input.payerIdentification.number,
-                  },
-                }
-              : {}),
-          }
-        : undefined,
-      transactions: { payments: [payment] },
+      const body = {
+        type: 'online',
+        processing_mode: 'automatic',
+        external_reference: input.orderNumber,
+        total_amount: (input.amountCents / 100).toFixed(2),
+        description: input.description,
+        // Card only — SPEI has no card/3DS concept. `on_fraud_risk` is Mercado
+        // Pago's own documented middle ground between 'never' (binary
+        // approve/reject, confirmed live 2026-11-24 to outright decline
+        // borderline-but-legitimate cards as 'high_risk' with no recourse) and
+        // 'always' (forces a bank challenge on every charge). This lets a
+        // risky-looking charge go to the customer's bank for verification
+        // instead of being flatly rejected. `liability_shift: 'required'` is
+        // mandatory whenever validation isn't 'never' (Mercado Pago's own
+        // docs) and must be omitted when it is — nested inside
+        // `transaction_security` itself, confirmed live 2026-11-24 after a
+        // first attempt at the top level broke every single card charge
+        // ("additionalProperties '$.liability_shift' not allowed" /
+        // "'$.config.online.transaction_security' - missing properties:
+        // 'liability_shift'").
+        ...(input.method === 'card'
+          ? { config: { online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }
+          : {}),
+        payer: input.customerEmail
+          ? {
+              email: input.customerEmail,
+              ...(input.payerIdentification
+                ? {
+                    identification: {
+                      type: input.payerIdentification.type,
+                      number: input.payerIdentification.number,
+                    },
+                  }
+                : {}),
+            }
+          : undefined,
+        transactions: { payments: [payment] },
+      };
+
+      // Keyed on the order plus whatever actually makes this attempt distinct —
+      // the card token for card (unique per tokenization, so a genuine retry
+      // with a new/different card always gets a fresh key, while a literal
+      // double-submit of the exact same token still coalesces safely) or a
+      // fresh random nonce for SPEI (no token exists to key on there, and the
+      // static SPEI payment body is otherwise identical on every attempt).
+      //
+      // Keying purely on the order id (as this used to) seemed safer on paper
+      // but broke every single retry in practice: confirmed in production
+      // 2026-11-24, a real customer resuming a pending order and trying again
+      // (same or different method, always a new card token) hit Mercado Pago's
+      // own 409 idempotency_key_already_used on every attempt after the first.
+      const headers: Record<string, string> = {
+        'X-Idempotency-Key': `levelup-mp-${input.orderId}-${idempotencySuffix}`,
+      };
+      if (input.deviceSessionId) headers['X-meli-session-id'] = input.deviceSessionId;
+      return { body, headers };
     };
 
-    // Keyed on the order plus whatever actually makes this attempt distinct —
-    // the card token for card (unique per tokenization, so a genuine retry
-    // with a new/different card always gets a fresh key, while a literal
-    // double-submit of the exact same token still coalesces safely) or a
-    // fresh random nonce for SPEI (no token exists to key on there, and the
-    // static SPEI payment body is otherwise identical on every attempt).
-    //
-    // Keying purely on the order id (as this used to) seemed safer on paper
-    // but broke every single retry in practice: confirmed in production
-    // 2026-11-24, a real customer resuming a pending order and trying again
-    // (same or different method, always a new card token) hit Mercado Pago's
-    // own 409 idempotency_key_already_used on every attempt after the first.
-    const idempotencySuffix = input.method === 'card' ? input.cardToken : randomUUID();
-    const headers: Record<string, string> = {
-      'X-Idempotency-Key': `levelup-mp-${input.orderId}-${idempotencySuffix}`,
-    };
-    if (input.deviceSessionId) headers['X-meli-session-id'] = input.deviceSessionId;
+    // The Brick's own `payment_method_id` sometimes carries a debit prefix
+    // ('debvisa') and sometimes doesn't, for what Mercado Pago's own backend
+    // still considers the same debit card — this isn't a stable signal we
+    // can transform our way around. Confirmed live 2026-11-24 with two real,
+    // directly contradicting customers: one card was rejected with the
+    // prefixed id and only accepted once stripped to the bare network name;
+    // a second card was rejected with that exact bare name and Mercado
+    // Pago's own error said only the prefixed id would work. So: try our
+    // best guess first (strip the prefix, same as the Brick reports minus
+    // "deb"), and if Mercado Pago's 400 names the one value it will actually
+    // accept for this specific token, retry once with exactly that — trusting
+    // their answer over any rule of ours. A schema-validation 400 never
+    // creates an order on their side (unlike a 402 decline, handled
+    // separately below), so retrying with a fresh idempotency key is safe.
+    const rawId = input.paymentMethodId ?? '';
+    const rawIsDebit = rawId.startsWith('deb');
+    const firstGuessId = input.method === 'card' ? (rawIsDebit ? rawId.slice(3) : rawId) : 'clabe';
 
-    const order = await this.request<MpOrder>('POST', '/v1/orders', body, headers);
+    let order: MpOrder;
+    if (input.method === 'card') {
+      const first = buildBody(firstGuessId, rawIsDebit ? 'debit_card' : 'credit_card', input.cardToken!);
+      try {
+        order = await this.request<MpOrder>('POST', '/v1/orders', first.body, first.headers);
+      } catch (err) {
+        const altId =
+          err instanceof MpApiError && err.status === 400 ? extractAlternatePaymentMethodId(err.details, firstGuessId) : null;
+        if (!altId) throw err;
+        const retry = buildBody(altId, altId.startsWith('deb') ? 'debit_card' : 'credit_card', `${input.cardToken}-alt`);
+        order = await this.request<MpOrder>('POST', '/v1/orders', retry.body, retry.headers);
+      }
+    } else {
+      const spei = buildBody('clabe', 'credit_card', randomUUID());
+      order = await this.request<MpOrder>('POST', '/v1/orders', spei.body, spei.headers);
+    }
 
     const state = orderState(order);
     const instructions =
@@ -448,9 +469,38 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
     const message = (body as { message?: string } | null)?.message ?? text.slice(0, 200);
     if (response.status === 404) throw new MpNotFound(message);
 
+    // Mercado Pago's validation errors nest the actually-useful text under
+    // `errors[].details` (a schema-path + "value must be one of '…'" string),
+    // not under the generic top-level `message` — read straight from the
+    // parsed body, not by re-parsing the (possibly truncated) error message
+    // string, so the payment_method.id retry below sees the full list even
+    // on a long response.
+    const details =
+      (body as { errors?: { details?: string[] }[] } | null)?.errors?.flatMap((e) => e.details ?? []) ?? [];
+
     const retryable = response.status === 429 || response.status >= 500;
-    throw new MpApiError(`Mercado Pago ${response.status}: ${message}`, response.status, retryable);
+    throw new MpApiError(`Mercado Pago ${response.status}: ${message}`, response.status, retryable, details);
   }
+}
+
+/**
+ * Mercado Pago's own 400 names the exact `payment_method.id` value(s) it will
+ * accept for this specific token — e.g. "'$.transactions.payments[0]
+ * .payment_method.id' - value must be one of 'debmaster', 'debvisa'". Picks
+ * the candidate whose network suffix (ignoring any 'deb' prefix) matches the
+ * id we already tried, falling back to the first candidate otherwise.
+ */
+function extractAlternatePaymentMethodId(details: string[], triedId: string): string | null {
+  for (const detail of details) {
+    if (!detail.includes('payment_method.id')) continue;
+    const candidates = Array.from(detail.matchAll(/'([^']+)'/g), (m) => m[1])
+      .filter((c): c is string => c != null && c !== triedId);
+    if (candidates.length === 0) continue;
+    const triedSuffix = triedId.startsWith('deb') ? triedId.slice(3) : triedId;
+    const sameBrand = candidates.find((c) => (c.startsWith('deb') ? c.slice(3) : c) === triedSuffix);
+    return sameBrand ?? candidates[0] ?? null;
+  }
+  return null;
 }
 
 class MpApiError extends GatewayError {
@@ -458,6 +508,7 @@ class MpApiError extends GatewayError {
     message: string,
     readonly status: number,
     retryable: boolean,
+    readonly details: string[] = [],
   ) {
     super(message, 'mercadopago-embedded', retryable);
     this.name = 'MpApiError';
