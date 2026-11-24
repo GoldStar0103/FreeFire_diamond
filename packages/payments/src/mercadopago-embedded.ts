@@ -230,10 +230,15 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       // 'always' (forces a bank challenge on every charge). This lets a
       // risky-looking charge go to the customer's bank for verification
       // instead of being flatly rejected. `liability_shift: 'required'` is
-      // mandatory whenever validation isn't 'never' (Mercado Pago's own docs)
-      // and must be omitted when it is.
+      // mandatory whenever validation isn't 'never' (Mercado Pago's own
+      // docs) and must be omitted when it is — nested inside
+      // `transaction_security` itself, confirmed live 2026-11-24 after a
+      // first attempt at the top level broke every single card charge
+      // ("additionalProperties '$.liability_shift' not allowed" /
+      // "'$.config.online.transaction_security' - missing properties:
+      // 'liability_shift'").
       ...(input.method === 'card'
-        ? { config: { online: { transaction_security: { validation: 'on_fraud_risk' } } }, liability_shift: 'required' }
+        ? { config: { online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }
         : {}),
       payer: input.customerEmail
         ? {

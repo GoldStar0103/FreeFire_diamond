@@ -103,19 +103,24 @@ describe('createCharge — card', () => {
     // confirmed in production 2026-11-24 that `never` was declining
     // legitimate repeat-use cards outright as 'high_risk' with no recourse.
     // `liability_shift: 'required'` is mandatory whenever validation isn't
-    // 'never' (Mercado Pago's own docs).
-    expect(body.config).toEqual({ online: { transaction_security: { validation: 'on_fraud_risk' } } });
-    expect(body.liability_shift).toBe('required');
+    // 'never' (Mercado Pago's own docs) — nested inside
+    // `transaction_security` itself. A first attempt put it at the top
+    // level of the body instead, which broke every single card charge in
+    // production (confirmed same day: "additionalProperties
+    // '$.liability_shift' not allowed").
+    expect(body.config).toEqual({
+      online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } },
+    });
+    expect(body.liability_shift).toBeUndefined();
   });
 
-  it('does not send config/liability_shift for SPEI — no card, no 3DS concept', async () => {
+  it('does not send config for SPEI — no card, no 3DS concept', async () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'ord_mp_1', status: 'processing', external_reference: 'LU-1', transactions: { payments: [{ status: 'pending' }] } } },
     ]);
     await gateway(impl, { methods: ['spei'] }).createCharge(speiInput);
     const body = JSON.parse(calls[0]!.body!);
     expect(body.config).toBeUndefined();
-    expect(body.liability_shift).toBeUndefined();
   });
 
   it('surfaces a card\'s 3D Secure challenge URL when the bank requires one', async () => {
