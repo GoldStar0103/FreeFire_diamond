@@ -65,6 +65,16 @@ export function CheckoutArticulo({
   const [mpCardWhatsapp, setMpCardWhatsapp] = useState('');
   const mpCardWhatsappRef = useRef(mpCardWhatsapp);
   mpCardWhatsappRef.current = mpCardWhatsapp;
+
+  // Same fix as the combo checkout (confirmed needed in production
+  // 2026-11-24): scroll whichever status message just appeared into view the
+  // instant it does, for both "processing" and the final result.
+  const mpCardStatusRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mpCardSubmitting || mpCardResult) {
+      mpCardStatusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [mpCardSubmitting, mpCardResult]);
   const targetUidRef = useRef(targetUid);
   targetUidRef.current = targetUid;
   const regionRef = useRef(region);
@@ -252,10 +262,19 @@ export function CheckoutArticulo({
                 />
               </label>
 
-              {mpCardResult?.error && <div className="alert bad">{mpCardResult.error}</div>}
+              {mpCardSubmitting && (
+                <div className="alert warn" ref={mpCardStatusRef}>
+                  Procesando tu pago… no cierres ni recargues esta página.
+                </div>
+              )}
+              {mpCardResult?.error && (
+                <div className="alert bad" ref={mpCardStatusRef}>
+                  {mpCardResult.error}
+                </div>
+              )}
               {mpCardResult?.instructions?.kind === 'resolved' &&
                 mpCardResult.instructions.state === 'failed' && (
-                  <div className="alert bad">
+                  <div className="alert bad" ref={mpCardStatusRef}>
                     Tu banco rechazó el pago. Revisa los datos de tu tarjeta o intenta con otra.
                   </div>
                 )}
@@ -283,6 +302,7 @@ export function CheckoutArticulo({
                 ))}
 
               {mpCardWhatsapp.trim() ? (
+                <div style={mpCardSubmitting ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
                 <CardPaymentBrick
                   amountMxn={priceMxn}
                   publicKey={mercadoPagoPublicKey}
@@ -346,6 +366,7 @@ export function CheckoutArticulo({
                     });
                   }}
                 />
+                </div>
               ) : (
                 <p className="hint center">Ingresa tu WhatsApp para continuar.</p>
               )}

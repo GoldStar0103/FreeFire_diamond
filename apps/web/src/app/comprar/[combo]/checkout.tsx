@@ -299,6 +299,19 @@ export function Checkout({
   const mpCardWhatsappRef = useRef(mpCardWhatsapp);
   mpCardWhatsappRef.current = mpCardWhatsapp;
 
+  // Confirmed in production 2026-11-24: clicking Pagar gave no visible
+  // feedback until Mercado Pago's own push notification showed up seconds
+  // later — the result, once set, rendered above a card form the customer
+  // had already scrolled past, so it was easy to never see at all. Scroll
+  // whichever status message just appeared into view the instant it does,
+  // for both "processing" and the final result.
+  const mpCardStatusRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mpCardSubmitting || mpCardResult) {
+      mpCardStatusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [mpCardSubmitting, mpCardResult]);
+
   // The embedded SPEI form has no Brick on screen to collect the device id
   // automatically — read it fresh right before submit instead of baking a
   // possibly-stale value into the hidden input at render time.
@@ -848,10 +861,28 @@ export function Checkout({
                 />
               </label>
 
-              {mpCardResult?.error && <div className="alert bad">{mpCardResult.error}</div>}
+              {/* Confirmed in production 2026-11-24 (Jose): clicking Pagar gave
+                  no visible feedback at all until Mercado Pago's own push
+                  notification arrived, seconds later — our result (even once
+                  it existed) rendered off-screen above a card form that still
+                  looked fully active, so it read as "nothing happened" and
+                  "the Brick form just sits there." Two separate problems, both
+                  fixed here: nothing told the customer their click was even
+                  received (added below), and the eventual result never
+                  scrolled into view (the ref + effect below). */}
+              {mpCardSubmitting && (
+                <div className="alert warn" ref={mpCardStatusRef}>
+                  Procesando tu pago… no cierres ni recargues esta página.
+                </div>
+              )}
+              {mpCardResult?.error && (
+                <div className="alert bad" ref={mpCardStatusRef}>
+                  {mpCardResult.error}
+                </div>
+              )}
               {mpCardResult?.instructions?.kind === 'resolved' &&
                 mpCardResult.instructions.state === 'failed' && (
-                  <div className="alert bad">
+                  <div className="alert bad" ref={mpCardStatusRef}>
                     Tu banco rechazó el pago. Revisa los datos de tu tarjeta o intenta con otra.
                   </div>
                 )}
@@ -879,6 +910,13 @@ export function Checkout({
                 ))}
 
               {mpCardWhatsapp.trim() ? (
+                <div
+                  // Dimmed, non-interactive while a submission is in flight —
+                  // otherwise the Brick just sits there looking fully active
+                  // (confirmed in production 2026-11-24: exactly what read as
+                  // "clicked Pagar and nothing happened").
+                  style={mpCardSubmitting ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+                >
                 <CardPaymentBrick
                   amountMxn={priceMxn}
                   publicKey={mercadoPagoPublicKey}
@@ -952,6 +990,7 @@ export function Checkout({
                     });
                   }}
                 />
+                </div>
               ) : (
                 <p className="hint center">Ingresa tu WhatsApp para continuar.</p>
               )}
