@@ -49,19 +49,35 @@ export function CardPaymentBrick({ amountMxn, publicKey, onToken }: CardPaymentB
       customization={{ paymentMethods: { minInstallments: 1, maxInstallments: 1 } }}
       locale="es-MX"
       onSubmit={async (formData) => {
-        await onTokenRef.current({
-          token: formData.token,
-          paymentMethodId: formData.payment_method_id,
-          installments: formData.installments,
-          payerEmail: formData.payer?.email ?? null,
-          payerIdentification:
-            formData.payer?.identification?.type && formData.payer?.identification?.number
-              ? {
-                  type: formData.payer.identification.type,
-                  number: formData.payer.identification.number,
-                }
-              : null,
-        });
+        try {
+          await onTokenRef.current({
+            token: formData.token,
+            paymentMethodId: formData.payment_method_id,
+            installments: formData.installments,
+            payerEmail: formData.payer?.email ?? null,
+            payerIdentification:
+              formData.payer?.identification?.type && formData.payer?.identification?.number
+                ? {
+                    type: formData.payer.identification.type,
+                    number: formData.payer.identification.number,
+                  }
+                : null,
+          });
+        } catch (err) {
+          // The page was open across a deploy — the server action this tab
+          // is calling no longer exists in the new build. No charge was ever
+          // attempted (the request never reached our server at all), so the
+          // only real fix is a fresh copy of the page, not a retry Mercado
+          // Pago's own Brick has no way to recover from — confirmed to be
+          // exactly what a real customer kept hitting in production
+          // 2026-11-24, each time mistaken for a new payment bug.
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.includes('Failed to find Server Action')) {
+            window.location.reload();
+            return;
+          }
+          throw err;
+        }
       }}
       onError={(error) => {
         console.error('[mercadopago-brick] error', error);
