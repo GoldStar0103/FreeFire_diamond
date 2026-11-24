@@ -140,8 +140,11 @@ const OXXO_WAITING = {
 };
 const SPEI_WAITING = {
   label: 'Paga por transferencia SPEI',
+  // SPEI settles near-instantly, unlike OXXO's cash deposit above — flagged
+  // live 2026-11-24 (Jose): this copy was borrowed from OXXO's and
+  // overstated the real wait.
   detail:
-    'Usa los datos de abajo para transferir desde tu banco. En cuanto se acredite, tu recarga entra sola — puede tardar unas horas.',
+    'Usa los datos de abajo para transferir desde tu banco. En cuanto se acredite, tu recarga entra sola — suele tardar unos minutos.',
   tone: 'warn',
 };
 
