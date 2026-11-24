@@ -84,31 +84,56 @@ export async function continuePendingOrder(
           'Tu pago con tarjeta sigue en verificación con tu banco. Si ya pasó un rato, escríbenos por WhatsApp.',
       };
     }
-    // SPEI is safe to re-request — but note what "safe" means here: Mercado
-    // Pago consumes an idempotency key exactly once, full stop, regardless of
-    // whether the retried body matches (confirmed in production 2026-11-24,
-    // see mercadopago-embedded.ts's own history on this). So this does NOT
-    // hand back the same CLABE as any earlier attempt — it mints a fresh
-    // Mercado Pago order/CLABE each time. If the customer already transferred
-    // to an earlier CLABE from this same order before clicking this again,
-    // that transfer is no longer tracked by `gatewayChargeId` — a real,
-    // known gap, not something this comment should pretend doesn't exist.
+    // Mercado Pago consumes an idempotency key exactly once, full stop,
+    // regardless of whether the retried body matches (confirmed in
+    // production 2026-11-24, see mercadopago-embedded.ts's own history on
+    // this) — so a plain re-request here would always mint a brand new
+    // Mercado Pago order/CLABE, silently abandoning any earlier one. If the
+    // customer already transferred to that earlier CLABE, their money lands
+    // on a charge this system stopped tracking (confirmed: two real SPEI
+    // payments got stuck exactly this way). Re-display the existing charge
+    // instead, same reuse `payWithEmbeddedMethod` (comprar/[combo]/actions.ts)
+    // does, and only mint a fresh one if there genuinely isn't a live one.
     const embedded = getMercadoPagoEmbedded();
     if (!embedded || !embedded.supportedMethods.includes('spei')) {
       return { error: 'Este método de pago ya no está disponible. Escríbenos por WhatsApp.' };
     }
     try {
-      const charge = await embedded.createCharge({
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        amountCents: order.priceMxnCents,
-        method: 'spei',
-        description: `${order.comboName} · ${diamonds(order.advertisedDiamonds)} diamantes Free Fire`,
-        customerPhone: order.contactWhatsapp,
-      });
-      if (charge.instructions.kind !== 'spei') {
-        throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+      let charge:
+        | { instructions: { kind: 'spei'; clabe: string; bank: string; reference: string | null }; gatewayChargeId: string; expiresAt: Date | null }
+        | null = null;
+
+      if (order.gatewayChargeId) {
+        const existing = await embedded.getCharge(order.gatewayChargeId);
+        if (existing?.state === 'pending' && existing.bankTransfer) {
+          charge = {
+            instructions: {
+              kind: 'spei',
+              clabe: existing.bankTransfer.clabe ?? '',
+              bank: existing.bankTransfer.bankName ?? '',
+              reference: existing.bankTransfer.reference,
+            },
+            gatewayChargeId: order.gatewayChargeId,
+            expiresAt: null,
+          };
+        }
       }
+
+      if (!charge) {
+        const created = await embedded.createCharge({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          amountCents: order.priceMxnCents,
+          method: 'spei',
+          description: `${order.comboName} · ${diamonds(order.advertisedDiamonds)} diamantes Free Fire`,
+          customerPhone: order.contactWhatsapp,
+        });
+        if (created.instructions.kind !== 'spei') {
+          throw new Error(`Unexpected instructions ${created.instructions.kind}`);
+        }
+        charge = { instructions: created.instructions, gatewayChargeId: created.gatewayChargeId, expiresAt: created.expiresAt };
+      }
+
       const attached = await attachGatewayCharge(getDb(), {
         orderId: order.id,
         gateway: MERCADOPAGO_EMBEDDED,

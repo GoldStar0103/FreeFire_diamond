@@ -415,6 +415,8 @@ export interface PendingOrderForAction {
   contactWhatsapp: string | null;
   paymentMethod: string | null;
   gateway: string | null;
+  /** The charge already attached to this payment, if any — see `ResumableOrder`'s own doc comment for why this matters. */
+  gatewayChargeId: string | null;
   orderStatus: string;
   paymentStatus: string | null;
   expiresAt: Date | null;
@@ -452,6 +454,7 @@ export async function findPendingOrderForAction(
       method: payments.method,
       status: payments.status,
       gateway: payments.gateway,
+      gatewayChargeId: payments.gatewayChargeId,
       expiresAt: payments.expiresAt,
     })
     .from(payments)
@@ -471,6 +474,7 @@ export async function findPendingOrderForAction(
     contactWhatsapp: row.contactWhatsapp,
     paymentMethod: payment?.method ?? null,
     gateway: payment?.gateway ?? null,
+    gatewayChargeId: payment?.gatewayChargeId ?? null,
     orderStatus: row.status,
     paymentStatus: payment?.status ?? null,
     expiresAt: payment?.expiresAt ?? null,
@@ -499,6 +503,16 @@ export interface ResumableOrder {
   contactWhatsapp: string | null;
   paymentMethod: string | null;
   gateway: string | null;
+  /**
+   * The charge already attached to this order's pending payment, if any —
+   * lets a caller re-fetch and re-display an existing SPEI CLABE instead of
+   * minting a second one on resume. A second mint doesn't fail (each charge
+   * gets its own fresh idempotency key), it just silently abandons the first
+   * — and a customer who already transferred to it has their money land on
+   * a charge this system stopped tracking. Confirmed in production
+   * 2026-11-24, two real SPEI payments stuck this exact way.
+   */
+  gatewayChargeId: string | null;
 }
 
 export async function findResumableOrder(
@@ -531,6 +545,7 @@ export async function findResumableOrder(
       method: payments.method,
       status: payments.status,
       gateway: payments.gateway,
+      gatewayChargeId: payments.gatewayChargeId,
       expiresAt: payments.expiresAt,
     })
     .from(payments)
@@ -551,6 +566,7 @@ export async function findResumableOrder(
     contactWhatsapp: row.contactWhatsapp,
     paymentMethod: payment.method,
     gateway: payment.gateway,
+    gatewayChargeId: payment.gatewayChargeId,
   };
 }
 

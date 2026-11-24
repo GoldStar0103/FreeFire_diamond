@@ -187,12 +187,24 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
             if (!input.cardToken) {
               throw new GatewayError('A card charge needs a cardToken from the Card Payment Brick', this.name, false);
             }
-            console.log('[DEBUG payment-method-id-check]', { raw: input.paymentMethodId });
+            // The Brick's own `payment_method_id` distinguishes debit at the
+            // id level — 'debvisa', 'debmaster' — but the Orders API's
+            // payment_method.id only accepts the bare network name ('visa',
+            // 'master', 'amex') and wants debit-vs-credit conveyed through
+            // `type` instead. Confirmed in production 2026-11-24: a real
+            // debit card reported 'debvisa' and was rejected outright with
+            // "'payment_method.id' - value must be one of 'amex', 'master',
+            // 'visa'" — this was silently blocking every debit-card payment,
+            // not just a rare edge case, since Mexican cards are
+            // predominantly debit.
+            const rawId = input.paymentMethodId ?? '';
+            const isDebit = rawId.startsWith('deb');
+            const normalizedId = isDebit ? rawId.slice(3) : rawId;
             return {
               amount: (input.amountCents / 100).toFixed(2),
               payment_method: {
-                id: input.paymentMethodId,
-                type: 'credit_card',
+                id: normalizedId,
+                type: isDebit ? 'debit_card' : 'credit_card',
                 token: input.cardToken,
                 installments: input.installments && input.installments > 0 ? input.installments : 1,
               },

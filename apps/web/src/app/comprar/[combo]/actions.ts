@@ -715,6 +715,42 @@ async function payWithEmbeddedMethod(
 
   const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
 
+  // A resumed order that already has a live SPEI charge gets that one shown
+  // again instead of a brand new CLABE minted on top of it. Minting a second
+  // charge here doesn't fail — each one gets its own idempotency key — it
+  // just silently abandons the first, and a customer who already transferred
+  // to that CLABE has their money land somewhere this system stopped
+  // tracking. Confirmed in production 2026-11-24: two real SPEI payments got
+  // stuck exactly this way. Card is excluded — each card attempt is a
+  // genuinely new, single-use token, there is no earlier charge to reuse.
+  if (
+    method === 'spei' &&
+    resumable?.gateway === MERCADOPAGO_EMBEDDED &&
+    resumable.paymentMethod === 'spei' &&
+    resumable.gatewayChargeId
+  ) {
+    try {
+      const existing = await gateway.getCharge(resumable.gatewayChargeId);
+      if (existing?.state === 'pending' && existing.bankTransfer) {
+        return {
+          instructions: {
+            kind: 'spei',
+            clabe: existing.bankTransfer.clabe ?? '',
+            bank: existing.bankTransfer.bankName ?? '',
+            reference: existing.bankTransfer.reference,
+          },
+          orderPageUrl: orderPage,
+        };
+      }
+      // Not pending (already paid/failed/expired) or has no CLABE yet —
+      // fall through and mint a fresh charge, same as if none existed.
+    } catch (err) {
+      console.error(`[checkout] ${order.orderNumber}: could not re-check existing SPEI charge`, err);
+      // Fall through — minting a fresh charge is still better than failing
+      // the customer outright over a re-check that didn't work.
+    }
+  }
+
   try {
     const charge = await gateway.createCharge({
       orderId: order.id,

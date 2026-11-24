@@ -100,6 +100,23 @@ describe('createCharge — card', () => {
     });
   });
 
+  it('normalizes a debit card\'s payment_method_id to the bare network name and sets type: debit_card', async () => {
+    // Confirmed in production 2026-11-24: Mercado Pago's own Brick reports
+    // 'debvisa'/'debmaster' for a debit card, which the Orders API rejects
+    // outright — it only accepts 'visa'/'master'/'amex', with debit-vs-credit
+    // conveyed through `type` instead. This was blocking every debit card,
+    // not an edge case, since most Mexican cards are debit.
+    const ok = {
+      status: 200,
+      body: { id: 'ord_mp_1', status: 'processed', external_reference: 'LU-1', transactions: { payments: [{ id: 'txn_1', status: 'accredited' }] } },
+    };
+    const { impl, calls } = fakeFetch([ok]);
+    await gateway(impl).createCharge({ ...cardInput, paymentMethodId: 'debvisa' });
+
+    const body = JSON.parse(calls[0]!.body!);
+    expect(body.transactions.payments[0].payment_method).toMatchObject({ id: 'visa', type: 'debit_card' });
+  });
+
   it('refuses a card charge with no token, before calling Mercado Pago', async () => {
     const { impl, calls } = fakeFetch([]);
     const { cardToken: _t, ...noToken } = cardInput;
