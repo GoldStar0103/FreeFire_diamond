@@ -908,20 +908,35 @@ export function Checkout({
 
                     const approved =
                       result.instructions?.kind === 'resolved' && result.instructions.state === 'paid';
-                    if (approved) {
-                      trackPixel('Purchase', pixel);
+                    // A 3DS/bank-review charge is NOT a dead end to sit on this
+                    // page waiting out — confirmed in production 2026-11-24,
+                    // a real customer stuck exactly here: the generic "tu
+                    // banco está verificando" message showed, but the card
+                    // form stayed fully active right below it with nowhere to
+                    // go, and clicking Pagar again did nothing. The order
+                    // page already has the real tracker for this (polls every
+                    // 5s via AutoRefresh, shows the bank's own challenge link
+                    // the moment the webhook delivers one) — send the
+                    // customer there instead of leaving them on a form that
+                    // has already done its job. Only a true decline stays
+                    // here, since that's the one outcome worth a same-page
+                    // "try another card" retry.
+                    const pending =
+                      result.instructions?.kind === 'resolved' && result.instructions.state === 'pending';
+                    if (approved || pending) {
+                      if (approved) trackPixel('Purchase', pixel);
                       router.push(result.orderPageUrl ?? '/');
                       return;
                     }
                     // Only a genuine gateway/order-creation error rejects the
                     // Brick's promise — that's the one case its own inline
                     // error UI is actually right for. A real resolved outcome
-                    // (declined, or pending on 3DS/bank review) must resolve
-                    // normally: rejecting here makes the Brick render ITS OWN
-                    // generic overlay on top of the specific Spanish messages
-                    // above, which a real production test (2026-11-24, a
-                    // SPEI-style action_required/declined card) confirmed
-                    // completely hides them from the customer.
+                    // (declined) must resolve normally: rejecting here makes
+                    // the Brick render ITS OWN generic overlay on top of the
+                    // specific Spanish messages above, which a real
+                    // production test (2026-11-24, a SPEI-style
+                    // action_required/declined card) confirmed completely
+                    // hides them from the customer.
                     if (result.error) {
                       throw new Error(result.error);
                     }

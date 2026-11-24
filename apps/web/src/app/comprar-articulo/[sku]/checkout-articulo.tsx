@@ -314,17 +314,23 @@ export function CheckoutArticulo({
 
                     const approved =
                       result.instructions?.kind === 'resolved' && result.instructions.state === 'paid';
-                    if (approved) {
-                      trackPixel('Purchase', pixel);
+                    // A 3DS/bank-review charge sends the customer to the order
+                    // page too, not just an approval — that page already polls
+                    // for the bank's own challenge link, this form has nothing
+                    // left to do (see the combo checkout's identical fix,
+                    // confirmed needed in production 2026-11-24).
+                    const pending =
+                      result.instructions?.kind === 'resolved' && result.instructions.state === 'pending';
+                    if (approved || pending) {
+                      if (approved) trackPixel('Purchase', pixel);
                       router.push(result.orderPageUrl ?? '/');
                       return;
                     }
                     // Only a genuine gateway/order-creation error rejects the
-                    // Brick's promise — a real resolved outcome (declined, or
-                    // pending on 3DS/bank review) must resolve normally, or
-                    // the Brick's own generic overlay hides this screen's own
-                    // specific Spanish messages (confirmed in production,
-                    // see the combo checkout's identical fix, 2026-11-24).
+                    // Brick's promise — a real resolved outcome (declined)
+                    // must resolve normally, or the Brick's own generic
+                    // overlay hides this screen's own specific Spanish
+                    // messages (confirmed in production 2026-11-24).
                     if (result.error) {
                       throw new Error(result.error);
                     }
