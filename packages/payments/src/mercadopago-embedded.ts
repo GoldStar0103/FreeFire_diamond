@@ -187,6 +187,7 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
             if (!input.cardToken) {
               throw new GatewayError('A card charge needs a cardToken from the Card Payment Brick', this.name, false);
             }
+            console.log('[DEBUG payment-method-id-check]', { raw: input.paymentMethodId });
             return {
               amount: (input.amountCents / 100).toFixed(2),
               payment_method: {
