@@ -79,6 +79,8 @@ interface MpOrderPaymentMethod {
   installments?: number;
   reference?: string | null;
   ticket_url?: string | null;
+  /** Present when this card needs a 3D Secure bank challenge completed — see `transaction_security.url` below. */
+  transaction_security?: { url?: string | null };
 }
 
 interface MpOrderTransactionPayment {
@@ -221,6 +223,18 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       external_reference: input.orderNumber,
       total_amount: (input.amountCents / 100).toFixed(2),
       description: input.description,
+      // Card only — SPEI has no card/3DS concept. `on_fraud_risk` is Mercado
+      // Pago's own documented middle ground between 'never' (binary
+      // approve/reject, confirmed live 2026-11-24 to outright decline
+      // borderline-but-legitimate cards as 'high_risk' with no recourse) and
+      // 'always' (forces a bank challenge on every charge). This lets a
+      // risky-looking charge go to the customer's bank for verification
+      // instead of being flatly rejected. `liability_shift: 'required'` is
+      // mandatory whenever validation isn't 'never' (Mercado Pago's own docs)
+      // and must be omitted when it is.
+      ...(input.method === 'card'
+        ? { config: { online: { transaction_security: { validation: 'on_fraud_risk' } } }, liability_shift: 'required' }
+        : {}),
       payer: input.customerEmail
         ? {
             email: input.customerEmail,
@@ -260,7 +274,12 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
     const state = orderState(order);
     const instructions =
       input.method === 'card'
-        ? ({ kind: 'resolved', state, reference: order.transactions?.payments?.[0]?.id ?? null } as const)
+        ? ({
+            kind: 'resolved',
+            state,
+            reference: order.transactions?.payments?.[0]?.id ?? null,
+            challengeUrl: order.transactions?.payments?.[0]?.payment_method?.transaction_security?.url ?? null,
+          } as const)
         : (() => {
             const pm = order.transactions?.payments?.[0]?.payment_method;
             return {
@@ -367,6 +386,7 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       paidAt: state === 'paid' ? new Date(this.now()) : null,
       reference: order.transactions?.payments?.[0]?.id ?? null,
       voucherUrl: null,
+      challengeUrl: pm?.transaction_security?.url ?? null,
       bankTransfer: pm?.type === 'bank_transfer'
         ? { hostedInstructionsUrl: pm.ticket_url ?? null, clabe: pm.reference ?? null, bankName: null, reference: pm.reference ?? null }
         : null,

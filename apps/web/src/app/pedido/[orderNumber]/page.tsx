@@ -166,8 +166,8 @@ type BankTransfer = {
  */
 async function reconcileCard(
   order: CustomerOrder,
-): Promise<{ voucherUrl: string | null; bankTransfer: BankTransfer | null }> {
-  const none = { voucherUrl: null, bankTransfer: null };
+): Promise<{ voucherUrl: string | null; bankTransfer: BankTransfer | null; challengeUrl: string | null }> {
+  const none = { voucherUrl: null, bankTransfer: null, challengeUrl: null };
   if (order.status !== 'esperando_pago' || !order.gatewayChargeId) return none;
 
   if (order.gateway === STRIPE) {
@@ -191,6 +191,7 @@ async function reconcileCard(
       return {
         voucherUrl: snapshot.voucherUrl ?? null,
         bankTransfer: snapshot.bankTransfer ?? null,
+        challengeUrl: null,
       };
     } catch (err) {
       // The webhook will get there. Showing the page matters more.
@@ -216,7 +217,7 @@ async function reconcileCard(
         });
         return none;
       }
-      return { voucherUrl: null, bankTransfer: snapshot.bankTransfer ?? null };
+      return { voucherUrl: null, bankTransfer: snapshot.bankTransfer ?? null, challengeUrl: snapshot.challengeUrl ?? null };
     } catch (err) {
       console.error(`[pedido] could not re-check ${order.orderNumber} with Mercado Pago embedded`, err);
       return none;
@@ -256,7 +257,7 @@ export default async function OrderPage({
     notFound();
   }
 
-  const { voucherUrl, bankTransfer } = await reconcileCard(order);
+  const { voucherUrl, bankTransfer, challengeUrl } = await reconcileCard(order);
   if (order.status === 'esperando_pago' && (order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED)) {
     // The re-check may just have confirmed it.
     order = (await findCustomerOrder(getDb(), orderNumber, id)) ?? order;
@@ -290,7 +291,7 @@ export default async function OrderPage({
   const refreshing =
     order.status === 'procesando' ||
     (byCard && order.status === 'esperando_pago') ||
-    (order.gateway === MERCADOPAGO_EMBEDDED && order.status === 'esperando_pago' && !bankTransfer);
+    (order.gateway === MERCADOPAGO_EMBEDDED && order.status === 'esperando_pago' && !bankTransfer && !challengeUrl);
   const pct =
     order.advertisedDiamonds === 0
       ? 0
@@ -419,6 +420,17 @@ export default async function OrderPage({
                   </a>
                 )}
               </div>
+            )}
+            {challengeUrl && (
+              <a
+                className="btn-primary"
+                style={{ marginTop: 14 }}
+                href={challengeUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Verificar con mi banco →
+              </a>
             )}
             {canContinueGateway && (
               <ContinuePaymentButton

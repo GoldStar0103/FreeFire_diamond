@@ -73,7 +73,20 @@ export type PaymentInstructions =
    * webhook for the same charge are expected to agree and both route through
    * the same idempotent `settleGatewayCharge`, not two separate decisions.
    */
-  | { kind: 'resolved'; state: ChargeState; reference: string | null };
+  | {
+      kind: 'resolved';
+      state: ChargeState;
+      reference: string | null;
+      /**
+       * Present when the card issuer's bank requires 3D Secure verification
+       * before this charge can be decided — the customer must be sent here to
+       * complete it (their own bank's challenge, not anything this app
+       * renders). `state` stays `'pending'` until that happens; the later
+       * webhook (or a re-check) resolves it to paid/failed, same as any other
+       * pending card outcome.
+       */
+      challengeUrl?: string | null;
+    };
 
 export interface ChargeCreated {
   gateway: string;
@@ -95,6 +108,8 @@ export interface ChargeSnapshot {
   reference?: string | null;
   /** An OXXO voucher the customer still has to pay at the till, when there is one. */
   voucherUrl?: string | null;
+  /** A card's outstanding 3D Secure bank challenge, when there is one — see `PaymentInstructions`'s `'resolved'` member. */
+  challengeUrl?: string | null;
   /** SPEI bank-transfer instructions the customer still owes, when there are any. */
   bankTransfer?: {
     hostedInstructionsUrl: string | null;

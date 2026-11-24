@@ -260,11 +260,27 @@ export function CheckoutArticulo({
                   </div>
                 )}
               {mpCardResult?.instructions?.kind === 'resolved' &&
-                mpCardResult.instructions.state === 'pending' && (
+                mpCardResult.instructions.state === 'pending' &&
+                (mpCardResult.instructions.challengeUrl ? (
+                  <div className="alert warn">
+                    <p style={{ marginTop: 0 }}>
+                      Tu banco necesita que confirmes este pago. Haz clic abajo y sigue sus instrucciones —
+                      cuando termines, tu recarga se confirma sola.
+                    </p>
+                    <a
+                      className="btn-primary"
+                      href={mpCardResult.instructions.challengeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Verificar con mi banco →
+                    </a>
+                  </div>
+                ) : (
                   <div className="alert warn">
                     Tu pago está siendo verificado por tu banco. Te avisaremos en cuanto se confirme.
                   </div>
-                )}
+                ))}
 
               {mpCardWhatsapp.trim() ? (
                 <CardPaymentBrick

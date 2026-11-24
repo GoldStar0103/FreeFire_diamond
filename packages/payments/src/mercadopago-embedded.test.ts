@@ -82,7 +82,7 @@ describe('createCharge — card', () => {
       gateway: 'mercadopago-embedded',
       gatewayChargeId: 'ord_mp_1',
       amountCents: 1_800,
-      instructions: { kind: 'resolved', state: 'paid', reference: 'txn_1' },
+      instructions: { kind: 'resolved', state: 'paid', reference: 'txn_1', challengeUrl: null },
       expiresAt: null,
     });
 
@@ -97,6 +97,57 @@ describe('createCharge — card', () => {
     expect(body.total_amount).toBe('18.00');
     expect(body.transactions.payments[0]).toMatchObject({
       payment_method: { id: 'visa', type: 'credit_card', token: 'card_tok_abc123', installments: 1 },
+    });
+    // `on_fraud_risk` over `never`: lets a risky-looking card go through its
+    // bank's own verification instead of Mercado Pago flatly rejecting it —
+    // confirmed in production 2026-11-24 that `never` was declining
+    // legitimate repeat-use cards outright as 'high_risk' with no recourse.
+    // `liability_shift: 'required'` is mandatory whenever validation isn't
+    // 'never' (Mercado Pago's own docs).
+    expect(body.config).toEqual({ online: { transaction_security: { validation: 'on_fraud_risk' } } });
+    expect(body.liability_shift).toBe('required');
+  });
+
+  it('does not send config/liability_shift for SPEI — no card, no 3DS concept', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'ord_mp_1', status: 'processing', external_reference: 'LU-1', transactions: { payments: [{ status: 'pending' }] } } },
+    ]);
+    await gateway(impl, { methods: ['spei'] }).createCharge(speiInput);
+    const body = JSON.parse(calls[0]!.body!);
+    expect(body.config).toBeUndefined();
+    expect(body.liability_shift).toBeUndefined();
+  });
+
+  it('surfaces a card\'s 3D Secure challenge URL when the bank requires one', async () => {
+    const { impl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          id: 'ord_mp_4',
+          status: 'action_required',
+          status_detail: 'pending_challenge',
+          external_reference: 'LU-260924-AB12',
+          transactions: {
+            payments: [
+              {
+                id: 'txn_4',
+                status: 'action_required',
+                payment_method: {
+                  type: 'credit_card',
+                  transaction_security: { url: 'https://mp.test/3ds/challenge/abc123' },
+                },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    const created = await gateway(impl).createCharge(cardInput);
+    expect(created.instructions).toEqual({
+      kind: 'resolved',
+      state: 'pending',
+      reference: 'txn_4',
+      challengeUrl: 'https://mp.test/3ds/challenge/abc123',
     });
   });
 
@@ -138,7 +189,7 @@ describe('createCharge — card', () => {
       },
     ]);
     const created = await gateway(impl).createCharge(cardInput);
-    expect(created.instructions).toEqual({ kind: 'resolved', state: 'failed', reference: 'txn_2' });
+    expect(created.instructions).toEqual({ kind: 'resolved', state: 'failed', reference: 'txn_2', challengeUrl: null });
   });
 
   it('reports a declined card as resolved/failed on the real 402 shape — order nested under `data`, not thrown', async () => {
@@ -164,7 +215,7 @@ describe('createCharge — card', () => {
       },
     ]);
     const created = await gateway(impl).createCharge(cardInput);
-    expect(created.instructions).toEqual({ kind: 'resolved', state: 'failed', reference: 'txn_3' });
+    expect(created.instructions).toEqual({ kind: 'resolved', state: 'failed', reference: 'txn_3', challengeUrl: null });
     expect(created.gatewayChargeId).toBe('ord_mp_3');
   });
 
