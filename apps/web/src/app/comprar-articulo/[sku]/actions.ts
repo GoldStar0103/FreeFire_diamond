@@ -186,6 +186,13 @@ export async function payWithItemMercadoPagoCard(
   const paymentMethodId = String(formData.get('paymentMethodId') ?? '').trim() || null;
   const rawInstallments = Number(formData.get('installments'));
   const installments = Number.isInteger(rawInstallments) && rawInstallments > 0 ? rawInstallments : 1;
+  const payerEmail = String(formData.get('payerEmail') ?? '').trim() || null;
+  const payerIdentificationType = String(formData.get('payerIdentificationType') ?? '').trim();
+  const payerIdentificationNumber = String(formData.get('payerIdentificationNumber') ?? '').trim();
+  const payerIdentification =
+    payerIdentificationType && payerIdentificationNumber
+      ? { type: payerIdentificationType, number: payerIdentificationNumber }
+      : null;
 
   if (!whatsapp) {
     return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
@@ -241,6 +248,8 @@ export async function payWithItemMercadoPagoCard(
       cardToken,
       ...(paymentMethodId ? { paymentMethodId } : {}),
       installments,
+      customerEmail: payerEmail,
+      ...(payerIdentification ? { payerIdentification } : {}),
     });
 
     if (charge.instructions.kind !== 'resolved') {

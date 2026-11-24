@@ -270,7 +270,7 @@ export function CheckoutArticulo({
                 <CardPaymentBrick
                   amountMxn={priceMxn}
                   publicKey={mercadoPagoPublicKey}
-                  onToken={async ({ token, paymentMethodId, installments }) => {
+                  onToken={async ({ token, paymentMethodId, installments, payerEmail, payerIdentification }) => {
                     setMpCardSubmitting(true);
                     const fd = new FormData();
                     fd.set('sku', sku);
@@ -283,6 +283,11 @@ export function CheckoutArticulo({
                     fd.set('paymentMethodId', paymentMethodId);
                     fd.set('installments', String(installments));
                     fd.set('deviceSessionId', getMercadoPagoDeviceSessionId() ?? '');
+                    if (payerEmail) fd.set('payerEmail', payerEmail);
+                    if (payerIdentification) {
+                      fd.set('payerIdentificationType', payerIdentification.type);
+                      fd.set('payerIdentificationNumber', payerIdentification.number);
+                    }
 
                     setPixelUserData({ whatsapp: mpCardWhatsappRef.current.trim() });
                     trackPixel('AddPaymentInfo', pixel);

@@ -412,6 +412,26 @@ export function Checkout({
     </label>
   );
 
+  /**
+   * Mercado Pago's embedded SPEI flow has no Brick on screen (unlike card),
+   * so there is nothing else to supply the `payer.email` their Orders API
+   * requires on every order — confirmed in sandbox 2026-11-23, SPEI throws
+   * the same `$.payer` error card did before its Brick-collected email was
+   * wired through. Only rendered for this one payment view.
+   */
+  const mpEmailField = (disabled: boolean) => (
+    <label className="field">
+      <span>Tu correo</span>
+      <input
+        type="email"
+        name="email"
+        placeholder="Para generar tu pago con Mercado Pago"
+        disabled={disabled}
+        required
+      />
+    </label>
+  );
+
   const identityRow = (
     <div className="ck-top" style={{ marginBottom: 14 }}>
       <div className="ck-user" style={{ marginLeft: 0 }}>
@@ -846,7 +866,7 @@ export function Checkout({
                 <CardPaymentBrick
                   amountMxn={priceMxn}
                   publicKey={mercadoPagoPublicKey}
-                  onToken={async ({ token, paymentMethodId, installments }) => {
+                  onToken={async ({ token, paymentMethodId, installments, payerEmail, payerIdentification }) => {
                     setMpCardSubmitting(true);
                     const fd = new FormData();
                     fd.set('comboKey', comboKey);
@@ -857,6 +877,11 @@ export function Checkout({
                     fd.set('paymentMethodId', paymentMethodId);
                     fd.set('installments', String(installments));
                     fd.set('deviceSessionId', getMercadoPagoDeviceSessionId() ?? '');
+                    if (payerEmail) fd.set('payerEmail', payerEmail);
+                    if (payerIdentification) {
+                      fd.set('payerIdentificationType', payerIdentification.type);
+                      fd.set('payerIdentificationNumber', payerIdentification.number);
+                    }
 
                     setPixelUserData({ whatsapp: mpCardWhatsappRef.current.trim() });
                     trackPixel('AddPaymentInfo', pixel);
@@ -998,6 +1023,7 @@ export function Checkout({
                 <input type="hidden" name="deviceSessionId" ref={deviceInputRef} defaultValue="" />
 
                 {whatsappField(mpSpeiEmbeddedProcessing)}
+                {mpEmailField(mpSpeiEmbeddedProcessing)}
 
                 {mpSpeiEmbedded.error && <div className="alert bad">{mpSpeiEmbedded.error}</div>}
 

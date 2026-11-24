@@ -656,15 +656,30 @@ async function payWithEmbeddedMethod(
     };
   }
 
+  // Mercado Pago's Orders API requires a non-empty `payer` object on every
+  // order, card or SPEI alike — confirmed in sandbox 2026-11-23 (both methods
+  // throw `'$.payer' - minimum 1 properties allowed, but found 0 properties`
+  // without this). Card gets its email from the Brick's own required field;
+  // SPEI has no Brick, so its form carries a plain `email` input instead.
+  const payerEmail =
+    String(formData.get('payerEmail') ?? '').trim() || String(formData.get('email') ?? '').trim() || null;
+  if (!payerEmail) {
+    return { error: 'Ingresa tu correo para poder generar el pago con Mercado Pago.' };
+  }
+
   let cardToken: string | null = null;
   let paymentMethodId: string | null = null;
   let installments = 1;
+  let payerIdentification: { type: string; number: string } | null = null;
   if (method === 'card') {
     cardToken = String(formData.get('cardToken') ?? '').trim() || null;
     paymentMethodId = String(formData.get('paymentMethodId') ?? '').trim() || null;
     const rawInstallments = Number(formData.get('installments'));
     installments = Number.isInteger(rawInstallments) && rawInstallments > 0 ? rawInstallments : 1;
     if (!cardToken) return { error: copy.openFailed };
+    const idType = String(formData.get('payerIdentificationType') ?? '').trim();
+    const idNumber = String(formData.get('payerIdentificationNumber') ?? '').trim();
+    payerIdentification = idType && idNumber ? { type: idType, number: idNumber } : null;
   }
 
   const confirmed = await confirmPlayer(playerId);
@@ -708,9 +723,15 @@ async function payWithEmbeddedMethod(
       method,
       description: `${combo.name} · ${diamonds(combo.advertisedDiamonds)} diamantes Free Fire`,
       customerPhone: whatsapp,
+      customerEmail: payerEmail,
       deviceSessionId,
       ...(method === 'card'
-        ? { cardToken: cardToken!, ...(paymentMethodId ? { paymentMethodId } : {}), installments }
+        ? {
+            cardToken: cardToken!,
+            ...(paymentMethodId ? { paymentMethodId } : {}),
+            installments,
+            ...(payerIdentification ? { payerIdentification } : {}),
+          }
         : {}),
     });
 

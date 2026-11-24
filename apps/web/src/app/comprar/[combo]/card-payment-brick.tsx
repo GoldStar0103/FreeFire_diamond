@@ -23,7 +23,13 @@ let mpInitialized: string | null = null;
 export interface CardPaymentBrickProps {
   amountMxn: number;
   publicKey: string;
-  onToken: (data: { token: string; paymentMethodId: string; installments: number }) => Promise<void>;
+  onToken: (data: {
+    token: string;
+    paymentMethodId: string;
+    installments: number;
+    payerEmail: string | null;
+    payerIdentification: { type: string; number: string } | null;
+  }) => Promise<void>;
 }
 
 export function CardPaymentBrick({ amountMxn, publicKey, onToken }: CardPaymentBrickProps) {
@@ -46,6 +52,14 @@ export function CardPaymentBrick({ amountMxn, publicKey, onToken }: CardPaymentB
           token: formData.token,
           paymentMethodId: formData.payment_method_id,
           installments: formData.installments,
+          payerEmail: formData.payer?.email ?? null,
+          payerIdentification:
+            formData.payer?.identification?.type && formData.payer?.identification?.number
+              ? {
+                  type: formData.payer.identification.type,
+                  number: formData.payer.identification.number,
+                }
+              : null,
         });
       }}
       onError={(error) => {
