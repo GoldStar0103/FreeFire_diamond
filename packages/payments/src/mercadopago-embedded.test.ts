@@ -98,41 +98,44 @@ describe('createCharge — card', () => {
     expect(body.transactions.payments[0]).toMatchObject({
       payment_method: { id: 'visa', type: 'credit_card', token: 'card_tok_abc123', installments: 1 },
     });
-    // This order is well under the 500 MXN 3DS threshold (see the dedicated
-    // test below) — confirmed live 2026-11-24 (Jose): the 3DS challenge is
-    // real friction, not worth adding to this store's typically-small orders.
-    expect(body.config).toBeUndefined();
-    expect(body.liability_shift).toBeUndefined();
-  });
-
-  it('adds on_fraud_risk/liability_shift only once a card order is over 500 MXN', async () => {
     // `on_fraud_risk` over `never`: lets a risky-looking card go through its
     // bank's own verification instead of Mercado Pago flatly rejecting it —
     // confirmed in production 2026-11-24 that `never` was declining
     // legitimate repeat-use cards outright as 'high_risk' with no recourse.
-    // `liability_shift: 'required'` is mandatory whenever validation isn't
-    // 'never' (Mercado Pago's own docs) — nested inside
-    // `transaction_security` itself. A first attempt put it at the top
-    // level of the body instead, which broke every single card charge in
-    // production (confirmed same day: "additionalProperties
-    // '$.liability_shift' not allowed"). Scoped to over 500 MXN per Jose's
-    // explicit instruction the same day this threshold was added — the 3DS
-    // detour is only worth it once real money is actually at stake.
-    const { impl: belowImpl, calls: belowCalls } = fakeFetch([
-      { status: 200, body: { id: 'ord_mp_below', status: 'processed', transactions: { payments: [{ status: 'accredited' }] } } },
-    ]);
-    await gateway(belowImpl, { methods: ['card'] }).createCharge({ ...cardInput, amountCents: 50_000 });
-    expect(JSON.parse(belowCalls[0]!.body!).config).toBeUndefined();
-
-    const { impl: aboveImpl, calls: aboveCalls } = fakeFetch([
-      { status: 200, body: { id: 'ord_mp_above', status: 'processed', transactions: { payments: [{ status: 'accredited' }] } } },
-    ]);
-    await gateway(aboveImpl, { methods: ['card'] }).createCharge({ ...cardInput, amountCents: 50_001 });
-    const aboveBody = JSON.parse(aboveCalls[0]!.body!);
-    expect(aboveBody.config).toEqual({
+    // Applied to every card charge regardless of amount (reverted the >500
+    // MXN gate 2026-11-25 per Jose's explicit request — see the dedicated
+    // test below for the full reasoning). `liability_shift: 'required'` is
+    // mandatory whenever validation isn't 'never' (Mercado Pago's own
+    // docs) — nested inside `transaction_security` itself. A first attempt
+    // put it at the top level of the body instead, which broke every single
+    // card charge in production (confirmed same day: "additionalProperties
+    // '$.liability_shift' not allowed").
+    expect(body.config).toEqual({
       online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } },
     });
-    expect(aboveBody.liability_shift).toBeUndefined();
+    expect(body.liability_shift).toBeUndefined();
+  });
+
+  it('adds on_fraud_risk/liability_shift to every card charge, no amount gate', async () => {
+    // Confirmed live 2026-11-25: Jose is deliberately running every friction
+    // layer as low as Mercado Pago's API allows for several days, to measure
+    // how many "rejected" orders were actually lost legitimate sales, before
+    // dialing security back up gradually. A >500 MXN gate existed here for
+    // one day (2026-11-24) and was reverted the next day for exactly this —
+    // `on_fraud_risk` is the most permissive of the three documented values
+    // that still avoids a flat decline (`'never'` is strictly more likely to
+    // reject outright, not less — that was the original problem this setting
+    // was built to fix); there is no literal "disable fraud checking" value
+    // Mercado Pago's API exposes.
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'ord_mp_small', status: 'processed', transactions: { payments: [{ status: 'accredited' }] } } },
+    ]);
+    await gateway(impl, { methods: ['card'] }).createCharge({ ...cardInput, amountCents: 100 });
+    const body = JSON.parse(calls[0]!.body!);
+    expect(body.config).toEqual({
+      online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } },
+    });
+    expect(body.liability_shift).toBeUndefined();
   });
 
   it('does not send config for SPEI — no card, no 3DS concept', async () => {

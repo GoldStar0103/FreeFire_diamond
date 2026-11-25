@@ -225,13 +225,18 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
         // "'$.config.online.transaction_security' - missing properties:
         // 'liability_shift'").
         //
-        // Scoped to orders over 500 MXN only — confirmed live 2026-11-24
-        // (Jose): the 3DS challenge this adds is real friction, and most of
-        // this store's orders are small top-ups where a flat approve/reject
-        // costs fewer sales than a bank-verification detour would. Below
-        // that line, `config` is omitted entirely so Mercado Pago falls back
-        // to its own default (`'never'`) — not something this file re-states.
-        ...(input.method === 'card' && input.amountCents > 50_000
+        // Applied to every card charge regardless of amount — reverted the
+        // >500 MXN gate 2026-11-25 per Jose's explicit, deliberate request:
+        // he is running a several-day experiment with every friction layer
+        // turned down as low as Mercado Pago's API allows, to measure how
+        // many "rejected" orders were actually lost legitimate sales, before
+        // dialing security back up gradually. `on_fraud_risk` is the most
+        // permissive of the three documented values that still reduces flat
+        // declines (`'never'` is strictly more likely to reject outright,
+        // not less — that was the original problem this setting was built to
+        // fix); there is no literal "disable fraud checking" value Mercado
+        // Pago's API exposes.
+        ...(input.method === 'card'
           ? { config: { online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }
           : {}),
         payer: input.customerEmail
