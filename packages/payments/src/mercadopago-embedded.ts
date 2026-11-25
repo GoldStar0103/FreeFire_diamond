@@ -352,30 +352,34 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
     try {
       body = JSON.parse(rawBody) as typeof body;
     } catch {
-      // Temporary — 15 of these in 6h in production with no visibility into
-      // why (2026-11-24), flagged as a real reconciliation gap (SPEI
-      // transfers that arrived but never settled). Remove once a real
-      // example is captured and the actual cause is fixed.
-      console.error('[mercadopago-embedded] malformed_payload (JSON parse failed), raw body:', rawBody.slice(0, 1000));
       return { ok: false, reason: 'malformed_payload' };
+    }
+
+    // Checked before anything order-shaped: confirmed live 2026-11-24 that
+    // this account also delivers other topics to the same URL (one real
+    // capture was `"type":"topic_merchant_order_wh"`, whose `data` carries
+    // `currency_id`/`marketplace`/`status` — never an order id at all). This
+    // used to be checked only after assuming every payload had `data.id`,
+    // so every one of these was misreported as a corrupt payload instead of
+    // the harmless, expected "not for us" it actually is — 15 of those in
+    // one 6h window, which looked exactly like the kind of reconciliation
+    // gap a real missed payment would leave, but wasn't one.
+    if (body.type !== 'order' && body.type !== 'orders') {
+      return { ok: false, reason: 'unsupported_event' };
     }
 
     const orderId = body.data?.id != null ? String(body.data.id) : null;
     if (!orderId) {
-      console.error(
-        '[mercadopago-embedded] malformed_payload (no data.id), raw body:',
-        rawBody.slice(0, 1000),
-      );
+      // Genuinely unexpected now that non-order topics are filtered out
+      // above — an actual `order`/`orders` notification missing its own id
+      // would be worth seeing in full if it ever happens again.
+      console.error('[mercadopago-embedded] order/orders webhook with no data.id, raw body:', rawBody.slice(0, 1000));
       return { ok: false, reason: 'malformed_payload' };
     }
 
     const manifest = `id:${orderId.toLowerCase()};${requestId ? `request-id:${requestId};` : ''}ts:${parsed.ts};`;
     const expected = createHmac('sha256', this.options.webhookSecret).update(manifest, 'utf8').digest('hex');
     if (!constantTimeEquals(parsed.v1, expected)) return { ok: false, reason: 'bad_signature' };
-
-    if (body.type !== 'order' && body.type !== 'orders') {
-      return { ok: false, reason: 'unsupported_event' };
-    }
 
     // Unlike Checkout Pro's adapter, the Orders API's own doc describes the
     // full order (status + transactions) as already present in the webhook

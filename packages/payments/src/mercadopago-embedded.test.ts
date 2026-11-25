@@ -507,6 +507,33 @@ describe('verifyWebhook', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('ignores a merchant_order-topic notification as unsupported, even though its data has no id at all', async () => {
+    // Real capture, production 2026-11-24: this account also delivers other
+    // topics to this same URL, and this one's `data` never had an order id
+    // to begin with. The type must be checked before the id is ever looked
+    // for, or this is misreported as a corrupt payload — exactly what
+    // happened 15 times in one 6h window before this was fixed.
+    const body = JSON.stringify({
+      action: 'update',
+      application_id: '',
+      data: { currency_id: '', marketplace: 'NONE', status: 'closed' },
+      date_created: '2026-11-18T01:15:11.637-04:00',
+      id: '46240606338',
+      live_mode: true,
+      status: 'closed',
+      type: 'topic_merchant_order_wh',
+      user_id: 3715714054,
+      version: 2,
+    });
+    const { impl, calls } = fakeFetch([]);
+    const result = await gateway(impl).verifyWebhook(body, {
+      'x-signature': 'ts=1000,v1=irrelevant',
+      'x-request-id': 'req_1',
+    });
+    expect(result).toEqual({ ok: false, reason: 'unsupported_event' });
+    expect(calls).toHaveLength(0);
+  });
+
   it('falls back to a synthetic event id when the notification carries none, so a repeated identical ping still dedupes', async () => {
     const response = {
       status: 200,
