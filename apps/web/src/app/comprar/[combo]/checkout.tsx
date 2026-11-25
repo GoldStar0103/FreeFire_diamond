@@ -975,7 +975,14 @@ export function Checkout({
                     const pending =
                       result.instructions?.kind === 'resolved' && result.instructions.state === 'pending';
                     if (approved || pending) {
-                      if (approved) trackPixel('Purchase', pixel);
+                      // Purchase fires on the order page instead (`live.tsx`'s
+                      // `PurchasePixel`), not here — flagged and fixed
+                      // 2026-11-24 auditing Meta Pixel accuracy: firing it
+                      // here too, with no eventId, meant every instantly-
+                      // approved card produced two separate client-side
+                      // Purchase events Meta had no way to deduplicate
+                      // against each other, double-counting the one event ad
+                      // spend is actually optimised against.
                       router.push(result.orderPageUrl ?? '/');
                       return;
                     }

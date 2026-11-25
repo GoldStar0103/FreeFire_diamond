@@ -342,7 +342,11 @@ export function CheckoutArticulo({
                     const pending =
                       result.instructions?.kind === 'resolved' && result.instructions.state === 'pending';
                     if (approved || pending) {
-                      if (approved) trackPixel('Purchase', pixel);
+                      // Purchase fires on the order page instead (same fix as
+                      // the combo checkout, 2026-11-24) — firing it here too,
+                      // with no eventId, double-counted every instantly-
+                      // approved card as two separate, undeduplicated
+                      // Purchase events.
                       router.push(result.orderPageUrl ?? '/');
                       return;
                     }

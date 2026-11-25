@@ -407,26 +407,24 @@ export default async function OrderPage({
                   DATOS PARA TRANSFERIR
                 </p>
                 <div className="pay-box">
-                  {/* Field order and labels match Mercado Pago's own hosted
-                      voucher (CLABE, Titular, Referencia, Monto exacto, each
-                      with its own copy button) — Jose's explicit design,
-                      confirmed live 2026-11-24. "LevelUp Store" is a fixed
-                      display label for Titular, not whatever name the CLABE
-                      is actually registered under (Mercado Pago's own
-                      voucher shows "Mercado Libre" there, the processor, not
-                      the merchant). */}
+                  {/* Field order/labels match Mercado Pago's own hosted
+                      voucher — Jose's explicit design, confirmed live
+                      2026-11-24. "LevelUp Store" is a fixed display label for
+                      Titular, not whatever name the CLABE is actually
+                      registered under (Mercado Pago's own voucher shows
+                      "Mercado Libre" there, the processor, not the
+                      merchant). Referencia deliberately removed (also
+                      2026-11-24, Jose's explicit instruction): it plays no
+                      part in matching a payment to this order — that's
+                      always done by the dedicated CLABE/gatewayChargeId
+                      already linked to it, confirmed by grep against every
+                      reconciliation/settlement codepath — so showing it
+                      only risked confusing a customer into thinking it was a
+                      required step. */}
                   {bankTransfer.clabe && (
                     <CopyRow label="CLABE" value={bankTransfer.clabe} display={groupClabe(bankTransfer.clabe)} />
                   )}
                   <CopyRow label="Titular" value="LevelUp Store" display="LevelUp Store" />
-                  {bankTransfer.reference && (
-                    <>
-                      <CopyRow label="Referencia" value={bankTransfer.reference} display={bankTransfer.reference} />
-                      <p className="hint" style={{ margin: '-6px 0 10px' }}>
-                        Ponla en el concepto o referencia de tu transferencia.
-                      </p>
-                    </>
-                  )}
                   <CopyRow
                     label="Monto exacto"
                     value={(order.priceMxnCents / 100).toFixed(2)}

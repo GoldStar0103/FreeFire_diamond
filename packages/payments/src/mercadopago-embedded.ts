@@ -224,7 +224,14 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
         // ("additionalProperties '$.liability_shift' not allowed" /
         // "'$.config.online.transaction_security' - missing properties:
         // 'liability_shift'").
-        ...(input.method === 'card'
+        //
+        // Scoped to orders over 500 MXN only — confirmed live 2026-11-24
+        // (Jose): the 3DS challenge this adds is real friction, and most of
+        // this store's orders are small top-ups where a flat approve/reject
+        // costs fewer sales than a bank-verification detour would. Below
+        // that line, `config` is omitted entirely so Mercado Pago falls back
+        // to its own default (`'never'`) — not something this file re-states.
+        ...(input.method === 'card' && input.amountCents > 50_000
           ? { config: { online: { transaction_security: { validation: 'on_fraud_risk', liability_shift: 'required' } } } }
           : {}),
         payer: input.customerEmail
@@ -345,11 +352,22 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
     try {
       body = JSON.parse(rawBody) as typeof body;
     } catch {
+      // Temporary — 15 of these in 6h in production with no visibility into
+      // why (2026-11-24), flagged as a real reconciliation gap (SPEI
+      // transfers that arrived but never settled). Remove once a real
+      // example is captured and the actual cause is fixed.
+      console.error('[mercadopago-embedded] malformed_payload (JSON parse failed), raw body:', rawBody.slice(0, 1000));
       return { ok: false, reason: 'malformed_payload' };
     }
 
     const orderId = body.data?.id != null ? String(body.data.id) : null;
-    if (!orderId) return { ok: false, reason: 'malformed_payload' };
+    if (!orderId) {
+      console.error(
+        '[mercadopago-embedded] malformed_payload (no data.id), raw body:',
+        rawBody.slice(0, 1000),
+      );
+      return { ok: false, reason: 'malformed_payload' };
+    }
 
     const manifest = `id:${orderId.toLowerCase()};${requestId ? `request-id:${requestId};` : ''}ts:${parsed.ts};`;
     const expected = createHmac('sha256', this.options.webhookSecret).update(manifest, 'utf8').digest('hex');
