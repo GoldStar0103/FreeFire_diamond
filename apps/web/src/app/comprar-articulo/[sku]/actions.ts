@@ -8,11 +8,12 @@ import {
   getArsRate,
 } from '@levelup/db';
 import { createItemOrder, rejectPayment, type CreateItemOrderFailure } from '@levelup/engine';
-import type { PaymentInstructions } from '@levelup/payments';
+import type { ChargeState, PaymentInstructions } from '@levelup/payments';
 import { getDb, paymentAttemptLimiter, callerIp } from '../../../lib/server';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
-import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
+import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
+import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
 import { applyMercadoPagoEmbeddedReport, getMercadoPagoEmbedded, MERCADOPAGO_EMBEDDED } from '../../../lib/mercadopago-embedded';
 import { trackingContext } from '../../../lib/tracking';
 
@@ -52,17 +53,34 @@ function explain(failure: CreateItemOrderFailure): string {
   }
 }
 
+export interface StripeItemCardCheckoutState {
+  error?: string;
+  clientSecret?: string;
+  gatewayChargeId?: string;
+  orderNumber?: string;
+  targetUid?: string;
+  orderPageUrl?: string;
+}
+
+const STRIPE_ITEM_CARD_COPY = {
+  unavailable: 'El pago con tarjeta no está disponible en este momento.',
+};
+
 /**
  * Card-only for v1 (Jose's own call, 2026-11-16): it's the one instant-settle
  * method, which matters against a vendor's limited stock — a 48h manual-transfer
  * hold would risk a customer reserving an item that sells out before they pay.
- * Mirrors `comprar/[combo]/actions.ts`'s `payWithGatewayMethod` exactly, just
- * against `createItemOrder` instead of `createOrder`.
+ * Mirrors the combo checkout's own `payWithStripeCard` exactly, just against
+ * `createItemOrder` instead of `createOrder` — see that function's own doc
+ * comment for why this is a `clientSecret`, not an already-known outcome.
  */
-export async function payWithItemCard(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
+export async function payWithItemStripeCard(
+  _prev: StripeItemCardCheckoutState,
+  formData: FormData,
+): Promise<StripeItemCardCheckoutState> {
   const gateway = getStripe();
   if (!gateway || !gateway.supportedMethods.includes('card')) {
-    return { error: 'El pago con tarjeta no está disponible en este momento.' };
+    return { error: STRIPE_ITEM_CARD_COPY.unavailable };
   }
 
   const sku = String(formData.get('sku') ?? '');
@@ -117,7 +135,156 @@ export async function payWithItemCard(_prev: CheckoutState, formData: FormData):
       method: 'card',
       description: `${order.itemName} · LevelUp Store`,
       customerPhone: whatsapp,
-      returnUrl: siteUrl(`${orderPage}&pago=tarjeta`),
+    });
+
+    if (charge.instructions.kind !== 'stripe_elements') {
+      throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+    }
+
+    const attached = await attachGatewayCharge(db, {
+      orderId: order.id,
+      gateway: STRIPE,
+      gatewayChargeId: charge.gatewayChargeId,
+      expiresAt: null,
+      ...(resumable ? { method: 'card' as const } : {}),
+    });
+    if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    return {
+      clientSecret: charge.instructions.clientSecret,
+      gatewayChargeId: charge.gatewayChargeId,
+      orderNumber: order.orderNumber,
+      targetUid,
+      orderPageUrl: orderPage,
+    };
+  } catch (err) {
+    console.error(`[comprar-articulo] ${order.orderNumber}: could not open a stripe/card (embedded) charge`, err);
+    if (!resumable) {
+      await rejectPayment(
+        { store: new DrizzlePaymentStore(db) },
+        { orderId: order.id, adminUserId: null, reason: 'No se pudo abrir el pago (card)' },
+      ).catch((cancelErr: unknown) =>
+        console.error(`[comprar-articulo] ${order.orderNumber}: and could not cancel it`, cancelErr),
+      );
+    }
+    return { error: 'No pudimos abrir el pago con tarjeta. Intenta de nuevo.' };
+  }
+}
+
+export interface StripeItemCardResultState {
+  error?: string;
+  state?: ChargeState;
+  orderPageUrl?: string;
+}
+
+/** The item-checkout counterpart of the combo checkout's `confirmStripeCardPayment` — see its own doc comment. */
+export async function confirmItemStripeCardPayment(
+  _prev: StripeItemCardResultState,
+  formData: FormData,
+): Promise<StripeItemCardResultState> {
+  const gateway = getStripe();
+  if (!gateway) return { error: STRIPE_ITEM_CARD_COPY.unavailable };
+
+  const gatewayChargeId = String(formData.get('gatewayChargeId') ?? '').trim();
+  const orderNumber = String(formData.get('orderNumber') ?? '').trim();
+  const targetUid = String(formData.get('targetUid') ?? '').trim();
+  if (!gatewayChargeId || !orderNumber) return { error: 'Falta información del pago.' };
+
+  const orderPageUrl = `/pedido/${orderNumber}?id=${encodeURIComponent(targetUid)}`;
+
+  let snapshot;
+  try {
+    snapshot = await gateway.getCharge(gatewayChargeId);
+  } catch (err) {
+    console.error(`[comprar-articulo] ${orderNumber}: could not re-check a Stripe card result`, err);
+    return { orderPageUrl };
+  }
+  if (!snapshot) {
+    return { error: 'No pudimos confirmar tu pago. Intenta de nuevo o escríbenos por WhatsApp.' };
+  }
+
+  await applyStripeReport({
+    gatewayChargeId: snapshot.gatewayChargeId,
+    state: snapshot.state,
+    amountReceivedCents: snapshot.amountReceivedCents,
+    reference: snapshot.reference ?? null,
+    orderNumber,
+    voucherIssued: false,
+  });
+
+  if (snapshot.state === 'failed') {
+    return { error: 'Tu banco rechazó el pago. Revisa los datos de tu tarjeta o intenta con otra.' };
+  }
+
+  return { state: snapshot.state, orderPageUrl };
+}
+
+/**
+ * Card through Mercado Pago's hosted Checkout Pro — mirrors `payWithItemCard`
+ * exactly, just against the Checkout-Pro gateway instance instead of Stripe's.
+ * A second, explicit card option, not a fallback — see the combo checkout's
+ * own `payWithMercadoPagoCardCheckoutPro` and mercadopago.ts's doc comment
+ * for why this exists alongside Stripe.
+ */
+export async function payWithItemMercadoPagoCardCheckoutPro(
+  _prev: CheckoutState,
+  formData: FormData,
+): Promise<CheckoutState> {
+  const gateway = getMercadoPago();
+  if (!gateway || !gateway.supportedMethods.includes('card')) {
+    return { error: 'El pago con tarjeta por Mercado Pago no está disponible en este momento.' };
+  }
+
+  const sku = String(formData.get('sku') ?? '');
+  const targetUid = String(formData.get('targetUid') ?? '').trim();
+  const targetNickname = String(formData.get('targetNickname') ?? '').trim() || null;
+  const region = String(formData.get('region') ?? '').trim() || null;
+  const quantity = Number(formData.get('quantity') ?? 1);
+  const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
+
+  if (!whatsapp) {
+    return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
+  }
+
+  const db = getDb();
+  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
+
+  let order: { id: string; orderNumber: string; priceMxnCents: number; itemName: string };
+  if (resumable) {
+    order = resumable;
+  } else {
+    const arsRate = await getArsRate(db);
+    const buyer = await getCustomerSession();
+    const created = await createItemOrder(
+      { store: new DrizzleItemOrderingStore(db), arsRate },
+      {
+        sku,
+        quantity,
+        region,
+        targetUid,
+        targetNickname,
+        contactWhatsapp: whatsapp,
+        paymentMethod: 'card',
+        source: 'storefront',
+        tracking: await trackingContext(),
+        buyerProfileId: buyer?.playerProfileId ?? null,
+      },
+    );
+    if (!created.ok) return { error: explain(created.failure) };
+    order = { ...created.order, itemName: created.order.item.itemName };
+  }
+
+  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(targetUid)}`;
+
+  try {
+    const charge = await gateway.createCharge({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amountCents: order.priceMxnCents,
+      method: 'card',
+      description: `${order.itemName} · LevelUp Store`,
+      customerPhone: whatsapp,
+      returnUrl: siteUrl(`${orderPage}&pago=card`),
       cancelUrl: siteUrl(
         `/comprar-articulo/${encodeURIComponent(sku)}?cancelado=${encodeURIComponent(order.orderNumber)}`,
       ),
@@ -129,16 +296,18 @@ export async function payWithItemCard(_prev: CheckoutState, formData: FormData):
 
     const attached = await attachGatewayCharge(db, {
       orderId: order.id,
-      gateway: STRIPE,
+      gateway: MERCADOPAGO,
       gatewayChargeId: charge.gatewayChargeId,
-      expiresAt: charge.expiresAt ? new Date(charge.expiresAt.getTime() + SESSION_GRACE_MS) : null,
+      // Mercado Pago's Preference hands back no real expiry — same as the
+      // combo checkout's shared payWithGatewayMethod.
+      expiresAt: null,
       ...(resumable ? { method: 'card' as const } : {}),
     });
     if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
 
     return { checkoutUrl: charge.instructions.url, orderPageUrl: orderPage };
   } catch (err) {
-    console.error(`[comprar-articulo] ${order.orderNumber}: could not open a Stripe/card checkout`, err);
+    console.error(`[comprar-articulo] ${order.orderNumber}: could not open a Mercado Pago/card checkout`, err);
     if (!resumable) {
       await rejectPayment(
         { store: new DrizzlePaymentStore(db) },

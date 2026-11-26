@@ -187,10 +187,14 @@ export default async function BuyPage({
           publicPrice={vaultPriceMxnCents !== null ? mxn(combo.priceMxnCents) : null}
           payTo={payTo}
           cardEnabled={stripe !== null && methodsEnabled.card}
+          stripePublishableKey={process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? null}
           cardIncludesOxxo={stripe?.supportedMethods.includes('oxxo') ?? false}
           cardIncludesSpei={stripe?.supportedMethods.includes('spei') ?? false}
           mercadoPagoOxxoEnabled={mercadoPago?.supportedMethods.includes('oxxo') ?? false}
           mercadoPagoSpeiEnabled={mercadoPago?.supportedMethods.includes('spei') ?? false}
+          mercadoPagoCardCheckoutProEnabled={
+            methodsEnabled.card && (mercadoPago?.supportedMethods.includes('card') ?? false)
+          }
           mercadoPagoCardEnabled={
             methodsEnabled.card && (mercadoPagoEmbedded?.supportedMethods.includes('card') ?? false)
           }

@@ -49,7 +49,12 @@ function notASyntheticOrder() {
  * checked again 2026-09-27 that the same rate applies to SPEI transfers
  * through Checkout Pro (Mercado Pago's own docs: SPEI and Mercado Pago
  * balance are charged the same as card, "no hay descuento por estos
- * métodos"). Card always stays on Stripe, see lib/mercadopago.ts.
+ * métodos"). Card joined Checkout Pro 2026-11-26 — its rate below reuses the
+ * same 3.49% + $4.00 MXN figure confirmed against the embedded flow (see the
+ * 'mercadopago-embedded' entry's own comment), same merchant account and
+ * published rate card, not independently re-checked against a real
+ * Checkout-Pro card charge yet — worth confirming once real volume flows
+ * through this path.
  */
 const IVA = 1.16;
 const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number }>> = {
@@ -61,6 +66,7 @@ const FEE_RATES: Record<string, Record<string, { pct: number; fixedCents: number
   mercadopago: {
     oxxo: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN
     spei: { pct: 0.0349, fixedCents: 400 }, // 3.49% + $4.00 MXN — same as OXXO on Checkout Pro
+    card: { pct: 0.0349, fixedCents: 400 }, // same published rate, reused from mercadopago-embedded below
   },
   // Confirmed 2026-11-23 directly against Jose's own account (Mercado
   // Pago's in-dashboard fee simulator, not a published generic rate): card

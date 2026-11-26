@@ -106,12 +106,29 @@ describe('createCharge', () => {
     expect(calls[0]?.headers['X-Idempotency-Key']).toBe(calls[1]?.headers['X-Idempotency-Key']);
   });
 
-  it('refuses card — that always stays on Stripe', async () => {
+  it('refuses card when it is not in the configured methods', async () => {
     const { impl, calls } = fakeFetch([]);
     await expect(gateway(impl).createCharge({ ...chargeInput, method: 'card' })).rejects.toBeInstanceOf(
       GatewayError,
     );
     expect(calls).toHaveLength(0);
+  });
+
+  it('creates a preference restricted to the card families when card is configured', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'pref_1', init_point: 'https://www.mercadopago.com.mx/checkout/v1/redirect?pref_id=pref_1' } },
+    ]);
+
+    await gateway(impl, { methods: ['card'] }).createCharge({ ...chargeInput, method: 'card' });
+
+    const body = JSON.parse(calls[0]!.body!);
+    const excludedIds = body.payment_methods.excluded_payment_types.map((t: { id: string }) => t.id);
+    // Everything but the card families excluded, so card is the only option
+    // Checkout Pro's own page can offer.
+    expect(excludedIds).toEqual(expect.arrayContaining(['ticket', 'bank_transfer', 'atm', 'digital_wallet']));
+    expect(excludedIds).not.toContain('credit_card');
+    expect(excludedIds).not.toContain('debit_card');
+    expect(excludedIds).not.toContain('account_money');
   });
 
   it('refuses spei when only oxxo is configured', async () => {

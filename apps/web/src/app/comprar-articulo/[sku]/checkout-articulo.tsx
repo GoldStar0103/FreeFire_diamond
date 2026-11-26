@@ -2,8 +2,16 @@
 
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { payWithItemCard, payWithItemMercadoPagoCard, type CheckoutState, type EmbeddedCheckoutState } from './actions';
+import {
+  confirmItemStripeCardPayment,
+  payWithItemMercadoPagoCard,
+  payWithItemMercadoPagoCardCheckoutPro,
+  payWithItemStripeCard,
+  type CheckoutState,
+  type EmbeddedCheckoutState,
+} from './actions';
 import { CardPaymentBrick } from '../../comprar/[combo]/card-payment-brick';
+import { StripePaymentElement } from '../../comprar/[combo]/stripe-payment-element';
 import { setPixelUserData, trackPixel } from '../../../lib/pixel';
 import { GatewayTabNotice, useStripeTabRedirect } from '../../../lib/gateway-tab-redirect';
 import { getMercadoPagoDeviceSessionId, loadMercadoPagoSecurity } from '../../../lib/mercadopago-device';
@@ -20,9 +28,13 @@ interface Props {
   /** Region code -> quantity. Empty for a membership. */
   stockByRegion: Record<string, number>;
   cancelledNotice: string | null;
-  /** Mercado Pago's embedded Checkout is configured for card — takes priority over Stripe, same ladder as the combo checkout. */
+  /** Mercado Pago's hosted Checkout Pro is configured for card — its own explicit button next to Stripe's, same as the combo checkout. */
+  mercadoPagoCardCheckoutProEnabled: boolean;
+  /** Mercado Pago's embedded Checkout is configured for card — dormant as of 2026-11-26, see the combo checkout's own doc comment. */
   mercadoPagoCardEnabled: boolean;
   mercadoPagoPublicKey: string | null;
+  /** Stripe's publishable (non-secret) key for the Payment Element — see the combo checkout's own prop. */
+  stripePublishableKey: string | null;
 }
 
 const REGION_LABEL: Record<string, string> = { US: 'Estados Unidos', SAC: 'Sudamérica' };
@@ -44,8 +56,10 @@ export function CheckoutArticulo({
   maxQuantity,
   stockByRegion,
   cancelledNotice,
+  mercadoPagoCardCheckoutProEnabled,
   mercadoPagoCardEnabled,
   mercadoPagoPublicKey,
+  stripePublishableKey,
 }: Props) {
   const regions = Object.keys(stockByRegion);
   const [step, setStep] = useState<Step>('datos');
@@ -55,11 +69,32 @@ export function CheckoutArticulo({
   const [quantity, setQuantity] = useState(1);
   const router = useRouter();
 
-  const [card, cardAction, redirecting] = useActionState<CheckoutState, FormData>(payWithItemCard, {});
-  const openCardTab = useStripeTabRedirect(card);
+  const [mpCheckoutProCard, mpCheckoutProCardAction, mpCheckoutProRedirecting] = useActionState<
+    CheckoutState,
+    FormData
+  >(payWithItemMercadoPagoCardCheckoutPro, {});
+  const openMpCheckoutProCardTab = useStripeTabRedirect(mpCheckoutProCard);
 
-  const cardAutomatic: 'mercadopago' | 'stripe' | null =
-    mercadoPagoCardEnabled && mercadoPagoPublicKey ? 'mercadopago' : 'stripe';
+  // Card is two always-visible buttons, not a ladder — same reasoning as the
+  // combo checkout's own 2026-11-26 restructure: Stripe's own embedded card,
+  // and whichever Mercado Pago card integration is live (Checkout Pro
+  // winning over the dormant embedded one, same reason as before).
+  const mpCardKind: 'mercadopago-checkoutpro' | 'mercadopago-embedded' | null =
+    mercadoPagoCardCheckoutProEnabled
+      ? 'mercadopago-checkoutpro'
+      : mercadoPagoCardEnabled && mercadoPagoPublicKey
+        ? 'mercadopago-embedded'
+        : null;
+  const mpCardOption = mpCardKind !== null;
+  // Only asked when there is a real choice to make — a single configured
+  // card method just renders directly, same as this page always did before
+  // Mercado Pago's card option existed.
+  const [cardChoice, setCardChoice] = useState<'stripe' | 'mercadopago' | null>(null);
+  // No real choice without Mercado Pago configured too — defaults straight
+  // to Stripe, same as this page always did before that option existed.
+  const effectiveCardChoice: 'stripe' | 'mercadopago' = cardChoice ?? 'stripe';
+  const showCardChooser = mpCardOption && cardChoice === null;
+
   const [mpCardResult, setMpCardResult] = useState<EmbeddedCheckoutState | null>(null);
   const [mpCardSubmitting, setMpCardSubmitting] = useState(false);
   const [mpCardWhatsapp, setMpCardWhatsapp] = useState('');
@@ -75,6 +110,22 @@ export function CheckoutArticulo({
       mpCardStatusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [mpCardSubmitting, mpCardResult]);
+  // Stripe's embedded card — same two-phase shape as the combo checkout's
+  // own `payWithStripeCard`/`confirmStripeCardPayment`, see that file's doc
+  // comment for why this is genuinely two server round trips.
+  const [stripeWhatsapp, setStripeWhatsapp] = useState('');
+  const stripeWhatsappRef = useRef(stripeWhatsapp);
+  stripeWhatsappRef.current = stripeWhatsapp;
+  const [stripeStarting, setStripeStarting] = useState(false);
+  const [stripeSession, setStripeSession] = useState<{
+    clientSecret: string;
+    gatewayChargeId: string;
+    orderNumber: string;
+  } | null>(null);
+  const [stripeStartError, setStripeStartError] = useState<string | null>(null);
+  const [stripeConfirmError, setStripeConfirmError] = useState<string | null>(null);
+  const [stripeConfirming, setStripeConfirming] = useState(false);
+
   const targetUidRef = useRef(targetUid);
   targetUidRef.current = targetUid;
   const regionRef = useRef(region);
@@ -114,6 +165,62 @@ export function CheckoutArticulo({
     const whatsapp = String(new FormData(form).get('whatsapp') ?? '');
     if (whatsapp) setPixelUserData({ whatsapp });
     trackPixel('AddPaymentInfo', pixel);
+  };
+
+  // Stripe's Payment Element has no `<form>` of its own to submit — see the
+  // combo checkout's identical trio of functions for the full reasoning.
+  const startStripeCard = async () => {
+    setStripeStarting(true);
+    setStripeStartError(null);
+
+    const whatsapp = stripeWhatsappRef.current.trim();
+    setPixelUserData({ whatsapp });
+    trackPixel('AddPaymentInfo', pixel);
+
+    const fd = new FormData();
+    fd.set('sku', sku);
+    fd.set('targetUid', targetUidRef.current);
+    fd.set('targetNickname', targetNicknameRef.current);
+    fd.set('region', regionRef.current ?? '');
+    fd.set('quantity', String(quantityRef.current));
+    fd.set('whatsapp', whatsapp);
+
+    const result = await payWithItemStripeCard({}, fd);
+    setStripeStarting(false);
+
+    if (result.error || !result.clientSecret || !result.gatewayChargeId || !result.orderNumber) {
+      setStripeStartError(result.error ?? 'No pudimos abrir el pago con tarjeta. Intenta de nuevo.');
+      return;
+    }
+    setStripeSession({
+      clientSecret: result.clientSecret,
+      gatewayChargeId: result.gatewayChargeId,
+      orderNumber: result.orderNumber,
+    });
+  };
+
+  const handleStripeConfirmed = async (_status: string) => {
+    if (!stripeSession) return;
+    setStripeConfirming(true);
+    setStripeConfirmError(null);
+
+    const fd = new FormData();
+    fd.set('gatewayChargeId', stripeSession.gatewayChargeId);
+    fd.set('orderNumber', stripeSession.orderNumber);
+    fd.set('targetUid', targetUidRef.current);
+
+    const result = await confirmItemStripeCardPayment({}, fd);
+    setStripeConfirming(false);
+
+    if (result.error) {
+      setStripeConfirmError(result.error);
+      return;
+    }
+    router.push(result.orderPageUrl ?? '/');
+  };
+
+  const handleStripeError = (message: string) => {
+    setStripeConfirmError(message);
   };
 
   return (
@@ -247,7 +354,32 @@ export function CheckoutArticulo({
             </div>
           </div>
 
-          {cardAutomatic === 'mercadopago' && mercadoPagoPublicKey ? (
+          {showCardChooser ? (
+            <div className="pagos">
+              <button
+                type="button"
+                className="pago tarjeta"
+                onClick={() => setCardChoice('stripe')}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="head">
+                  <h3>Tarjeta de crédito/débito</h3>
+                </div>
+                <p className="hint">Visa · Mastercard · Amex</p>
+              </button>
+              <button
+                type="button"
+                className="pago tarjeta"
+                onClick={() => setCardChoice('mercadopago')}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="head">
+                  <h3>Mercado Pago</h3>
+                </div>
+                <p className="hint">Abre la app si la tienes instalada</p>
+              </button>
+            </div>
+          ) : effectiveCardChoice === 'mercadopago' && mpCardKind === 'mercadopago-embedded' && mercadoPagoPublicKey ? (
             <div>
               <label className="field">
                 <span>Tu WhatsApp</span>
@@ -379,11 +511,11 @@ export function CheckoutArticulo({
                 🔒 Pagas directo con Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
               </p>
             </div>
-          ) : (
+          ) : effectiveCardChoice === 'mercadopago' && mpCardKind === 'mercadopago-checkoutpro' ? (
             <form
-              action={cardAction}
+              action={mpCheckoutProCardAction}
               onSubmit={(e) => {
-                openCardTab();
+                openMpCheckoutProCardTab();
                 trackPaymentInfo(e.currentTarget);
               }}
             >
@@ -400,20 +532,70 @@ export function CheckoutArticulo({
                   name="whatsapp"
                   inputMode="tel"
                   placeholder="Solo por si necesitamos contactarte"
-                  disabled={redirecting}
+                  disabled={mpCheckoutProRedirecting}
                   required
                 />
               </label>
 
-              <GatewayTabNotice provider="Stripe" />
+              <GatewayTabNotice provider="Mercado Pago" />
 
-              {card.error && <div className="alert bad">{card.error}</div>}
+              {mpCheckoutProCard.error && <div className="alert bad">{mpCheckoutProCard.error}</div>}
 
-              <button className="btn-primary" type="submit" disabled={redirecting}>
-                {redirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${price}`}
+              <button className="btn-primary" type="submit" disabled={mpCheckoutProRedirecting}>
+                {mpCheckoutProRedirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${price}`}
               </button>
-              <p className="hint center">🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.</p>
+              <p className="hint center">
+                🔒 Pagas en la página segura de Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
+              </p>
             </form>
+          ) : (
+            <div>
+              <label className="field">
+                <span>Tu WhatsApp</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="Solo por si necesitamos contactarte"
+                  value={stripeWhatsapp}
+                  onChange={(e) => setStripeWhatsapp(e.target.value)}
+                  disabled={stripeStarting || stripeSession !== null}
+                  required
+                />
+              </label>
+
+              {stripeStartError && <div className="alert bad">{stripeStartError}</div>}
+              {stripeConfirmError && <div className="alert bad">{stripeConfirmError}</div>}
+              {stripeConfirming && (
+                <div className="alert warn">Confirmando tu pago… no cierres ni recargues esta página.</div>
+              )}
+
+              {stripeSession && stripePublishableKey ? (
+                <div style={stripeConfirming ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
+                  <StripePaymentElement
+                    publishableKey={stripePublishableKey}
+                    clientSecret={stripeSession.clientSecret}
+                    submitLabel={`Pagar con tarjeta — ${price}`}
+                    disabled={stripeConfirming}
+                    onConfirmed={handleStripeConfirmed}
+                    onError={handleStripeError}
+                  />
+                </div>
+              ) : stripeWhatsapp.trim() ? (
+                <button className="btn-primary" type="button" disabled={stripeStarting} onClick={startStripeCard}>
+                  {stripeStarting ? 'Cargando…' : 'Continuar →'}
+                </button>
+              ) : (
+                <p className="hint center">Ingresa tu WhatsApp para continuar.</p>
+              )}
+
+              <p className="hint center">🔒 Pagas directo con Stripe. Nunca vemos ni guardamos tu tarjeta.</p>
+            </div>
+          )}
+
+          {mpCardOption && cardChoice !== null && (
+            <button type="button" className="btn-ghost" onClick={() => setCardChoice(null)}>
+              ← Elegir otro método
+            </button>
           )}
 
           <button type="button" className="btn-ghost" onClick={() => setStep('datos')}>

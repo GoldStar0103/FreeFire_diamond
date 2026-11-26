@@ -1,7 +1,14 @@
 'use client';
 
-import { useActionState } from 'react';
-import { checkMercadoPagoPayment, checkMercadoPagoReference, type MpCheckState, type MpReferenceCheckState } from './actions';
+import { useActionState, useState } from 'react';
+import {
+  checkMercadoPagoPayment,
+  checkMercadoPagoReference,
+  relinkMercadoPagoPayment,
+  type MpCheckState,
+  type MpReferenceCheckState,
+  type RelinkState,
+} from './actions';
 import { dateTime, mxn } from '../../../../lib/format';
 
 interface Props {
@@ -172,6 +179,73 @@ export function CheckMercadoPagoReferenceForm({ currentOrderNumber }: ReferenceP
         </label>
         <button className="btn" type="submit" disabled={pending}>
           {pending ? 'Consultando…' : 'Verificar referencia'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+interface RelinkProps {
+  orderId: string;
+  orderNumber: string;
+}
+
+/**
+ * The write counterpart of `CheckMercadoPagoReferenceForm` above — once
+ * that's confirmed a real Mercado Pago charge belongs to THIS order but
+ * isn't linked locally (the race `applyGatewayReport`'s own doc comment in
+ * apps/web describes), this actually attaches it and, if already paid,
+ * approves it. See `relinkMercadoPagoPayment`'s own doc comment for the
+ * full story — built 2026-11-26 for Jose's "some SPEI payments don't link
+ * to the correct order" report.
+ *
+ * Deliberately only shown while the order is still genuinely awaiting
+ * payment — `relinkMercadoPagoPayment` itself refuses anything else, so
+ * offering the form past that point would just invite a confusing "no se
+ * puede" every time.
+ */
+export function RelinkMercadoPagoForm({ orderId, orderNumber }: RelinkProps) {
+  const [state, action, pending] = useActionState<RelinkState, FormData>(relinkMercadoPagoPayment, {});
+  const [isEmbedded, setIsEmbedded] = useState(true);
+
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>Vincular un pago de Mercado Pago a este pedido</h2>
+      <p className="subtitle">
+        Cuando Mercado Pago ya confirma el pago (usa &quot;Verificar una referencia&quot; arriba para
+        comprobarlo) pero este pedido sigue esperando, pégalo aquí para vincularlo y, si ya está
+        pagado, confirmarlo de una vez.
+      </p>
+
+      {state.error && <div className="alert bad">{state.error}</div>}
+      {state.ok && <div className="alert ok">{state.ok}</div>}
+
+      <form action={action}>
+        <input type="hidden" name="orderId" value={orderId} />
+        <input type="hidden" name="orderNumber" value={orderNumber} />
+        <input type="hidden" name="gatewayName" value={isEmbedded ? 'mercadopago-embedded' : 'mercadopago'} />
+
+        <label className="field">
+          <span>Tipo de integración</span>
+          <select value={isEmbedded ? 'embedded' : 'checkoutpro'} onChange={(e) => setIsEmbedded(e.target.value === 'embedded')}>
+            <option value="embedded">Mercado Pago embebido (tarjeta/SPEI actual)</option>
+            <option value="checkoutpro">Mercado Pago Checkout Pro</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span>{isEmbedded ? 'Id del pedido en Mercado Pago' : 'Referencia (id) del pago'}</span>
+          <input
+            name="reference"
+            type="text"
+            placeholder={isEmbedded ? 'ej. ORD01M8C3S5VQZ6ZEYTWFWANT4N6G' : 'ej. 183217184493'}
+            required
+            autoFocus
+          />
+        </label>
+
+        <button className="btn" type="submit" disabled={pending}>
+          {pending ? 'Vinculando…' : 'Vincular y confirmar si ya está pagado'}
         </button>
       </form>
     </div>

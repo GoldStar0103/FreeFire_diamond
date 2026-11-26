@@ -1,16 +1,25 @@
 /**
- * Stripe adapter — hosted Checkout, card and optionally OXXO and SPEI.
+ * Stripe adapter — card via an embedded `PaymentIntent`/Payment Element,
+ * OXXO and SPEI via hosted Checkout.
  *
- * Hosted Checkout rather than Elements, for two reasons that both come from the
- * audience. Card numbers never touch LevelUp's servers or pages, so there is no
- * PCI surface to maintain on a one-VPS deployment. And a buyer who has been
- * scammed before sees a stripe.com page with their bank's own 3-D Secure
- * prompt, which is a stronger trust signal than anything this storefront could
- * render itself.
+ * Card moved off hosted Checkout 2026-11-26, per the client's own ask: the
+ * redirect-to-a-new-tab flow had caused a "white screen" issue before, and
+ * he wanted card to open in the same page, the way Mercado Pago's embedded
+ * card already does, with Apple Pay/Google Pay/Link alongside raw card. A
+ * `PaymentIntent`'s own `client_secret` is the one Stripe secret designed to
+ * reach the browser — Stripe's own JS (Payment Element) collects card
+ * details there and confirms the charge directly with Stripe, so raw card
+ * data still never touches this server, same PCI posture hosted Checkout
+ * always had. OXXO/SPEI stay on hosted Checkout — a redirect is already the
+ * right shape for a method the customer is going to leave the page for
+ * anyway (an OXXO till, their own banking app), and there's no comparable
+ * "white screen" complaint to justify rebuilding what already works.
  *
- * No SDK: the three calls needed are form-encoded POSTs and a GET, and the
- * provider client already shows the pattern. One fewer dependency to keep
- * patched on a server nobody watches daily.
+ * No SDK for the two methods still using hosted Checkout, or for building
+ * the PaymentIntent itself: those are plain form-encoded POSTs/a GET, same
+ * reasoning as the provider client. The frontend Payment Element genuinely
+ * needs Stripe's own JS in the browser (raw card data can't reach this
+ * server any other way) — that dependency lives in apps/web, not here.
  *
  * Money arrives in two shapes, and the difference matters downstream:
  *
@@ -81,7 +90,7 @@ export interface StripeGatewayOptions {
 /** The subset of a Checkout Session this adapter reads. */
 interface StripeSession {
   id: string;
-  object?: string;
+  object?: 'checkout.session';
   url?: string | null;
   status?: 'open' | 'complete' | 'expired' | null;
   payment_status?: 'paid' | 'unpaid' | 'no_payment_required';
@@ -107,11 +116,30 @@ interface StripePaymentIntent {
   } | null;
 }
 
+/** The top-level object Stripe sends for a direct `PaymentIntent` — the embedded card flow's own charge, distinct from `StripePaymentIntent` above (which is a *nested* field read off an expanded Checkout Session). */
+interface StripeDirectPaymentIntent {
+  id: string;
+  object?: 'payment_intent';
+  status?: 'requires_payment_method' | 'requires_confirmation' | 'requires_action' | 'processing' | 'requires_capture' | 'succeeded' | 'canceled';
+  amount?: number;
+  amount_received?: number;
+  currency?: string | null;
+  client_secret?: string | null;
+  metadata?: Record<string, string> | null;
+}
+
 interface StripeEvent {
   id?: string;
   type?: string;
   created?: number;
-  data?: { object?: StripeSession };
+  data?: { object?: StripeSession | StripeDirectPaymentIntent };
+}
+
+/** A direct `PaymentIntent`'s own status, reduced to the gateway-neutral states — the embedded card flow's counterpart to `sessionState` above. */
+function intentState(status: StripeDirectPaymentIntent['status']): ChargeState {
+  if (status === 'succeeded') return 'paid';
+  if (status === 'canceled') return 'failed';
+  return 'pending';
 }
 
 /**
@@ -192,6 +220,13 @@ const EVENT_STATES: Record<string, (s: StripeSession) => ChargeState> = {
   'checkout.session.expired': () => 'expired',
 };
 
+/** The embedded card flow's own event types — a direct `PaymentIntent`, never a Checkout Session. */
+const PAYMENT_INTENT_EVENT_STATES: Record<string, ChargeState> = {
+  'payment_intent.succeeded': 'paid',
+  'payment_intent.payment_failed': 'failed',
+  'payment_intent.canceled': 'failed',
+};
+
 export class StripeGateway implements PaymentGateway {
   readonly name = 'stripe';
   readonly supportedMethods: readonly GatewayMethod[];
@@ -240,11 +275,22 @@ export class StripeGateway implements PaymentGateway {
   }
 
   async createCharge(input: CreateChargeInput): Promise<ChargeCreated> {
-    if (!input.returnUrl || !input.cancelUrl) {
-      throw new GatewayError('Stripe Checkout needs returnUrl and cancelUrl', this.name, false);
-    }
     if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
       throw new GatewayError(`Invalid amount ${input.amountCents}`, this.name, false);
+    }
+    if (!this.supportedMethods.includes(input.method)) {
+      throw new GatewayError(`Stripe does not have ${input.method} enabled`, this.name, false);
+    }
+
+    // Card never redirects (see this file's own doc comment), so it needs
+    // neither a return/cancel URL nor any of hosted Checkout's session
+    // machinery below.
+    if (input.method === 'card') {
+      return this.createCardIntentCharge(input);
+    }
+
+    if (!input.returnUrl || !input.cancelUrl) {
+      throw new GatewayError('Stripe Checkout needs returnUrl and cancelUrl', this.name, false);
     }
 
     const minutes = Math.min(
@@ -257,18 +303,11 @@ export class StripeGateway implements PaymentGateway {
 
     const metadata = { order_id: input.orderId, order_number: input.orderNumber };
     // One Checkout Session offers exactly the method the customer picked, not
-    // every enabled method bundled together — a customer who tapped "Tarjeta"
+    // every enabled method bundled together — a customer who tapped "OXXO"
     // should not land on a Stripe page that also offers to redirect them into
-    // OXXO or a bank transfer. `input.method` is what they picked; whether
-    // it's actually turned on for this account is `this.supportedMethods`.
-    const requestedMethod: StripeMethod | undefined =
-      input.method === 'card' || input.method === 'oxxo' || input.method === 'spei'
-        ? input.method
-        : undefined;
-    if (!requestedMethod || !this.supportedMethods.includes(requestedMethod)) {
-      throw new GatewayError(`Stripe does not have ${input.method} enabled`, this.name, false);
-    }
-    const methods: StripeMethod[] = [requestedMethod];
+    // a bank transfer instead. Card already branched off above, and the
+    // method-is-enabled check already happened at the top of this function.
+    const methods: StripeMethod[] = [input.method as 'oxxo' | 'spei'];
 
     const paymentMethodOptions: Record<string, unknown> = {};
     if (methods.includes('oxxo')) {
@@ -381,6 +420,72 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
+  /**
+   * Card, embedded — a `PaymentIntent` the browser's Payment Element confirms
+   * directly with Stripe. `allow_redirects: 'never'` is deliberate: card,
+   * Apple Pay, Google Pay and Link all confirm without ever leaving this
+   * page, and forbidding redirects outright guarantees none of them silently
+   * fall back to one — the exact "white screen" risk the client asked to
+   * avoid this time, see this file's own doc comment.
+   *
+   * `excluded_payment_method_types: ['oxxo']` is NOT redundant with
+   * `allow_redirects: 'never'` — confirmed live in Stripe's own sandbox
+   * 2026-11-26: OXXO is a voucher, not a redirect, by Stripe's own
+   * classification, so it kept appearing as a selectable method on THIS
+   * card PaymentIntent even with redirects forbidden. OXXO is its own
+   * separate, manual button in this checkout (never this one) — see
+   * checkout.tsx's own 4-button design — so it must be excluded explicitly,
+   * not assumed away by the redirect setting. Wallets (Apple Pay/Google
+   * Pay/Link) cannot be excluded this same way and don't need to be: they
+   * ride on `card`, Stripe's own API rejects trying to exclude them here.
+   */
+  private async createCardIntentCharge(input: CreateChargeInput): Promise<ChargeCreated> {
+    const metadata = { order_id: input.orderId, order_number: input.orderNumber };
+    const params: Record<string, unknown> = {
+      amount: input.amountCents,
+      currency: 'mxn',
+      description: `${input.orderNumber} · ${input.description}`,
+      metadata,
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+      excluded_payment_method_types: ['oxxo'],
+      ...(input.customerEmail ? { receipt_email: input.customerEmail } : {}),
+    };
+
+    // Same idempotent-retry dance as the Checkout Session above — a resumed
+    // order or a double-tapped button must reuse the same intent, not mint a
+    // second charge, but a genuinely new attempt (seconds or minutes later)
+    // must not be rejected outright either.
+    let intent: StripeDirectPaymentIntent;
+    try {
+      intent = await this.request<StripeDirectPaymentIntent>('POST', '/payment_intents', params, {
+        idempotencyKey: `levelup-pi-${input.orderId}`,
+      });
+    } catch (err) {
+      if (err instanceof StripeApiError && err.status === 400 && /idempotent requests/i.test(err.message)) {
+        intent = await this.request<StripeDirectPaymentIntent>('POST', '/payment_intents', params, {
+          idempotencyKey: `levelup-pi-${input.orderId}-${this.now()}`,
+        });
+      } else {
+        throw err;
+      }
+    }
+
+    if (!intent.client_secret) {
+      throw new GatewayError(`PaymentIntent ${intent.id} came back without a client secret`, this.name, true);
+    }
+
+    return {
+      gateway: this.name,
+      gatewayChargeId: intent.id,
+      amountCents: intent.amount ?? input.amountCents,
+      instructions: { kind: 'stripe_elements', clientSecret: intent.client_secret },
+      // No fixed expiry the way a Checkout Session has one — same convention
+      // Mercado Pago's embedded card flow already uses: nothing to set here,
+      // the order's own deadline stands on its own.
+      expiresAt: null,
+    };
+  }
+
   // Genuinely synchronous internally — Stripe's webhook body already carries
   // everything needed. `async` only to satisfy the shared interface, which
   // Mercado Pago's implementation needs for real.
@@ -406,6 +511,33 @@ export class StripeGateway implements PaymentGateway {
     }
 
     if (!event.id || !event.type) return { ok: false, reason: 'malformed_payload' };
+
+    if (event.type in PAYMENT_INTENT_EVENT_STATES) {
+      const intent = event.data?.object;
+      if (!intent?.id || intent.object !== 'payment_intent') {
+        return { ok: false, reason: 'malformed_payload' };
+      }
+      if (intent.currency && intent.currency.toLowerCase() !== 'mxn') {
+        return { ok: false, reason: 'malformed_payload' };
+      }
+
+      const piState = PAYMENT_INTENT_EVENT_STATES[event.type]!;
+      const verifiedIntentEvent: PaymentEvent = {
+        eventId: event.id,
+        type: event.type,
+        gatewayChargeId: intent.id,
+        state: piState,
+        amountReceivedCents: piState === 'paid' ? (intent.amount_received ?? intent.amount ?? null) : null,
+        reference: intent.id,
+        // Cheap insurance against the exact race `applyGatewayReport`'s own
+        // self-heal was widened for (2026-11-26) — this flow is new, so
+        // there's no reason to leave it without the same fallback.
+        orderNumber: intent.metadata?.order_number ?? null,
+        occurredAt: new Date((event.created ?? Math.floor(this.now() / 1000)) * 1000),
+        raw: event,
+      };
+      return { ok: true, event: verifiedIntentEvent };
+    }
 
     const toState = EVENT_STATES[event.type];
     // Authentic but not something we act on. The caller acknowledges it so
@@ -440,6 +572,14 @@ export class StripeGateway implements PaymentGateway {
   }
 
   async getCharge(gatewayChargeId: string): Promise<ChargeSnapshot | null> {
+    // A direct PaymentIntent id (the embedded card flow's own) vs. a
+    // Checkout Session id (`cs_...`, OXXO/SPEI) — Stripe's own id prefixes
+    // are the one reliable way to tell which shape to ask for, since this
+    // method takes nothing else that would say so.
+    if (gatewayChargeId.startsWith('pi_')) {
+      return this.getCardIntentCharge(gatewayChargeId);
+    }
+
     let session: StripeSession;
     try {
       session = await this.request<StripeSession>(
@@ -460,6 +600,30 @@ export class StripeGateway implements PaymentGateway {
       reference: paymentIntentId(session),
       voucherUrl: voucherUrl(session),
       bankTransfer: bankTransferDetails(session),
+    };
+  }
+
+  private async getCardIntentCharge(gatewayChargeId: string): Promise<ChargeSnapshot | null> {
+    let intent: StripeDirectPaymentIntent;
+    try {
+      intent = await this.request<StripeDirectPaymentIntent>(
+        'GET',
+        `/payment_intents/${encodeURIComponent(gatewayChargeId)}`,
+      );
+    } catch (err) {
+      if (err instanceof StripeNotFound) return null;
+      throw err;
+    }
+
+    const state = intentState(intent.status);
+    return {
+      gatewayChargeId: intent.id,
+      state,
+      amountReceivedCents: state === 'paid' ? (intent.amount_received ?? intent.amount ?? null) : null,
+      paidAt: null,
+      reference: intent.id,
+      voucherUrl: null,
+      bankTransfer: null,
     };
   }
 

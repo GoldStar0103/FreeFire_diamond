@@ -17,6 +17,8 @@
     "@levelup/rocketpass": "workspace:*",
     "@levelup/shared": "workspace:*",
     "@mercadopago/sdk-react": "0.0.21",
+    "@stripe/react-stripe-js": "^2.9.0",
+    "@stripe/stripe-js": "^4.10.0",
     "drizzle-orm": "^0.36.0",
     "next": "^15.0.3",
     "react": "^18.3.1",

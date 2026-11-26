@@ -1,19 +1,25 @@
 /**
- * OXXO and/or SPEI through Mercado Pago, as the storefront sees them.
+ * Card (Checkout Pro), OXXO and/or SPEI through Mercado Pago, as the
+ * storefront sees them.
  *
- * Card always stays on Stripe. OXXO and SPEI each moved here independently
- * (on different dates) for the same reason: Stripe's own Mexico local-payment
- * settlement (via PPRO) proved unreliable in production — real vouchers and
- * real transfers, really paid, sometimes taking most of a day (or, for SPEI,
- * longer) to report back (confirmed with Stripe support, see
- * stuck-payments.ts). `MERCADOPAGO_OXXO`/`MERCADOPAGO_SPEI` are independent
- * flags for exactly this reason: the client has already said either one might
- * move back to Stripe on its own if Mercado Pago turns out no better — that
- * should be an env-flag flip on both sides, not a redeploy of this file.
+ * OXXO and SPEI moved here independently (on different dates) for the same
+ * reason: Stripe's own Mexico local-payment settlement (via PPRO) proved
+ * unreliable in production — real vouchers and real transfers, really paid,
+ * sometimes taking most of a day (or, for SPEI, longer) to report back
+ * (confirmed with Stripe support, see stuck-payments.ts). Card joined them
+ * 2026-11-26, as a second, explicit checkout option next to Stripe's own
+ * card flow (`MERCADOPAGO_CARD_CHECKOUTPRO`, deliberately a different flag
+ * from `MERCADOPAGO_CARD`, which names the dormant embedded-Orders-API card
+ * flow in `lib/mercadopago-embedded.ts` — that one was declining ~80% of
+ * real cards and is being turned off, not reused, for card).
+ * `MERCADOPAGO_OXXO`/`MERCADOPAGO_SPEI`/`MERCADOPAGO_CARD_CHECKOUTPRO` are
+ * independent flags for exactly this reason: any one of them can move back
+ * to Stripe on its own if Mercado Pago turns out no better — that should be
+ * an env-flag flip on both sides, not a redeploy of this file.
  *
  * Off unless both keys are set — same rule as Stripe: a half-configured
  * Mercado Pago must not replace the manual comprobante flow, it simply does
- * not appear. With keys set but neither method flag on, it is equivalent to
+ * not appear. With keys set but no method flag on, it is equivalent to
  * being unconfigured.
  */
 
@@ -35,9 +41,10 @@ function build(): MercadoPagoGateway | null {
   const webhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim();
   if (!accessToken || !webhookSecret) return null;
 
-  const methods: Extract<GatewayMethod, 'oxxo' | 'spei'>[] = [];
+  const methods: Extract<GatewayMethod, 'oxxo' | 'spei' | 'card'>[] = [];
   if (flag(process.env.MERCADOPAGO_OXXO)) methods.push('oxxo');
   if (flag(process.env.MERCADOPAGO_SPEI)) methods.push('spei');
+  if (flag(process.env.MERCADOPAGO_CARD_CHECKOUTPRO)) methods.push('card');
   if (methods.length === 0) return null;
 
   return new MercadoPagoGateway({

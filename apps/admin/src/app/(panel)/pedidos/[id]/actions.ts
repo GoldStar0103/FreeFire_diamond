@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { applyReviewAction, approvePayment, type ReviewAction, type ReviewFailureCode } from '@levelup/engine';
 import { GatewayError, type ChargeState } from '@levelup/payments';
 import {
+  attachGatewayCharge,
   DrizzlePaymentStore,
   DrizzleReviewStore,
   overrideOrderLp,
@@ -442,5 +443,166 @@ export async function checkMercadoPagoReference(
       orderNumber: snapshot.orderNumber,
       voucherUrl: snapshot.voucherUrl ?? null,
     },
+  };
+}
+
+export interface RelinkState {
+  ok?: string;
+  error?: string;
+}
+
+/**
+ * Manually re-link this order's payment to a real Mercado Pago charge, and
+ * approve it if Mercado Pago says it's paid — the panel-side fix for
+ * Jose's "some SPEI payments don't link to the correct order" report,
+ * 2026-11-26.
+ *
+ * Root cause (see `applyGatewayReport`'s own doc comment in apps/web): two
+ * near-simultaneous charge attempts on the same resumable order can leave
+ * the *losing* one's real Mercado Pago charge with no local link at all.
+ * Most of those now self-heal automatically once the gateway's own report
+ * arrives — but only while this order is still `pending`; one that already
+ * expired before the report showed up needs a human, which is what this is
+ * for.
+ *
+ * Deliberately conservative: `attachGatewayCharge` itself refuses to touch
+ * an order whose payment already moved on (paid/expired/etc — see its own
+ * `pending`-only guard in gateway-payments.ts), so this can only ever
+ * re-link an order genuinely still awaiting payment. An order that already
+ * expired needs a case-by-case decision, not a button — not handled here.
+ *
+ * Checked against Mercado Pago's own `external_reference` before touching
+ * anything, same discipline as `checkMercadoPagoReference` above: a typo'd
+ * reference, or one that is genuinely a different order's receipt, is
+ * refused rather than silently attached to whatever order happens to be
+ * open.
+ */
+export async function relinkMercadoPagoPayment(_prev: RelinkState, formData: FormData): Promise<RelinkState> {
+  const session = await requireSession();
+
+  const orderId = String(formData.get('orderId') ?? '');
+  const orderNumber = String(formData.get('orderNumber') ?? '').trim();
+  const isEmbedded = String(formData.get('gatewayName') ?? '') === 'mercadopago-embedded';
+  const reference = String(formData.get('reference') ?? '').trim();
+  if (!orderId || !orderNumber) return { error: 'Falta el pedido.' };
+  if (!reference) {
+    return {
+      error: isEmbedded
+        ? 'Falta el id del pedido en Mercado Pago.'
+        : 'Falta la referencia (id) del pago en Mercado Pago.',
+    };
+  }
+
+  /** Normalized across both adapters' differently-shaped snapshots — see the branches below. */
+  let found: { state: ChargeState; amountReceivedCents: number | null; reference: string | null; orderNumber: string | null };
+  try {
+    if (isEmbedded) {
+      const gateway = getMercadoPagoEmbedded();
+      if (!gateway) return { error: 'Mercado Pago no está configurado en este servidor.' };
+      // The embedded Orders API's own `getCharge` already takes a raw
+      // charge id directly (unlike Checkout Pro's, see the other branch) —
+      // exactly the id the admin pastes here.
+      const snapshot = await gateway.getCharge(reference);
+      if (!snapshot) return { error: 'Mercado Pago no tiene ningún pago con esa referencia.' };
+      found = {
+        state: snapshot.state,
+        amountReceivedCents: snapshot.amountReceivedCents,
+        reference: snapshot.reference ?? null,
+        orderNumber: snapshot.orderNumber ?? null,
+      };
+    } else {
+      const gateway = getMercadoPago();
+      if (!gateway) return { error: 'Mercado Pago no está configurado en este servidor.' };
+      // Checkout Pro's own `getCharge` takes the ORDER NUMBER, not a raw
+      // payment reference (its `gatewayChargeId` convention — see
+      // mercadopago.ts) — `getPaymentById` is the one method that actually
+      // takes what the admin has in hand here. Its own snapshot carries the
+      // payment id as `paymentId`, not `reference` — normalized below.
+      const snapshot = await gateway.getPaymentById(reference);
+      if (!snapshot) return { error: 'Mercado Pago no tiene ningún pago con esa referencia.' };
+      found = {
+        state: snapshot.state,
+        amountReceivedCents: snapshot.amountReceivedCents,
+        reference: snapshot.paymentId,
+        orderNumber: snapshot.orderNumber ?? null,
+      };
+    }
+  } catch (err) {
+    return {
+      error:
+        err instanceof GatewayError
+          ? `Mercado Pago no respondió: ${err.message}`
+          : 'No se pudo contactar a Mercado Pago. Intenta de nuevo.',
+    };
+  }
+
+  if (found.orderNumber !== orderNumber) {
+    return {
+      error: found.orderNumber
+        ? `Esa referencia pertenece al pedido ${found.orderNumber}, no a este. Ábrelo ahí en vez de aquí.`
+        : 'Esa referencia de Mercado Pago no está asociada a ningún pedido.',
+    };
+  }
+
+  // Checkout Pro's own `gatewayChargeId` convention is the order number
+  // itself (a Preference is closed the instant it's created — see
+  // mercadopago.ts's own comment); the embedded Orders API's is the real id
+  // just looked up above.
+  const gatewayName = isEmbedded ? 'mercadopago-embedded' : 'mercadopago';
+  const gatewayChargeId = isEmbedded ? reference : orderNumber;
+
+  const attached = await attachGatewayCharge(getDb(), {
+    orderId,
+    gateway: gatewayName,
+    gatewayChargeId,
+    expiresAt: null,
+  });
+  if (!attached) {
+    return {
+      error: 'Este pedido ya no está esperando pago (venció o ya se resolvió) — no se puede re-vincular aquí. Revisa su estado.',
+    };
+  }
+
+  if (found.state !== 'paid') {
+    revalidatePath(`/pedidos/${orderId}`);
+    return {
+      ok: `Vinculado. Mercado Pago todavía no confirma el pago (estado: ${found.state}) — se completará solo cuando se confirme.`,
+    };
+  }
+
+  const result = await approvePayment(
+    { store: new DrizzlePaymentStore(getDb()) },
+    {
+      orderId,
+      adminUserId: session.adminUserId,
+      ...(found.amountReceivedCents !== null ? { amountReceivedCents: found.amountReceivedCents } : {}),
+      reference: found.reference,
+    },
+  );
+
+  if (!result.ok) {
+    // Deliberately NOT `acceptMismatch: true` above, unlike `releasePayment`
+    // — Mercado Pago's own reported amount is real confirmation, not a
+    // human's guess, so a genuine mismatch here is worth surfacing plainly
+    // rather than forcing through.
+    const explain: Partial<Record<string, string>> = {
+      ...EXPLAIN_RELEASE,
+      AMOUNT_MISMATCH:
+        'Vinculado, pero el monto que reporta Mercado Pago no coincide con el del pedido. Revísalo a mano antes de liberar la recarga.',
+      PAYMENT_EXPIRED:
+        'Vinculado, pero el plazo de este pedido ya venció. Revísalo a mano (ej. "Liberar recarga") antes de continuar.',
+    };
+    return { error: explain[result.failure.code] ?? result.failure.message };
+  }
+
+  revalidatePath(`/pedidos/${orderId}`);
+  revalidatePath('/pedidos');
+  revalidatePath('/aprobaciones');
+  revalidatePath('/');
+
+  return {
+    ok: result.alreadyApproved
+      ? `${result.orderNumber} ya estaba confirmado.`
+      : `${result.orderNumber} vinculado y confirmado — la recarga se está procesando.`,
   };
 }

@@ -3,11 +3,13 @@
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  payWithCard,
+  confirmStripeCardPayment,
   payWithMercadoPagoCard,
+  payWithMercadoPagoCardCheckoutPro,
   payWithMercadoPagoOxxo,
   payWithMercadoPagoSpei,
   payWithMercadoPagoSpeiEmbedded,
+  payWithStripeCard,
   payWithStripeOxxo,
   payWithStripeSpei,
   placeOrder,
@@ -17,6 +19,7 @@ import {
   type ValidateState,
 } from './actions';
 import { CardPaymentBrick } from './card-payment-brick';
+import { StripePaymentElement } from './stripe-payment-element';
 import { setPixelUserData, trackPixel } from '../../../lib/pixel';
 import { GatewayTabNotice, useStripeTabRedirect } from '../../../lib/gateway-tab-redirect';
 import { getMercadoPagoDeviceSessionId, loadMercadoPagoSecurity } from '../../../lib/mercadopago-device';
@@ -42,8 +45,10 @@ interface Props {
   publicPrice?: string | null;
   /** Null when nobody has configured where the money goes. */
   payTo: PayTo | null;
-  /** Stripe is configured for card. */
+  /** Stripe is configured for card — its own explicit "Tarjeta" button, embedded (Payment Element), never a redirect. */
   cardEnabled: boolean;
+  /** Stripe's publishable (non-secret) key for the Payment Element — null means the card button can't render even if `cardEnabled` is true. */
+  stripePublishableKey: string | null;
   /**
    * Stripe is configured for OXXO — the "Depósito OXXO" box redirects
    * straight to Stripe's own OXXO reference instead of the manual one below.
@@ -68,11 +73,18 @@ interface Props {
    */
   mercadoPagoSpeiEnabled: boolean;
   /**
+   * Mercado Pago's hosted Checkout Pro is configured for card — its own
+   * explicit "Mercado Pago" button, always shown next to Stripe's "Tarjeta"
+   * one, not a fallback for it (see mercadopago.ts's own doc comment).
+   * Still wins over the dormant embedded Orders-API card flow below in case
+   * that one is somehow still on too — see that prop's own comment.
+   */
+  mercadoPagoCardCheckoutProEnabled: boolean;
+  /**
    * Mercado Pago's embedded Checkout (Orders API) is configured for card —
-   * takes priority over Stripe's card whenever it's on, per the client's own
-   * instruction to move card off Stripe. Stripe stays wired as a dormant
-   * fallback (see lib/stripe.ts) until this has run a full billing cycle
-   * with no rollback needed.
+   * dormant as of 2026-11-26 (see lib/mercadopago-embedded.ts), kept wired
+   * rather than deleted. Only still used if, for some reason, Checkout Pro's
+   * card flag above is off and this one is somehow still on.
    */
   mercadoPagoCardEnabled: boolean;
   /**
@@ -98,9 +110,13 @@ interface Props {
  * `oxxo` both submit as the same backend `transfer_manual` order — see
  * schema.ts's own comment on that enum value — this is a display distinction
  * for the two account numbers a customer might send money to, not two
- * different payment integrations.
+ * different payment integrations. `tarjeta-stripe` and `tarjeta-mp` ARE two
+ * different integrations (Stripe's own embedded card vs. whichever Mercado
+ * Pago card flow is live) — the client's own ask, 2026-11-26, is that both
+ * show as separate, always-visible buttons, never one ladder that silently
+ * picks between them.
  */
-type PayView = 'choose' | 'tarjeta' | 'transferencia' | 'oxxo';
+type PayView = 'choose' | 'tarjeta-stripe' | 'tarjeta-mp' | 'transferencia' | 'oxxo';
 type Step = 'datos' | 'pago' | 'confirmacion';
 
 const STEPS: { key: Step; label: string }[] = [
@@ -235,10 +251,12 @@ export function Checkout({
   publicPrice = null,
   payTo,
   cardEnabled,
+  stripePublishableKey,
   cardIncludesOxxo,
   cardIncludesSpei,
   mercadoPagoOxxoEnabled,
   mercadoPagoSpeiEnabled,
+  mercadoPagoCardCheckoutProEnabled,
   mercadoPagoCardEnabled,
   mercadoPagoSpeiEmbeddedEnabled,
   mercadoPagoPublicKey,
@@ -254,10 +272,6 @@ export function Checkout({
   );
   const [transfer, transferAction, placing] = useActionState<CheckoutState, FormData>(
     placeOrder,
-    {},
-  );
-  const [card, cardAction, redirecting] = useActionState<CheckoutState, FormData>(
-    payWithCard,
     {},
   );
   const [stripeOxxo, stripeOxxoAction, oxxoRedirecting] = useActionState<CheckoutState, FormData>(
@@ -276,15 +290,19 @@ export function Checkout({
     payWithMercadoPagoSpei,
     {},
   );
+  const [mpCard, mpCardAction, mpCardRedirecting] = useActionState<CheckoutState, FormData>(
+    payWithMercadoPagoCardCheckoutPro,
+    {},
+  );
   const [mpSpeiEmbedded, mpSpeiEmbeddedAction, mpSpeiEmbeddedProcessing] = useActionState<
     EmbeddedCheckoutState,
     FormData
   >(payWithMercadoPagoSpeiEmbedded, {});
-  const openCardTab = useStripeTabRedirect(card);
   const openOxxoTab = useStripeTabRedirect(stripeOxxo);
   const openSpeiTab = useStripeTabRedirect(stripeSpei);
   const openMpOxxoTab = useStripeTabRedirect(mpOxxo);
   const openMpSpeiTab = useStripeTabRedirect(mpSpei);
+  const openMpCardTab = useStripeTabRedirect(mpCard);
   const [step, setStep] = useState<Step>('datos');
   const router = useRouter();
 
@@ -327,6 +345,25 @@ export function Checkout({
     }
   }, [mpCardSubmitting, mpCardResult]);
 
+  // Stripe's embedded card (Payment Element) — same two-phase shape as the
+  // Mercado Pago Brick above, but genuinely two server round trips, not one:
+  // `payWithStripeCard` only gets as far as a `clientSecret` (Stripe's own
+  // JS confirms the charge in the browser, see stripe-payment-element.tsx),
+  // and `confirmStripeCardPayment` reports what that confirmation actually
+  // decided once it resolves.
+  const [stripeWhatsapp, setStripeWhatsapp] = useState('');
+  const stripeWhatsappRef = useRef(stripeWhatsapp);
+  stripeWhatsappRef.current = stripeWhatsapp;
+  const [stripeStarting, setStripeStarting] = useState(false);
+  const [stripeSession, setStripeSession] = useState<{
+    clientSecret: string;
+    gatewayChargeId: string;
+    orderNumber: string;
+  } | null>(null);
+  const [stripeStartError, setStripeStartError] = useState<string | null>(null);
+  const [stripeConfirmError, setStripeConfirmError] = useState<string | null>(null);
+  const [stripeConfirming, setStripeConfirming] = useState(false);
+
   // The embedded SPEI form has no Brick on screen to collect the device id
   // automatically — read it fresh right before submit instead of baking a
   // possibly-stale value into the hidden input at render time.
@@ -367,16 +404,23 @@ export function Checkout({
         : cardIncludesSpei
           ? 'stripe'
           : null;
-  // Embedded Mercado Pago wins over Stripe for card, per the client's ask —
-  // but only once a public key is actually configured, since there is
-  // nothing to render the Brick with otherwise.
-  const cardAutomatic: 'mercadopago' | 'stripe' | null =
-    mercadoPagoCardEnabled && mercadoPagoPublicKey ? 'mercadopago' : cardEnabled ? 'stripe' : null;
+  // Card is no longer one ladder with Stripe as the fallback rung — the
+  // client's own ask, 2026-11-26, is two always-visible buttons: Stripe's
+  // own embedded card, and whichever Mercado Pago card integration is live
+  // (Checkout Pro winning over the dormant embedded Orders-API one, same
+  // reason as before — that one was declining ~80% of real cards).
+  const stripeCardOption = cardEnabled && Boolean(stripePublishableKey);
+  const mpCardKind: 'mercadopago-checkoutpro' | 'mercadopago-embedded' | null =
+    mercadoPagoCardCheckoutProEnabled
+      ? 'mercadopago-checkoutpro'
+      : mercadoPagoCardEnabled && mercadoPagoPublicKey
+        ? 'mercadopago-embedded'
+        : null;
+  const mpCardOption = mpCardKind !== null;
 
-  const cardOption = cardAutomatic !== null;
   const transferOption = transferAutomatic !== null || manualTransfer;
   const oxxoOption = oxxoAutomatic !== null || manualOxxo;
-  const optionCount = [cardOption, transferOption, oxxoOption].filter(Boolean).length;
+  const optionCount = [stripeCardOption, mpCardOption, transferOption, oxxoOption].filter(Boolean).length;
   const noPaymentConfigured = optionCount === 0;
 
   // Always shows the comparison screen, even with exactly one method
@@ -413,7 +457,77 @@ export function Checkout({
   };
 
   const methodLabel =
-    payView === 'tarjeta' ? 'Tarjeta' : payView === 'oxxo' ? 'Depósito OXXO' : 'Transferencia bancaria';
+    payView === 'tarjeta-stripe'
+      ? 'Tarjeta'
+      : payView === 'tarjeta-mp'
+        ? 'Mercado Pago'
+        : payView === 'oxxo'
+          ? 'Depósito OXXO'
+          : 'Transferencia bancaria';
+  const isCardView = payView === 'tarjeta-stripe' || payView === 'tarjeta-mp';
+
+  // Stripe's embedded Payment Element has no `<form>` of its own to submit —
+  // `onClick` on the "Continuar" button starts the charge directly instead,
+  // so AddPaymentInfo fires there (see `startStripeCard` below) rather than
+  // from a form's `onSubmit` the way every other method fires it.
+  const startStripeCard = async () => {
+    setStripeStarting(true);
+    setStripeStartError(null);
+
+    const whatsapp = stripeWhatsappRef.current.trim();
+    setPixelUserData({ whatsapp });
+    trackPixel('AddPaymentInfo', pixel);
+
+    const fd = new FormData();
+    fd.set('comboKey', comboKey);
+    fd.set('playerId', validation.playerId ?? '');
+    if (vaultOfferId) fd.set('vaultOfferId', vaultOfferId);
+    fd.set('whatsapp', whatsapp);
+
+    const result = await payWithStripeCard({}, fd);
+    setStripeStarting(false);
+
+    if (result.error || !result.clientSecret || !result.gatewayChargeId || !result.orderNumber) {
+      setStripeStartError(result.error ?? 'No pudimos abrir el pago con tarjeta. Intenta de nuevo.');
+      return;
+    }
+    setStripeSession({
+      clientSecret: result.clientSecret,
+      gatewayChargeId: result.gatewayChargeId,
+      orderNumber: result.orderNumber,
+    });
+  };
+
+  const handleStripeConfirmed = async (_status: string) => {
+    if (!stripeSession) return;
+    setStripeConfirming(true);
+    setStripeConfirmError(null);
+
+    const fd = new FormData();
+    fd.set('gatewayChargeId', stripeSession.gatewayChargeId);
+    fd.set('orderNumber', stripeSession.orderNumber);
+    fd.set('playerId', validation.playerId ?? '');
+
+    const result = await confirmStripeCardPayment({}, fd);
+    setStripeConfirming(false);
+
+    if (result.error) {
+      setStripeConfirmError(result.error);
+      return;
+    }
+    // Purchase fires on the order page (live.tsx's PurchasePixel), not here —
+    // same reasoning as the Mercado Pago Brick flow above: no eventId here
+    // would double-count the one event ad spend is actually optimised
+    // against.
+    router.push(result.orderPageUrl ?? '/');
+  };
+
+  const handleStripeError = (message: string) => {
+    // A client-side decline (Stripe's own `error.message`) — the Payment
+    // Element stays mounted and usable for a different card, same as a
+    // decline on the Mercado Pago Brick above.
+    setStripeConfirmError(message);
+  };
 
   // The placeholder promises only what happens. Nothing messages the customer
   // automatically — the number reaches a person in the panel, who uses it if
@@ -574,11 +688,11 @@ export function Checkout({
                 <span className="n" aria-hidden="true">
                   2
                 </span>
-                {payView === 'tarjeta'
+                {isCardView
                   ? 'Paga tu recarga'
                   : `Datos para tu ${payView === 'oxxo' ? 'depósito' : 'transferencia'}`}
               </h2>
-              {payView !== 'tarjeta' && (
+              {!isCardView && (
                 <span className="badge-auto" style={{ marginBottom: 12 }}>
                   Recarga automática
                 </span>
@@ -616,7 +730,7 @@ export function Checkout({
           ) : payView === 'choose' ? (
             <>
               <div className="pagos">
-                {cardOption && (
+                {stripeCardOption && (
                   <PayOptionCard
                     tone="purple"
                     icon={CardIcon}
@@ -624,7 +738,18 @@ export function Checkout({
                     showAutoBadge={false}
                     features={['Pago instantáneo', 'Visa · Mastercard · Amex']}
                     ctaLabel="Pagar con tarjeta →"
-                    onClick={() => setPayView('tarjeta')}
+                    onClick={() => setPayView('tarjeta-stripe')}
+                  />
+                )}
+                {mpCardOption && (
+                  <PayOptionCard
+                    tone="purple"
+                    icon={CardIcon}
+                    title="Mercado Pago"
+                    showAutoBadge={false}
+                    features={['Pago instantáneo', 'Abre la app si la tienes instalada']}
+                    ctaLabel="Pagar con Mercado Pago →"
+                    onClick={() => setPayView('tarjeta-mp')}
                   />
                 )}
                 {transferOption &&
@@ -702,7 +827,7 @@ export function Checkout({
                 verificado.
               </p>
             </>
-          ) : payView === 'tarjeta' ? (
+          ) : isCardView ? (
             <>
               <div className="pay-box">
                 <div className="pay-row">
@@ -859,7 +984,7 @@ export function Checkout({
             </div>
           </div>
 
-          {payView === 'tarjeta' && cardAutomatic === 'mercadopago' && mercadoPagoPublicKey ? (
+          {payView === 'tarjeta-mp' && mpCardKind === 'mercadopago-embedded' && mercadoPagoPublicKey ? (
             <div>
               <label className="field">
                 <span>Tu WhatsApp</span>
@@ -1019,11 +1144,11 @@ export function Checkout({
                 🔒 Pagas directo con Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
               </p>
             </div>
-          ) : payView === 'tarjeta' ? (
+          ) : payView === 'tarjeta-mp' && mpCardKind === 'mercadopago-checkoutpro' ? (
             <form
-              action={cardAction}
+              action={mpCardAction}
               onSubmit={(e) => {
-                openCardTab();
+                openMpCardTab();
                 trackPaymentInfo(e.currentTarget);
               }}
             >
@@ -1031,19 +1156,63 @@ export function Checkout({
               <input type="hidden" name="playerId" value={validation.playerId ?? ''} />
               {vaultOfferId && <input type="hidden" name="vaultOfferId" value={vaultOfferId} />}
 
-              {whatsappField(redirecting)}
+              {whatsappField(mpCardRedirecting)}
 
-              <GatewayTabNotice provider="Stripe" />
+              <GatewayTabNotice provider="Mercado Pago" />
 
-              {card.error && <div className="alert bad">{card.error}</div>}
+              {mpCard.error && <div className="alert bad">{mpCard.error}</div>}
 
-              <button className="btn-primary" type="submit" disabled={redirecting}>
-                {redirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
+              <button className="btn-primary" type="submit" disabled={mpCardRedirecting}>
+                {mpCardRedirecting ? 'Abriendo pago seguro…' : `Confirmar pedido — ${price}`}
               </button>
               <p className="hint center">
-                🔒 Pagas en la página segura de Stripe. Nunca vemos ni guardamos tu tarjeta.
+                🔒 Pagas en la página segura de Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
               </p>
             </form>
+          ) : payView === 'tarjeta-stripe' ? (
+            <div>
+              <label className="field">
+                <span>Tu WhatsApp</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="Solo por si necesitamos contactarte"
+                  value={stripeWhatsapp}
+                  onChange={(e) => setStripeWhatsapp(e.target.value)}
+                  disabled={stripeStarting || stripeSession !== null}
+                  required
+                />
+              </label>
+
+              {stripeStartError && <div className="alert bad">{stripeStartError}</div>}
+              {stripeConfirmError && <div className="alert bad">{stripeConfirmError}</div>}
+              {stripeConfirming && (
+                <div className="alert warn">Confirmando tu pago… no cierres ni recargues esta página.</div>
+              )}
+
+              {stripeSession && stripePublishableKey ? (
+                <div style={stripeConfirming ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
+                  <StripePaymentElement
+                    publishableKey={stripePublishableKey}
+                    clientSecret={stripeSession.clientSecret}
+                    submitLabel={`Confirmar pedido — ${price}`}
+                    disabled={stripeConfirming}
+                    onConfirmed={handleStripeConfirmed}
+                    onError={handleStripeError}
+                  />
+                </div>
+              ) : stripeWhatsapp.trim() ? (
+                <button className="btn-primary" type="button" disabled={stripeStarting} onClick={startStripeCard}>
+                  {stripeStarting ? 'Cargando…' : 'Continuar →'}
+                </button>
+              ) : (
+                <p className="hint center">Ingresa tu WhatsApp para continuar.</p>
+              )}
+
+              <p className="hint center">
+                🔒 Pagas directo con Stripe. Nunca vemos ni guardamos tu tarjeta.
+              </p>
+            </div>
           ) : payView === 'oxxo' && oxxoAutomatic === 'mercadopago' ? (
             <form
               action={mpOxxoAction}

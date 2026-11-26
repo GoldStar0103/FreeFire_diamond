@@ -13,7 +13,7 @@ import {
 import { createOrder, rejectPayment, type CreateOrderFailure, type CreateOrderInput } from '@levelup/engine';
 import { validateUpload } from '@levelup/shared';
 import { ValidationUnsupportedError } from '@levelup/provider';
-import type { PaymentGateway, PaymentInstructions } from '@levelup/payments';
+import type { ChargeState, PaymentGateway, PaymentInstructions } from '@levelup/payments';
 import { diamonds, mxn } from '../../../lib/format';
 import {
   callerIp,
@@ -27,7 +27,7 @@ import { validationProductId } from '../../../lib/player-validation';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
 import { storeComprobante } from '../../../lib/storage';
-import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
+import { applyStripeReport, getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
 import { applyMercadoPagoEmbeddedReport, getMercadoPagoEmbedded, MERCADOPAGO_EMBEDDED } from '../../../lib/mercadopago-embedded';
 import { notifyOps } from '../../../lib/ops';
@@ -144,8 +144,8 @@ export interface CheckoutState {
 type ConfirmResult = { ok: true; nickname: string | null } | { ok: false; message: string };
 
 /**
- * `placeOrder` and `payWithCard` are public POST endpoints in their own
- * right — `payWithCard` reaches this with nothing but a combo key and a
+ * `placeOrder` and every `payWith*` action are public POST endpoints in
+ * their own right — each reaches this with nothing but a combo key and a
  * player ID, no comprobante, no prior step. Without its own check here,
  * `validatePlayer`'s rate limit only ever throttled the UI's own step 1;
  * this call hits the exact same provider lookup and was reachable at any
@@ -550,10 +550,6 @@ async function payWithStripeMethod(
   return payWithGatewayMethod(gateway, STRIPE, method, copy, formData);
 }
 
-export async function payWithCard(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
-  return payWithStripeMethod('card', formData);
-}
-
 export async function payWithStripeOxxo(_prev: CheckoutState, formData: FormData): Promise<CheckoutState> {
   return payWithStripeMethod('oxxo', formData);
 }
@@ -590,6 +586,30 @@ export async function payWithMercadoPagoSpei(
   const gateway = getMercadoPago();
   if (!gateway) return { error: MERCADOPAGO_SPEI_COPY.unavailable };
   return payWithGatewayMethod(gateway, MERCADOPAGO, 'spei', MERCADOPAGO_SPEI_COPY, formData);
+}
+
+const MERCADOPAGO_CARD_COPY = {
+  unavailable: 'El pago con tarjeta por Mercado Pago no está disponible en este momento. Usa otra opción.',
+  openFailed: 'No pudimos abrir el pago con tarjeta por Mercado Pago. Intenta de nuevo o usa otra opción.',
+  verb: 'card',
+};
+
+/**
+ * Card through Mercado Pago's hosted Checkout Pro — a distinct button next
+ * to Stripe's own card checkout, not a fallback for it. See mercadopago.ts's
+ * own doc comment for why this exists alongside Stripe instead of replacing
+ * it (the embedded Orders-API card flow it's standing in for was declining
+ * ~80% of real cards).
+ */
+export async function payWithMercadoPagoCardCheckoutPro(
+  _prev: CheckoutState,
+  formData: FormData,
+): Promise<CheckoutState> {
+  const gateway = getMercadoPago();
+  if (!gateway || !gateway.supportedMethods.includes('card')) {
+    return { error: MERCADOPAGO_CARD_COPY.unavailable };
+  }
+  return payWithGatewayMethod(gateway, MERCADOPAGO, 'card', MERCADOPAGO_CARD_COPY, formData);
 }
 
 // ── step 2, through Mercado Pago's embedded Checkout (card, SPEI) ──────────────
@@ -883,6 +903,198 @@ export async function payWithMercadoPagoSpeiEmbedded(
   formData: FormData,
 ): Promise<EmbeddedCheckoutState> {
   return payWithEmbeddedMethod('spei', formData);
+}
+
+// ── step 2, through Stripe's embedded card (PaymentIntent/Payment Element) ─────
+
+export interface StripeCardCheckoutState {
+  error?: string;
+  clientSecret?: string;
+  gatewayChargeId?: string;
+  orderNumber?: string;
+  playerId?: string;
+  orderPageUrl?: string;
+}
+
+const STRIPE_CARD_COPY = {
+  unavailable: 'El pago con tarjeta no está disponible en este momento. Usa otra opción.',
+  openFailed: 'No pudimos abrir el pago con tarjeta. Intenta de nuevo o usa otra opción.',
+};
+
+/**
+ * Starts a card charge through Stripe's embedded flow — shares its order-
+ * reservation steps exactly with `payWithEmbeddedMethod` (re-confirm the
+ * player, resolve any Vault purchase, reuse a resumable order), but returns
+ * a `clientSecret` for the browser to mount a Payment Element with, not an
+ * already-known outcome: unlike Mercado Pago's Orders API, Stripe's own JS
+ * confirms the charge client-side (`stripe.confirmPayment`), so there is
+ * nothing to settle yet by the time this returns. The outcome comes back
+ * through `confirmStripeCardPayment` below, once the browser knows it.
+ *
+ * `createCharge` is itself idempotent per order (`levelup-pi-${orderId}`,
+ * see stripe.ts), so a resumed order simply gets the SAME PaymentIntent and
+ * client secret back — no separate "is there already a live charge" check
+ * needed the way the Mercado Pago embedded path has to do, since Stripe's
+ * idempotency replay (not a fresh charge under the same key) already is
+ * that check.
+ */
+export async function payWithStripeCard(
+  _prev: StripeCardCheckoutState,
+  formData: FormData,
+): Promise<StripeCardCheckoutState> {
+  const gateway = getStripe();
+  if (!gateway || !gateway.supportedMethods.includes('card')) {
+    return { error: STRIPE_CARD_COPY.unavailable };
+  }
+
+  const comboKey = String(formData.get('comboKey') ?? '');
+  const playerId = String(formData.get('playerId') ?? '').trim();
+  const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
+
+  const combo = await getStorefrontCombo(getDb(), comboKey);
+  if (!combo) return { error: 'Esta promoción ya no está disponible.' };
+  if (!whatsapp) {
+    return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
+  }
+
+  const rateDecision = paymentAttemptLimiter.check(await callerIp());
+  if (!rateDecision.allowed) {
+    return { error: `Demasiados intentos. Espera ${Math.ceil(rateDecision.retryAfterMs / 1000)} segundos.` };
+  }
+
+  const confirmed = await confirmPlayer(playerId);
+  if (!confirmed.ok) return { error: confirmed.message };
+
+  const vault = await resolveVaultPurchase(formData);
+  if (!vault.ok) return { error: vault.message };
+
+  const resumable = await findResumableOrder(getDb(), { playerId, comboKey });
+
+  let order: { id: string; orderNumber: string; priceMxnCents: number };
+  if (resumable) {
+    order = resumable;
+  } else {
+    const buyer = await getCustomerSession();
+    const created = await createOrder(
+      { store: new DrizzleOrderingStore(getDb()) },
+      {
+        comboKey,
+        playerId,
+        playerNickname: confirmed.nickname,
+        contactWhatsapp: whatsapp,
+        paymentMethod: 'card',
+        source: 'storefront',
+        tracking: await trackingContext(),
+        buyerProfileId: buyer?.playerProfileId ?? null,
+        ...(vault.vaultPurchase ? { vaultPurchase: vault.vaultPurchase } : {}),
+      },
+    );
+    if (!created.ok) return { error: explain(created.failure) };
+    order = created.order;
+  }
+
+  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
+
+  try {
+    const charge = await gateway.createCharge({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amountCents: order.priceMxnCents,
+      method: 'card',
+      description: `${combo.name} · ${diamonds(combo.advertisedDiamonds)} diamantes Free Fire`,
+      customerPhone: whatsapp,
+    });
+
+    if (charge.instructions.kind !== 'stripe_elements') {
+      throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+    }
+
+    const attached = await attachGatewayCharge(getDb(), {
+      orderId: order.id,
+      gateway: STRIPE,
+      gatewayChargeId: charge.gatewayChargeId,
+      expiresAt: null,
+      ...(resumable ? { method: 'card' as const } : {}),
+    });
+    if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    return {
+      clientSecret: charge.instructions.clientSecret,
+      gatewayChargeId: charge.gatewayChargeId,
+      orderNumber: order.orderNumber,
+      playerId,
+      orderPageUrl: orderPage,
+    };
+  } catch (err) {
+    console.error(`[checkout] ${order.orderNumber}: could not open a stripe/card (embedded) charge`, err);
+    if (!resumable) {
+      await rejectPayment(
+        { store: new DrizzlePaymentStore(getDb()) },
+        { orderId: order.id, adminUserId: null, reason: 'No se pudo abrir el pago (card)' },
+      ).catch((cancelErr: unknown) =>
+        console.error(`[checkout] ${order.orderNumber}: and could not cancel it`, cancelErr),
+      );
+    }
+    return { error: STRIPE_CARD_COPY.openFailed };
+  }
+}
+
+export interface StripeCardResultState {
+  error?: string;
+  state?: ChargeState;
+  orderPageUrl?: string;
+}
+
+/**
+ * Reports the outcome of the browser's own `stripe.confirmPayment` call —
+ * never trusts what the client says happened, re-asks Stripe directly via
+ * `getCharge` (same discipline `payWithEmbeddedMethod`'s callers already
+ * follow) and settles through the exact same `applyStripeReport` a webhook
+ * uses, so the webhook for this same charge (delivered moments later) lands
+ * as a no-op `already_approved`, not a second decision.
+ */
+export async function confirmStripeCardPayment(
+  _prev: StripeCardResultState,
+  formData: FormData,
+): Promise<StripeCardResultState> {
+  const gateway = getStripe();
+  if (!gateway) return { error: STRIPE_CARD_COPY.unavailable };
+
+  const gatewayChargeId = String(formData.get('gatewayChargeId') ?? '').trim();
+  const orderNumber = String(formData.get('orderNumber') ?? '').trim();
+  const playerId = String(formData.get('playerId') ?? '').trim();
+  if (!gatewayChargeId || !orderNumber) return { error: 'Falta información del pago.' };
+
+  const orderPageUrl = `/pedido/${orderNumber}?id=${encodeURIComponent(playerId)}`;
+
+  let snapshot;
+  try {
+    snapshot = await gateway.getCharge(gatewayChargeId);
+  } catch (err) {
+    // The order page already polls for this (pedido/[orderNumber]/live.tsx)
+    // and the webhook will get there regardless — showing the page matters
+    // more than a retry loop here.
+    console.error(`[checkout] ${orderNumber}: could not re-check a Stripe card result`, err);
+    return { orderPageUrl };
+  }
+  if (!snapshot) {
+    return { error: 'No pudimos confirmar tu pago. Intenta de nuevo o escríbenos por WhatsApp.' };
+  }
+
+  await applyStripeReport({
+    gatewayChargeId: snapshot.gatewayChargeId,
+    state: snapshot.state,
+    amountReceivedCents: snapshot.amountReceivedCents,
+    reference: snapshot.reference ?? null,
+    orderNumber,
+    voucherIssued: false,
+  });
+
+  if (snapshot.state === 'failed') {
+    return { error: 'Tu banco rechazó el pago. Revisa los datos de tu tarjeta o intenta con otra.' };
+  }
+
+  return { state: snapshot.state, orderPageUrl };
 }
 
 /**

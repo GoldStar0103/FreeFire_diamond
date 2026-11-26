@@ -76,20 +76,38 @@ export async function applyGatewayReport(
   const db = getDb();
   let payment = await findGatewayPayment(db, gateway, report.gatewayChargeId);
 
-  if (!payment) {
-    if (report.state !== 'paid') {
-      return { paymentId: null, orderNumber: null, settlement: null };
-    }
+  // Self-heal applies whenever there's something worth reconnecting: real
+  // money (`paid`), or a `pending` report that just issued a voucher/CLABE —
+  // the one with a real side effect below (extending the deadline) that must
+  // not silently get skipped. A bare "still processing" ping with nothing to
+  // do once found isn't worth the extra lookup.
+  const selfHealWorthy = report.state === 'paid' || (report.state === 'pending' && report.voucherIssued);
 
+  if (!payment && !selfHealWorthy) {
+    return { paymentId: null, orderNumber: null, settlement: null };
+  }
+
+  if (!payment) {
     // Our own write linking a freshly created charge to its order
     // (`attachGatewayCharge`) can fail or get overwritten without the charge
     // itself failing — confirmed in production 2026-11-26: two near-
     // simultaneous payment attempts on the same resumable order (e.g. a
     // customer who tried both SPEI and card) each created a real charge at
     // Mercado Pago, but only the last `attachGatewayCharge` write wins, so
-    // the other one's money arrives with no local link at all. Before
-    // treating this as truly unaccounted-for, check whether the order it
-    // actually belongs to (Mercado Pago's own `external_reference`, which
+    // the other one's charge arrives with no local link at all. Originally
+    // this self-heal only ran once that charge was reported `paid` — but a
+    // `pending` SPEI/OXXO report for the same orphaned charge arrives first,
+    // and used to be dropped silently right here, which meant its deadline
+    // extension below never ran either. If the sweep then expired the order
+    // before the eventual `paid` report arrived, THIS block's own
+    // `byOrder.paymentStatus === 'pending'` check below would already be
+    // false by the time it mattered, so the money landed as "duplicado"
+    // instead of self-healing — confirmed 2026-11-26 as the real mechanism
+    // behind Jose's "some SPEI payments don't link to the correct order"
+    // report. Running this on the `pending` report too closes that gap.
+    //
+    // Before treating this as truly unaccounted-for, check whether the order
+    // it actually belongs to (Mercado Pago's own `external_reference`, which
     // this app always sets to the order number and which that race never
     // touches) still has a payment waiting.
     const byOrder = report.orderNumber ? await findPaymentByOrderNumber(db, report.orderNumber) : null;
@@ -107,30 +125,40 @@ export async function applyGatewayReport(
     }
 
     if (!payment) {
-      if (byOrder) {
-        // The order exists and its payment is already settled by a
-        // *different* charge — a second, genuinely separate charge for the
-        // same order also got paid. Real money, already-fulfilled order: a
-        // human needs to refund the extra charge, not fulfil anything twice,
-        // so this never goes through `settleGatewayCharge`.
-        await notifyOps('critical', 'Pago DUPLICADO recibido — el pedido ya fue aprobado con otro cargo', {
-          gateway,
-          pedido: byOrder.orderNumber,
-          cargoDuplicado: report.gatewayChargeId,
-          cargoYaAprobado: byOrder.gatewayChargeId,
-          amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
-          reference: report.reference,
-        });
-      } else {
-        // Money with no order at all, even by order number. Rare — but it is
-        // someone's real money. No payment row means no known method either,
-        // so this stays method-neutral rather than guessing.
-        await notifyOps('critical', 'Pago recibido sin pedido asociado', {
-          gateway,
-          charge: report.gatewayChargeId,
-          amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
-          reference: report.reference,
-        });
+      // Only alert for a `paid` report — the one case that is unambiguously
+      // somebody's real money sitting unaccounted-for. A `pending` voucher
+      // that still can't find a home isn't money yet (and the admin panel's
+      // own manual relink tool, see check-mercadopago-button.tsx, now covers
+      // the case where a customer complains before the eventual `paid`
+      // report — if it ever arrives — would otherwise retry this same path);
+      // alerting on every such ping would just be noise ahead of the one
+      // alert that actually matters.
+      if (report.state === 'paid') {
+        if (byOrder) {
+          // The order exists and its payment is already settled by a
+          // *different* charge — a second, genuinely separate charge for the
+          // same order also got paid. Real money, already-fulfilled order: a
+          // human needs to refund the extra charge, not fulfil anything
+          // twice, so this never goes through `settleGatewayCharge`.
+          await notifyOps('critical', 'Pago DUPLICADO recibido — el pedido ya fue aprobado con otro cargo', {
+            gateway,
+            pedido: byOrder.orderNumber,
+            cargoDuplicado: report.gatewayChargeId,
+            cargoYaAprobado: byOrder.gatewayChargeId,
+            amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
+            reference: report.reference,
+          });
+        } else {
+          // Money with no order at all, even by order number. Rare — but it
+          // is someone's real money. No payment row means no known method
+          // either, so this stays method-neutral rather than guessing.
+          await notifyOps('critical', 'Pago recibido sin pedido asociado', {
+            gateway,
+            charge: report.gatewayChargeId,
+            amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
+            reference: report.reference,
+          });
+        }
       }
       return { paymentId: null, orderNumber: null, settlement: null };
     }

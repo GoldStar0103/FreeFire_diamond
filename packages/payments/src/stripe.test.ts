@@ -64,6 +64,14 @@ describe('formEncode', () => {
 });
 
 describe('createCharge', () => {
+  // OXXO stands in for every test below that's really about hosted
+  // Checkout's own mechanics (idempotency, retry, expiry, URLs) rather than
+  // about any one payment method — card moved off this endpoint entirely
+  // 2026-11-26 (see the 'card — embedded PaymentIntent' block further down),
+  // so these use `method: 'oxxo'` instead of plain `chargeInput` now.
+  const oxxoInput = { ...chargeInput, method: 'oxxo' as const };
+  const oxxoOnly = { methods: ['oxxo' as const] };
+
   it('creates an MXN Checkout session carrying the order on both session and intent', async () => {
     const { impl, calls } = fakeFetch([
       {
@@ -77,7 +85,7 @@ describe('createCharge', () => {
       },
     ]);
 
-    const created = await gateway(impl).createCharge(chargeInput);
+    const created = await gateway(impl, oxxoOnly).createCharge(oxxoInput);
 
     expect(created).toMatchObject({
       gateway: 'stripe',
@@ -95,7 +103,7 @@ describe('createCharge', () => {
     expect(body.get('metadata[order_id]')).toBe('ord-uuid-1');
     expect(body.get('payment_intent_data[metadata][order_number]')).toBe('LU-260910-AB12');
     expect(body.get('client_reference_id')).toBe('LU-260910-AB12');
-    expect(body.get('payment_method_types[0]')).toBe('card');
+    expect(body.get('payment_method_types[0]')).toBe('oxxo');
     expect(body.get('payment_method_types[1]')).toBeNull();
     expect(body.get('locale')).toBe('es-419');
   });
@@ -103,10 +111,10 @@ describe('createCharge', () => {
   it('keys the request on the order so a double tap cannot open two sessions', async () => {
     const ok = { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } };
     const { impl, calls } = fakeFetch([ok, ok]);
-    const gw = gateway(impl);
+    const gw = gateway(impl, oxxoOnly);
 
-    await gw.createCharge(chargeInput);
-    await gw.createCharge(chargeInput);
+    await gw.createCharge(oxxoInput);
+    await gw.createCharge(oxxoInput);
 
     expect(calls[0]?.headers['Idempotency-Key']).toBe('levelup-checkout-ord-uuid-1');
     expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
@@ -132,7 +140,7 @@ describe('createCharge', () => {
       { status: 200, body: { id: 'cs_2', url: 'https://retry', amount_total: 26_000 } },
     ]);
 
-    const created = await gateway(impl).createCharge(chargeInput);
+    const created = await gateway(impl, oxxoOnly).createCharge(oxxoInput);
 
     expect(created).toMatchObject({ gatewayChargeId: 'cs_2', instructions: { url: 'https://retry' } });
     expect(calls).toHaveLength(2);
@@ -142,7 +150,7 @@ describe('createCharge', () => {
 
   it('does not retry a plain 400 that has nothing to do with idempotency', async () => {
     const { impl } = fakeFetch([{ status: 400, body: { error: { message: 'bad param' } } }]);
-    await expect(gateway(impl).createCharge(chargeInput)).rejects.toMatchObject({ retryable: false });
+    await expect(gateway(impl, oxxoOnly).createCharge(oxxoInput)).rejects.toMatchObject({ retryable: false });
   });
 
   it('requests only the single method the customer picked, never the others enabled', async () => {
@@ -187,12 +195,12 @@ describe('createCharge', () => {
     expect(body.get('customer_creation')).toBeNull();
   });
 
-  it('does not create a Customer for a card charge, and keeps customer_email', async () => {
+  it('does not create a Customer for an OXXO charge, and keeps customer_email', async () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
-    await gateway(impl, { methods: ['card'] }).createCharge({
-      ...chargeInput,
+    await gateway(impl, oxxoOnly).createCharge({
+      ...oxxoInput,
       customerEmail: 'buyer@example.com',
     });
 
@@ -214,16 +222,16 @@ describe('createCharge', () => {
     const { impl, calls } = fakeFetch([
       { status: 200, body: { id: 'cs_1', url: 'https://x', amount_total: 26_000 } },
     ]);
-    await gateway(impl, { sessionMinutes: 5 }).createCharge(chargeInput);
+    await gateway(impl, { ...oxxoOnly, sessionMinutes: 5 }).createCharge(oxxoInput);
 
     const expiresAt = Number(new URLSearchParams(calls[0]?.body).get('expires_at'));
     expect(expiresAt - NOW_S).toBeGreaterThanOrEqual(30 * 60);
   });
 
-  it('refuses without return URLs, before calling Stripe', async () => {
+  it('refuses without return URLs, before calling Stripe — OXXO/SPEI still need the hosted page', async () => {
     const { impl, calls } = fakeFetch([]);
-    const { returnUrl: _r, ...noReturn } = chargeInput;
-    await expect(gateway(impl).createCharge(noReturn)).rejects.toBeInstanceOf(GatewayError);
+    const { returnUrl: _r, ...noReturn } = oxxoInput;
+    await expect(gateway(impl, oxxoOnly).createCharge(noReturn)).rejects.toBeInstanceOf(GatewayError);
     expect(calls).toHaveLength(0);
   });
 
@@ -236,6 +244,108 @@ describe('createCharge', () => {
 
     await expect(gw.createCharge(chargeInput)).rejects.toMatchObject({ retryable: true });
     await expect(gw.createCharge(chargeInput)).rejects.toMatchObject({ retryable: false });
+  });
+});
+
+describe('createCharge — card, embedded PaymentIntent', () => {
+  it('creates a PaymentIntent with redirects forbidden, never a Checkout Session', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'pi_test_1', object: 'payment_intent', amount: 26_000, client_secret: 'pi_test_1_secret_abc' } },
+    ]);
+
+    const created = await gateway(impl).createCharge(chargeInput);
+
+    expect(created).toMatchObject({
+      gateway: 'stripe',
+      gatewayChargeId: 'pi_test_1',
+      amountCents: 26_000,
+      instructions: { kind: 'stripe_elements', clientSecret: 'pi_test_1_secret_abc' },
+      expiresAt: null,
+    });
+
+    const [call] = calls;
+    expect(call?.url).toBe('https://api.stripe.com/v1/payment_intents');
+    const body = new URLSearchParams(call?.body);
+    expect(body.get('amount')).toBe('26000');
+    expect(body.get('currency')).toBe('mxn');
+    expect(body.get('automatic_payment_methods[enabled]')).toBe('true');
+    // The one thing that must never happen for this flow — see this file's
+    // own doc comment on why: a redirect here would be the exact "white
+    // screen" regression the client asked to avoid.
+    expect(body.get('automatic_payment_methods[allow_redirects]')).toBe('never');
+    // Confirmed live in Stripe's own sandbox 2026-11-26: OXXO is a voucher,
+    // not a redirect, so it kept appearing on this card intent even with
+    // redirects forbidden — must be excluded explicitly, since OXXO is its
+    // own separate, manual button in this checkout, never this one.
+    expect(body.get('excluded_payment_method_types[0]')).toBe('oxxo');
+    expect(body.get('metadata[order_id]')).toBe('ord-uuid-1');
+    expect(body.get('metadata[order_number]')).toBe('LU-260910-AB12');
+  });
+
+  it('needs no return/cancel URL — card never leaves this page', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'pi_1', object: 'payment_intent', amount: 26_000, client_secret: 'secret' } },
+    ]);
+    const { returnUrl: _r, cancelUrl: _c, ...noUrls } = chargeInput;
+
+    await expect(gateway(impl).createCharge(noUrls)).resolves.toMatchObject({ gatewayChargeId: 'pi_1' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('passes the customer email through as a receipt email', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'pi_1', object: 'payment_intent', amount: 26_000, client_secret: 'secret' } },
+    ]);
+    await gateway(impl).createCharge({ ...chargeInput, customerEmail: 'buyer@example.com' });
+
+    const body = new URLSearchParams(calls[0]?.body);
+    expect(body.get('receipt_email')).toBe('buyer@example.com');
+  });
+
+  it('keys the request on the order, same as the Checkout Session path', async () => {
+    const ok = { status: 200, body: { id: 'pi_1', object: 'payment_intent', amount: 26_000, client_secret: 'secret' } };
+    const { impl, calls } = fakeFetch([ok, ok]);
+    const gw = gateway(impl);
+
+    await gw.createCharge(chargeInput);
+    await gw.createCharge(chargeInput);
+
+    expect(calls[0]?.headers['Idempotency-Key']).toBe('levelup-pi-ord-uuid-1');
+    expect(calls[1]?.headers['Idempotency-Key']).toBe(calls[0]?.headers['Idempotency-Key']);
+  });
+
+  it('retries under a fresh key when Stripe refuses a reused one with different params', async () => {
+    const { impl, calls } = fakeFetch([
+      {
+        status: 400,
+        body: {
+          error: {
+            message:
+              "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'levelup-pi-ord-uuid-1' if you meant to execute a different request.",
+          },
+        },
+      },
+      { status: 200, body: { id: 'pi_2', object: 'payment_intent', amount: 26_000, client_secret: 'secret-2' } },
+    ]);
+
+    const created = await gateway(impl).createCharge(chargeInput);
+
+    expect(created).toMatchObject({ gatewayChargeId: 'pi_2' });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.headers['Idempotency-Key']).toBe(`levelup-pi-ord-uuid-1-${NOW_MS}`);
+  });
+
+  it('refuses a card charge with no client secret rather than hand the Brick nothing to mount', async () => {
+    const { impl } = fakeFetch([{ status: 200, body: { id: 'pi_1', object: 'payment_intent', amount: 26_000 } }]);
+    await expect(gateway(impl).createCharge(chargeInput)).rejects.toBeInstanceOf(GatewayError);
+  });
+
+  it('still refuses card when the account does not have it enabled', async () => {
+    const { impl, calls } = fakeFetch([]);
+    await expect(gateway(impl, { methods: ['oxxo'] }).createCharge(chargeInput)).rejects.toMatchObject({
+      retryable: false,
+    });
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -322,6 +432,63 @@ describe('verifyWebhook', () => {
   });
 });
 
+function intentEvent(type: string, intent: Record<string, unknown>, id = 'evt_pi_1') {
+  return JSON.stringify({
+    id,
+    type,
+    created: NOW_S,
+    data: {
+      object: {
+        id: 'pi_test_1',
+        object: 'payment_intent',
+        currency: 'mxn',
+        amount: 26_000,
+        metadata: { order_number: 'LU-260910-AB12' },
+        ...intent,
+      },
+    },
+  });
+}
+
+describe('verifyWebhook — card, embedded PaymentIntent', () => {
+  it('reads a succeeded PaymentIntent as paid, with amount_received and the order number for self-heal', async () => {
+    const result = await deliver(intentEvent('payment_intent.succeeded', { amount_received: 26_000 }));
+    expect(result).toMatchObject({
+      ok: true,
+      event: {
+        eventId: 'evt_pi_1',
+        gatewayChargeId: 'pi_test_1',
+        state: 'paid',
+        amountReceivedCents: 26_000,
+        reference: 'pi_test_1',
+        orderNumber: 'LU-260910-AB12',
+      },
+    });
+  });
+
+  it('falls back to amount when amount_received is missing', async () => {
+    const result = await deliver(intentEvent('payment_intent.succeeded', {}));
+    expect(result).toMatchObject({ ok: true, event: { amountReceivedCents: 26_000 } });
+  });
+
+  it('reads a declined or canceled intent as failed, never as money', async () => {
+    expect(await deliver(intentEvent('payment_intent.payment_failed', {})))
+      .toMatchObject({ ok: true, event: { state: 'failed', amountReceivedCents: null } });
+    expect(await deliver(intentEvent('payment_intent.canceled', {})))
+      .toMatchObject({ ok: true, event: { state: 'failed', amountReceivedCents: null } });
+  });
+
+  it('rejects a PaymentIntent in another currency rather than compare it to pesos', async () => {
+    const body = intentEvent('payment_intent.succeeded', { currency: 'usd' });
+    expect(await deliver(body)).toEqual({ ok: false, reason: 'malformed_payload' });
+  });
+
+  it('rejects a forged signature before looking at the body', async () => {
+    const body = intentEvent('payment_intent.succeeded', {});
+    expect(await deliver(body, 'whsec_attacker')).toEqual({ ok: false, reason: 'bad_signature' });
+  });
+});
+
 describe('getCharge', () => {
   it('reports an OXXO voucher still to be paid, with its hosted voucher', async () => {
     const { impl, calls } = fakeFetch([
@@ -386,6 +553,29 @@ describe('getCharge', () => {
   it('returns null for a session Stripe does not know', async () => {
     const { impl } = fakeFetch([{ status: 404, body: { error: { message: 'No such session' } } }]);
     expect(await gateway(impl).getCharge('cs_nope')).toBeNull();
+  });
+
+  it('routes a pi_ id to the PaymentIntent endpoint instead of Checkout Sessions', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { id: 'pi_1', object: 'payment_intent', status: 'succeeded', amount: 26_000, amount_received: 26_000 } },
+    ]);
+
+    const snapshot = await gateway(impl).getCharge('pi_1');
+
+    expect(calls[0]?.url).toBe('https://api.stripe.com/v1/payment_intents/pi_1');
+    expect(snapshot).toMatchObject({ state: 'paid', amountReceivedCents: 26_000, reference: 'pi_1' });
+  });
+
+  it('reports a card still awaiting confirmation (3DS, etc.) as pending, with no amount', async () => {
+    const { impl } = fakeFetch([
+      { status: 200, body: { id: 'pi_1', object: 'payment_intent', status: 'requires_action', amount: 26_000 } },
+    ]);
+    expect(await gateway(impl).getCharge('pi_1')).toMatchObject({ state: 'pending', amountReceivedCents: null });
+  });
+
+  it('returns null for a PaymentIntent Stripe does not know', async () => {
+    const { impl } = fakeFetch([{ status: 404, body: { error: { message: 'No such payment_intent' } } }]);
+    expect(await gateway(impl).getCharge('pi_nope')).toBeNull();
   });
 });
 

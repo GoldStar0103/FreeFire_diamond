@@ -4,7 +4,9 @@
  * Point the Stripe dashboard at https://<PUBLIC_DOMAIN>/api/webhooks/stripe
  * with these events: checkout.session.completed,
  * checkout.session.async_payment_succeeded,
- * checkout.session.async_payment_failed, checkout.session.expired.
+ * checkout.session.async_payment_failed, checkout.session.expired (OXXO/SPEI,
+ * hosted Checkout), and payment_intent.succeeded, payment_intent.payment_failed,
+ * payment_intent.canceled (card, the embedded PaymentIntent flow, 2026-11-26).
  *
  * Status codes are how we talk to Stripe's retry logic, so they are chosen
  * carefully:
@@ -63,6 +65,7 @@ export async function POST(request: Request): Promise<Response> {
       state: event.state,
       amountReceivedCents: event.amountReceivedCents,
       reference: event.reference ?? null,
+      orderNumber: event.orderNumber ?? null,
       voucherIssued: event.type === 'checkout.session.completed' && event.state === 'pending',
     });
 

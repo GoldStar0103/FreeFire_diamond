@@ -86,7 +86,21 @@ export type PaymentInstructions =
        * pending card outcome.
        */
       challengeUrl?: string | null;
-    };
+    }
+  /**
+   * Stripe's embedded card flow (2026-11-26): a `PaymentIntent`'s own client
+   * secret, meant to be handed to Stripe.js in the browser (safe to expose —
+   * this is the one Stripe secret that is designed to reach the client) so
+   * the Payment Element can collect card details and confirm the charge
+   * in-page, with Apple Pay/Google Pay/Link auto-surfaced per the Stripe
+   * dashboard's own config — never a redirect to a new tab. Unlike Mercado
+   * Pago's `'resolved'` card member above, the outcome is NOT known yet when
+   * `createCharge` returns: Stripe's own JS confirms the charge client-side,
+   * and the caller reports that result back through a second server call
+   * (see `payWithStripeCard`'s own doc comment in apps/web), which re-asks
+   * Stripe directly rather than trusting what the browser says happened.
+   */
+  | { kind: 'stripe_elements'; clientSecret: string };
 
 export interface ChargeCreated {
   gateway: string;
