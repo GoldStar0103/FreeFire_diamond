@@ -270,6 +270,7 @@ export async function payWithItemMercadoPagoCard(
       state: charge.instructions.state,
       amountReceivedCents: charge.instructions.state === 'paid' ? charge.amountCents : null,
       reference: charge.instructions.reference,
+      orderNumber: order.orderNumber,
       voucherIssued: false,
     });
 

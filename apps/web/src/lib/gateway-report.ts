@@ -10,7 +10,13 @@
  * just be two copies of the same five steps drifting apart over time.
  */
 
-import { DrizzlePaymentStore, extendPaymentDeadline, findGatewayPayment } from '@levelup/db';
+import {
+  attachGatewayCharge,
+  DrizzlePaymentStore,
+  extendPaymentDeadline,
+  findGatewayPayment,
+  findPaymentByOrderNumber,
+} from '@levelup/db';
 import {
   settleGatewayCharge,
   type GatewayChargeState,
@@ -26,6 +32,15 @@ export interface GatewayReport {
   state: GatewayChargeState;
   amountReceivedCents: number | null;
   reference: string | null;
+  /**
+   * The gateway's own copy of the order number (e.g. Mercado Pago's
+   * `external_reference`), when the gateway carries one. Used only as a
+   * fallback when this charge can't be found by `gatewayChargeId` — see the
+   * comment where it's used below. `undefined`/`null` for a gateway that
+   * doesn't report one (Stripe's session carries the order number too, but
+   * nothing here depends on it doing so).
+   */
+  orderNumber?: string | null;
   /**
    * An OXXO voucher or SPEI/bank-transfer reference was issued: the money is
    * hours-to-days away, not seconds. Same flag regardless of which method or
@@ -59,22 +74,66 @@ export async function applyGatewayReport(
   pendingGraceDays: number,
 ): Promise<AppliedReport> {
   const db = getDb();
-  const payment = await findGatewayPayment(db, gateway, report.gatewayChargeId);
+  let payment = await findGatewayPayment(db, gateway, report.gatewayChargeId);
 
   if (!payment) {
-    if (report.state === 'paid') {
-      // Money with no order. Rare — it means the charge was created and our
-      // write linking it failed — but it is someone's real money. No payment
-      // row means no known method either, so this stays method-neutral
-      // rather than guessing.
-      await notifyOps('critical', 'Pago recibido sin pedido asociado', {
-        gateway,
-        charge: report.gatewayChargeId,
-        amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
-        reference: report.reference,
-      });
+    if (report.state !== 'paid') {
+      return { paymentId: null, orderNumber: null, settlement: null };
     }
-    return { paymentId: null, orderNumber: null, settlement: null };
+
+    // Our own write linking a freshly created charge to its order
+    // (`attachGatewayCharge`) can fail or get overwritten without the charge
+    // itself failing — confirmed in production 2026-11-26: two near-
+    // simultaneous payment attempts on the same resumable order (e.g. a
+    // customer who tried both SPEI and card) each created a real charge at
+    // Mercado Pago, but only the last `attachGatewayCharge` write wins, so
+    // the other one's money arrives with no local link at all. Before
+    // treating this as truly unaccounted-for, check whether the order it
+    // actually belongs to (Mercado Pago's own `external_reference`, which
+    // this app always sets to the order number and which that race never
+    // touches) still has a payment waiting.
+    const byOrder = report.orderNumber ? await findPaymentByOrderNumber(db, report.orderNumber) : null;
+
+    if (byOrder && byOrder.paymentStatus === 'pending') {
+      const attached = await attachGatewayCharge(db, {
+        orderId: byOrder.orderId,
+        gateway,
+        gatewayChargeId: report.gatewayChargeId,
+        expiresAt: null,
+      });
+      if (attached) {
+        payment = await findGatewayPayment(db, gateway, report.gatewayChargeId);
+      }
+    }
+
+    if (!payment) {
+      if (byOrder) {
+        // The order exists and its payment is already settled by a
+        // *different* charge — a second, genuinely separate charge for the
+        // same order also got paid. Real money, already-fulfilled order: a
+        // human needs to refund the extra charge, not fulfil anything twice,
+        // so this never goes through `settleGatewayCharge`.
+        await notifyOps('critical', 'Pago DUPLICADO recibido — el pedido ya fue aprobado con otro cargo', {
+          gateway,
+          pedido: byOrder.orderNumber,
+          cargoDuplicado: report.gatewayChargeId,
+          cargoYaAprobado: byOrder.gatewayChargeId,
+          amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
+          reference: report.reference,
+        });
+      } else {
+        // Money with no order at all, even by order number. Rare — but it is
+        // someone's real money. No payment row means no known method either,
+        // so this stays method-neutral rather than guessing.
+        await notifyOps('critical', 'Pago recibido sin pedido asociado', {
+          gateway,
+          charge: report.gatewayChargeId,
+          amountMxn: ((report.amountReceivedCents ?? 0) / 100).toFixed(2),
+          reference: report.reference,
+        });
+      }
+      return { paymentId: null, orderNumber: null, settlement: null };
+    }
   }
 
   if (report.state === 'pending' && report.voucherIssued) {

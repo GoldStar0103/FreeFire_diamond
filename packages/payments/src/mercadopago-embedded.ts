@@ -415,6 +415,7 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       state,
       amountReceivedCents: amountReceivedCents(order, state),
       reference: order.transactions?.payments?.[0]?.id ?? null,
+      orderNumber: order.external_reference ?? null,
       occurredAt: new Date(this.now()),
       raw: { webhook: body, order },
     };
@@ -438,6 +439,7 @@ export class MercadoPagoEmbeddedGateway implements PaymentGateway {
       amountReceivedCents: amountReceivedCents(order, state),
       paidAt: state === 'paid' ? new Date(this.now()) : null,
       reference: order.transactions?.payments?.[0]?.id ?? null,
+      orderNumber: order.external_reference ?? null,
       voucherUrl: null,
       challengeUrl: pm?.transaction_security?.url ?? null,
       bankTransfer: pm?.type === 'bank_transfer'

@@ -83,6 +83,7 @@ export async function POST(request: Request): Promise<Response> {
       state: event.state,
       amountReceivedCents: event.amountReceivedCents,
       reference: event.reference ?? null,
+      orderNumber: event.orderNumber ?? null,
       voucherIssued,
     });
 

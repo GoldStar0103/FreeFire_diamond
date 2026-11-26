@@ -191,6 +191,7 @@ async function reconcileCard(
           state: snapshot.state,
           amountReceivedCents: snapshot.amountReceivedCents,
           reference: snapshot.reference ?? null,
+          orderNumber: snapshot.orderNumber ?? null,
           voucherIssued: issued,
         });
       }
@@ -220,6 +221,7 @@ async function reconcileCard(
           state: snapshot.state,
           amountReceivedCents: snapshot.amountReceivedCents,
           reference: snapshot.reference ?? null,
+          orderNumber: snapshot.orderNumber ?? null,
           voucherIssued: false,
         });
         return none;

@@ -63,6 +63,34 @@ export interface GatewayPayment {
   expiresAt: Date | null;
   /** 'card' | 'oxxo' | 'spei' for a Stripe-routed payment — which sale alert to send. */
   method: string;
+  /** The gateway/charge this order's payment is actually linked to right now, if any. */
+  gateway: string | null;
+  gatewayChargeId: string | null;
+}
+
+const GATEWAY_PAYMENT_COLUMNS = {
+  paymentId: payments.id,
+  orderId: orders.id,
+  orderNumber: orders.orderNumber,
+  playerId: orders.playerId,
+  comboKey: orders.comboKey,
+  comboSnapshot: orders.comboSnapshot,
+  priceMxnCents: orders.priceMxnCents,
+  paymentStatus: payments.status,
+  orderStatus: orders.status,
+  expiresAt: payments.expiresAt,
+  method: payments.method,
+  gateway: payments.gateway,
+  gatewayChargeId: payments.gatewayChargeId,
+} as const;
+
+function toGatewayPayment(row: {
+  comboSnapshot: unknown;
+  [key: string]: unknown;
+}): GatewayPayment {
+  const { comboSnapshot, ...rest } = row;
+  const snapshot = comboSnapshot as { name?: string };
+  return { ...rest, comboName: snapshot.name ?? 'Recarga' } as GatewayPayment;
 }
 
 /** The payment a gateway session belongs to. The session id is the only key trusted. */
@@ -72,19 +100,7 @@ export async function findGatewayPayment(
   gatewayChargeId: string,
 ): Promise<GatewayPayment | null> {
   const [row] = await db
-    .select({
-      paymentId: payments.id,
-      orderId: orders.id,
-      orderNumber: orders.orderNumber,
-      playerId: orders.playerId,
-      comboKey: orders.comboKey,
-      comboSnapshot: orders.comboSnapshot,
-      priceMxnCents: orders.priceMxnCents,
-      paymentStatus: payments.status,
-      orderStatus: orders.status,
-      expiresAt: payments.expiresAt,
-      method: payments.method,
-    })
+    .select(GATEWAY_PAYMENT_COLUMNS)
     .from(payments)
     .innerJoin(orders, eq(orders.id, payments.orderId))
     .where(and(eq(payments.gateway, gateway), eq(payments.gatewayChargeId, gatewayChargeId)))
@@ -92,9 +108,35 @@ export async function findGatewayPayment(
     .limit(1);
 
   if (!row) return null;
-  const { comboSnapshot, ...rest } = row;
-  const snapshot = comboSnapshot as { name?: string };
-  return { ...rest, comboName: snapshot.name ?? 'Recarga' };
+  return toGatewayPayment(row);
+}
+
+/**
+ * The payment for an order, looked up by order number instead of a gateway
+ * charge id.
+ *
+ * Used as the fallback when a 'paid' gateway report cannot find its payment
+ * by `(gateway, gatewayChargeId)` — see `applyGatewayReport`'s own comment on
+ * why that link can fail even though the charge itself succeeded. Mercado
+ * Pago's `external_reference` (which this app always sets to the order
+ * number, and which is never written to by `attachGatewayCharge`'s own,
+ * occasionally-losing race) is the one identifier immune to that failure
+ * mode.
+ */
+export async function findPaymentByOrderNumber(
+  db: Database,
+  orderNumber: string,
+): Promise<GatewayPayment | null> {
+  const [row] = await db
+    .select(GATEWAY_PAYMENT_COLUMNS)
+    .from(payments)
+    .innerJoin(orders, eq(orders.id, payments.orderId))
+    .where(eq(orders.orderNumber, orderNumber))
+    .orderBy(desc(payments.createdAt))
+    .limit(1);
+
+  if (!row) return null;
+  return toGatewayPayment(row);
 }
 
 /**

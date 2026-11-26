@@ -21,6 +21,7 @@ import {
   attachGatewayCharge,
   extendPaymentDeadline,
   findGatewayPayment,
+  findPaymentByOrderNumber,
   markPaymentEventProcessed,
   recordPaymentEvent,
 } from './gateway-payments.js';
@@ -144,6 +145,31 @@ describe.skipIf(!PG_AVAILABLE)('attaching a session', () => {
     const order = await cardOrder();
     await attachGatewayCharge(db, { orderId: order.id, gateway: 'stripe', gatewayChargeId: 'cs_1', expiresAt: null });
     expect(await findGatewayPayment(db, 'conekta', 'cs_1')).toBeNull();
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('finding a payment by order number', () => {
+  it('finds it even with no gateway charge attached yet', async () => {
+    const order = await cardOrder();
+    const found = await findPaymentByOrderNumber(db, order.orderNumber);
+    expect(found).toMatchObject({ orderId: order.id, paymentStatus: 'pending', gateway: null, gatewayChargeId: null });
+  });
+
+  it('reports the gateway charge it is actually linked to right now', async () => {
+    const order = await cardOrder();
+    await attachGatewayCharge(db, {
+      orderId: order.id,
+      gateway: 'mercadopago-embedded',
+      gatewayChargeId: 'ORD_CARD',
+      expiresAt: null,
+    });
+
+    const found = await findPaymentByOrderNumber(db, order.orderNumber);
+    expect(found).toMatchObject({ gateway: 'mercadopago-embedded', gatewayChargeId: 'ORD_CARD' });
+  });
+
+  it('returns null for an order number that does not exist', async () => {
+    expect(await findPaymentByOrderNumber(db, 'LU-NOPE-0000')).toBeNull();
   });
 });
 

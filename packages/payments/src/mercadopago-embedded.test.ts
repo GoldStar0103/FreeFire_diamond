@@ -470,6 +470,29 @@ describe('verifyWebhook', () => {
     });
   });
 
+  it('carries the order\'s own external_reference, so a caller can recover it when the local link is missing', async () => {
+    // What apps/web's gateway-report.ts self-heals with when
+    // `attachGatewayCharge`'s own write failed or got overwritten — see its
+    // own doc comment, confirmed in production 2026-11-26.
+    const { impl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          id: 'ord_mp_1',
+          status: 'processed',
+          total_amount: '50.00',
+          external_reference: 'LU-261125-WJ47',
+          transactions: { payments: [{ id: 'txn_1', status: 'accredited' }] },
+        },
+      },
+    ]);
+    const result = await gateway(impl).verifyWebhook(webhookBody('ord_mp_1'), {
+      'x-signature': signMp('ord_mp_1', 'req_1', 1000),
+      'x-request-id': 'req_1',
+    });
+    expect(result).toMatchObject({ ok: true, event: { orderNumber: 'LU-261125-WJ47' } });
+  });
+
   it('reads a pending SPEI reference as pending, not money yet', async () => {
     const { impl } = fakeFetch([
       { status: 200, body: { id: 'ord_mp_3', status: 'action_required', transactions: { payments: [{ status: 'pending' }] } } },
@@ -589,6 +612,23 @@ describe('getCharge', () => {
   it('returns null for an order id Mercado Pago has never heard of', async () => {
     const { impl } = fakeFetch([{ status: 404, body: { message: 'not found' } }]);
     expect(await gateway(impl).getCharge('nope')).toBeNull();
+  });
+
+  it('also carries the order\'s own external_reference', async () => {
+    const { impl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          id: 'ord_mp_1',
+          status: 'processed',
+          total_amount: '18.00',
+          external_reference: 'LU-260924-AB12',
+          transactions: { payments: [{ id: 'txn_1', status: 'accredited' }] },
+        },
+      },
+    ]);
+    const snapshot = await gateway(impl).getCharge('ord_mp_1');
+    expect(snapshot).toMatchObject({ orderNumber: 'LU-260924-AB12' });
   });
 });
 

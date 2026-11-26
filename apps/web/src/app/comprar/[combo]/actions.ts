@@ -30,6 +30,7 @@ import { storeComprobante } from '../../../lib/storage';
 import { getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
 import { applyMercadoPagoEmbeddedReport, getMercadoPagoEmbedded, MERCADOPAGO_EMBEDDED } from '../../../lib/mercadopago-embedded';
+import { notifyOps } from '../../../lib/ops';
 import { notifyNewOrder, notifyStuckGatewayRedirect } from '../../../lib/telegram';
 import { trackingContext } from '../../../lib/tracking';
 
@@ -715,37 +716,77 @@ async function payWithEmbeddedMethod(
 
   const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(playerId)}`;
 
-  // A resumed order that already has a live SPEI charge gets that one shown
-  // again instead of a brand new CLABE minted on top of it. Minting a second
-  // charge here doesn't fail — each one gets its own idempotency key — it
-  // just silently abandons the first, and a customer who already transferred
-  // to that CLABE has their money land somewhere this system stopped
-  // tracking. Confirmed in production 2026-11-24: two real SPEI payments got
-  // stuck exactly this way. Card is excluded — each card attempt is a
-  // genuinely new, single-use token, there is no earlier charge to reuse.
-  if (
-    method === 'spei' &&
-    resumable?.gateway === MERCADOPAGO_EMBEDDED &&
-    resumable.paymentMethod === 'spei' &&
-    resumable.gatewayChargeId
-  ) {
+  // A resumed order that already has a live Mercado Pago charge — SPEI or
+  // card, same method requested again or a switch to the other one — is
+  // re-checked against the gateway before ever minting a second charge.
+  //
+  // Minting a second charge here doesn't fail — each one gets its own
+  // idempotency key — it just silently leaves the first one running, and
+  // that one can still turn into real money later (a SPEI CLABE is payable
+  // for days). Confirmed in production twice now: 2026-11-24, two real SPEI
+  // payments got stuck exactly this way; 2026-11-26, a customer who tried
+  // both SPEI and card within the same second ended up with both charges
+  // accepted at Mercado Pago, and the SPEI side's money arrived with no
+  // local order link once the card side had already overwritten it — see
+  // gateway-report.ts's self-heal fallback for how that specific case now
+  // recovers after the fact. This check is what stops the *preventable*
+  // half of that: if the earlier charge is already paid by the time a
+  // second attempt starts, there is nothing to charge again.
+  if (resumable?.gateway === MERCADOPAGO_EMBEDDED && resumable.gatewayChargeId) {
     try {
       const existing = await gateway.getCharge(resumable.gatewayChargeId);
-      if (existing?.state === 'pending' && existing.bankTransfer) {
+
+      if (existing?.state === 'paid') {
+        // Already settled — most likely by a webhook or this same re-check
+        // running moments ago. Report it again (idempotent no-op if so) and
+        // send the customer straight to their order instead of charging a
+        // second time for something already paid.
+        await applyMercadoPagoEmbeddedReport({
+          gatewayChargeId: existing.gatewayChargeId,
+          state: 'paid',
+          amountReceivedCents: existing.amountReceivedCents,
+          reference: existing.reference ?? null,
+          orderNumber: order.orderNumber,
+          voucherIssued: false,
+        });
         return {
-          instructions: {
-            kind: 'spei',
-            clabe: existing.bankTransfer.clabe ?? '',
-            bank: existing.bankTransfer.bankName ?? '',
-            reference: existing.bankTransfer.reference,
-          },
+          instructions: { kind: 'resolved', state: 'paid', reference: existing.reference ?? null },
           orderPageUrl: orderPage,
         };
       }
-      // Not pending (already paid/failed/expired) or has no CLABE yet —
-      // fall through and mint a fresh charge, same as if none existed.
+
+      if (existing?.state === 'pending' && resumable.paymentMethod === method) {
+        if (method === 'spei' && existing.bankTransfer) {
+          return {
+            instructions: {
+              kind: 'spei',
+              clabe: existing.bankTransfer.clabe ?? '',
+              bank: existing.bankTransfer.bankName ?? '',
+              reference: existing.bankTransfer.reference,
+            },
+            orderPageUrl: orderPage,
+          };
+        }
+        // A pending card (3DS/issuer review) has no stable instructions to
+        // hand back — let it fall through to a fresh attempt, same as today.
+      } else if (existing?.state === 'pending') {
+        // Still pending, but for a *different* method than this attempt —
+        // the customer is switching (SPEI → card or back). The old charge
+        // is about to be superseded locally even though it is still alive
+        // at Mercado Pago and could still be paid later; flag it the moment
+        // the switch happens rather than waiting for a stray payment to
+        // surface it hours or days from now.
+        await notifyOps('warn', 'Cliente cambió de método de pago con un cargo anterior aún pendiente', {
+          pedido: order.orderNumber,
+          cargoAnterior: resumable.gatewayChargeId,
+          metodoAnterior: resumable.paymentMethod,
+          metodoNuevo: method,
+        });
+      }
+      // Not pending/paid (failed/expired/refunded) — fall through and mint a
+      // fresh charge, same as if none existed.
     } catch (err) {
-      console.error(`[checkout] ${order.orderNumber}: could not re-check existing SPEI charge`, err);
+      console.error(`[checkout] ${order.orderNumber}: could not re-check existing Mercado Pago charge`, err);
       // Fall through — minting a fresh charge is still better than failing
       // the customer outright over a re-check that didn't work.
     }
@@ -794,6 +835,7 @@ async function payWithEmbeddedMethod(
         state: charge.instructions.state,
         amountReceivedCents: charge.instructions.state === 'paid' ? charge.amountCents : null,
         reference: charge.instructions.reference,
+        orderNumber: order.orderNumber,
         voucherIssued: false,
       });
     } else {
@@ -803,6 +845,7 @@ async function payWithEmbeddedMethod(
         state: 'pending',
         amountReceivedCents: null,
         reference: charge.instructions.reference,
+        orderNumber: order.orderNumber,
         voucherIssued: true,
       });
     }

@@ -104,6 +104,13 @@ export interface ChargeSnapshot {
   /** What actually arrived. May differ from the amount requested. */
   amountReceivedCents: number | null;
   paidAt: Date | null;
+  /**
+   * The gateway's own copy of the order number (Mercado Pago's
+   * `external_reference`), when the gateway carries one. Lets a caller
+   * recover an order even when this app's own charge-id link is missing —
+   * see `apps/web`'s `gateway-report.ts`.
+   */
+  orderNumber?: string | null;
   /** The gateway's id for the money movement itself, kept as the payment reference. */
   reference?: string | null;
   /** An OXXO voucher the customer still has to pay at the till, when there is one. */
@@ -129,6 +136,8 @@ export interface PaymentEvent {
   state: ChargeState | null;
   amountReceivedCents: number | null;
   reference?: string | null;
+  /** See `ChargeSnapshot.orderNumber`. */
+  orderNumber?: string | null;
   occurredAt: Date;
   /** The raw payload, stored verbatim for audit. */
   raw: unknown;
