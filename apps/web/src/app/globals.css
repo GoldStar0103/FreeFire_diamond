@@ -2647,6 +2647,57 @@ body:has(.page.mc) .bottom-nav { max-width: 430px; }
   box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.25);
   animation: pulse 2s ease-in-out infinite;
 }
+/* Golden Ticket FAB — replaces the plain mascot-avatar bubble, per Jose's
+   design reference (gold circle, radiating glow, ticket icon + label). */
+.wa-fab-btn.gold-ticket {
+  width: 74px;
+  height: 74px;
+  padding: 0;
+  flex-direction: column;
+  gap: 1px;
+  overflow: visible;
+  border: 2px solid #f5c84c;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 36%, #4a3410 0%, #1b1408 72%);
+  box-shadow:
+    0 0 0 1px rgba(245, 200, 76, 0.25),
+    0 14px 30px -12px rgba(0, 0, 0, 0.9);
+}
+.wa-fab-btn.gold-ticket:hover {
+  box-shadow:
+    0 0 0 1px rgba(245, 200, 76, 0.4),
+    0 18px 34px -14px rgba(245, 200, 76, 0.55);
+}
+.gold-ticket-glow {
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(245, 200, 76, 0.4) 0deg 6deg, transparent 6deg 18deg);
+  filter: blur(3px);
+  animation: gold-ticket-spin 12s linear infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+@keyframes gold-ticket-spin {
+  to { transform: rotate(360deg); }
+}
+.gold-ticket-ic {
+  font-size: 18px;
+  line-height: 1;
+  margin-top: 9px;
+}
+.gold-ticket-label {
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  color: #ffe9a8;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.gold-ticket-star {
+  color: #fff3c4;
+}
 @media (min-width: 1024px) {
   .wa-fab {
     left: auto;
@@ -2659,6 +2710,7 @@ body:has(.page.mc) .bottom-nav { max-width: 430px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .wa-fab-dot { animation: none !important; }
+  .gold-ticket-glow { animation: none !important; }
   .wa-fab-btn { transition: none; }
   .wa-fab-btn:hover { transform: none; }
 }
