@@ -5,7 +5,7 @@ import { findCustomerOrder, type CustomerOrder, type CustomerOrderStatus } from 
 import { getCustomerSession } from '../../../lib/customer-session';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
 import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
-import { MERCADOPAGO } from '../../../lib/mercadopago';
+import { applyMercadoPagoReport, getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
 import {
   applyMercadoPagoEmbeddedReport,
   getMercadoPagoEmbedded,
@@ -166,10 +166,16 @@ const groupClabe = (clabe: string): string => clabe.replace(/^(\d{3})(\d{3})(\d{
  * is looking at this page; asking costs one request and turns "why does it say
  * waiting" into their diamonds arriving. Idempotent with the webhook.
  *
- * Covers both gateways this page knows how to re-check live — Stripe (the
- * legacy card/OXXO/SPEI flow) and the embedded Mercado Pago Orders API. Each
- * has its own report-applying function (same `ChargeSnapshot` shape, see
- * their own gateway files), so which one to call is picked by `order.gateway`.
+ * Covers every gateway this page knows how to re-check live — Stripe, the
+ * embedded Mercado Pago Orders API, and Mercado Pago's own hosted Checkout
+ * Pro (added 2026-11-26: confirmed in production that Checkout Pro's own
+ * webhook was never actually reaching this app at all — zero deliveries
+ * logged — so for its card option this re-check is not a lagging-webhook
+ * safety net, it is the ONLY path an order ever settles through; a customer
+ * who paid and never reloaded this page would stay stuck forever). Each
+ * gateway has its own report-applying function (same `ChargeSnapshot` shape,
+ * see their own gateway files), so which one to call is picked by
+ * `order.gateway`.
  */
 async function reconcileCard(
   order: CustomerOrder,
@@ -233,6 +239,36 @@ async function reconcileCard(
     }
   }
 
+  if (order.gateway === MERCADOPAGO) {
+    const gateway = getMercadoPago();
+    if (!gateway) return none;
+    try {
+      // `getCharge` searches by `external_reference` (Checkout Pro's own
+      // `gatewayChargeId` convention is the order number — see
+      // mercadopago.ts's own comment), same lookup the admin panel's
+      // "Verificar con Mercado Pago" button already uses successfully.
+      const snapshot = await gateway.getCharge(order.gatewayChargeId);
+      if (!snapshot) return none;
+
+      const issued = Boolean(snapshot.voucherUrl);
+      if (snapshot.state !== 'pending' || issued) {
+        await applyMercadoPagoReport({
+          gatewayChargeId: snapshot.gatewayChargeId,
+          state: snapshot.state,
+          amountReceivedCents: snapshot.amountReceivedCents,
+          reference: snapshot.reference ?? null,
+          orderNumber: order.orderNumber,
+          voucherIssued: issued,
+        });
+      }
+      if (snapshot.state !== 'pending') return none;
+      return { voucherUrl: snapshot.voucherUrl ?? null, bankTransfer: null, challengeUrl: null };
+    } catch (err) {
+      console.error(`[pedido] could not re-check ${order.orderNumber} with Mercado Pago`, err);
+      return none;
+    }
+  }
+
   return none;
 }
 
@@ -267,13 +303,21 @@ export default async function OrderPage({
   }
 
   const { voucherUrl, bankTransfer, challengeUrl } = await reconcileCard(order);
-  if (order.status === 'esperando_pago' && (order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED)) {
+  if (
+    order.status === 'esperando_pago' &&
+    (order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED || order.gateway === MERCADOPAGO)
+  ) {
     // The re-check may just have confirmed it.
     order = (await findCustomerOrder(getDb(), orderNumber, id)) ?? order;
   }
 
-  const byCard = order.gateway === STRIPE;
-  const byGatewayWaiting = order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED;
+  // Both Stripe and Checkout-Pro Mercado Pago are redirect/hosted-tab flows —
+  // any voucher/CLABE they issue is shown externally, never inline on this
+  // page, so refreshing here never disturbs anything the way it would for
+  // the embedded gateway's own on-page CLABE.
+  const byCard = order.gateway === STRIPE || order.gateway === MERCADOPAGO;
+  const byGatewayWaiting =
+    order.gateway === STRIPE || order.gateway === MERCADOPAGO_EMBEDDED || order.gateway === MERCADOPAGO;
   const status =
     order.status === 'esperando_pago' && byGatewayWaiting
       ? voucherUrl
@@ -307,10 +351,9 @@ export default async function OrderPage({
       : Math.min(100, (order.deliveredDiamonds / order.advertisedDiamonds) * 100);
 
   // Lost the gateway tab before paying — the only recovery is a fresh session
-  // on this same order. Not shown once a voucher/CLABE is already on screen
-  // (Stripe-only — Mercado Pago orders never reconcile through `reconcileCard`
-  // and so never have one): minting another session there would hand them a
-  // second, different voucher while the first may still be payable.
+  // on this same order. Not shown once a voucher/CLABE is already on screen:
+  // minting another session there would hand them a second, different
+  // voucher while the first may still be payable.
   const canContinueGateway =
     order.status === 'esperando_pago' &&
     (order.gateway === STRIPE || order.gateway === MERCADOPAGO) &&
