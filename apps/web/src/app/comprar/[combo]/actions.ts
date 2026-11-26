@@ -6,6 +6,8 @@ import {
   attachGatewayCharge,
   DrizzleOrderingStore,
   DrizzlePaymentStore,
+  extendPaymentDeadline,
+  findGatewayPayment,
   findResumableOrder,
   getPaymentDetails,
   getStorefrontCombo,
@@ -1017,6 +1019,20 @@ export async function payWithStripeCard(
       ...(resumable ? { method: 'card' as const } : {}),
     });
     if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    // A PaymentIntent has no session expiry to lean on the way Stripe's old
+    // hosted Checkout did — confirmed in production 2026-11-26: a real
+    // customer's card authorized fine, but Stripe's own async capture took
+    // a few minutes to report the final status, and by then this order's
+    // original deadline (set once, at creation, possibly by an earlier
+    // attempt this one is resuming) had already passed — the order expired
+    // out from under a payment that was genuinely still arriving. Only ever
+    // extends (see `extendPaymentDeadline`'s own guard), so this can never
+    // shorten a longer window an earlier manual-transfer attempt already had.
+    const linked = await findGatewayPayment(getDb(), STRIPE, charge.gatewayChargeId);
+    if (linked) {
+      await extendPaymentDeadline(getDb(), linked.paymentId, new Date(Date.now() + SESSION_GRACE_MS));
+    }
 
     return {
       clientSecret: charge.instructions.clientSecret,

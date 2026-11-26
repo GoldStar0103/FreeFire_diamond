@@ -7,6 +7,7 @@ import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import { ReleasePaymentButton } from './release-payment-button';
 import { CheckMercadoPagoButton, CheckMercadoPagoReferenceForm, RelinkMercadoPagoForm } from './check-mercadopago-button';
+import { ReactivateExpiredForm } from './reactivate-expired-form';
 import { ReverseOrderForm } from './reverse-order-form';
 import { LpOverrideForm } from './lp-override-form';
 import {
@@ -305,6 +306,14 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           missing or wrong today. */}
       {order.status === 'pending_payment' && (
         <RelinkMercadoPagoForm orderId={order.orderId} orderNumber={order.orderNumber} />
+      )}
+
+      {/* Only once the payment window itself already closed — see
+          `reactivateExpiredPayment`'s own doc comment for the real
+          incident this covers (a real gateway payment that arrived after
+          this app's own deadline already passed). */}
+      {order.status === 'payment_expired' && (
+        <ReactivateExpiredForm orderId={order.orderId} orderNumber={order.orderNumber} />
       )}
 
       {/* Only for an order that actually earned Level Pass progress, and not

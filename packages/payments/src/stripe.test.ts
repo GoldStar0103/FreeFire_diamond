@@ -278,6 +278,12 @@ describe('createCharge — card, embedded PaymentIntent', () => {
     // redirects forbidden — must be excluded explicitly, since OXXO is its
     // own separate, manual button in this checkout, never this one.
     expect(body.get('excluded_payment_method_types[0]')).toBe('oxxo');
+    // Confirmed in production 2026-11-26: Stripe's own default here is
+    // `automatic_async`, which can leave the final status lagging the
+    // confirm call by several minutes — a real payment authorized fine but
+    // arrived after this app's own order had already expired. Forced to
+    // synchronous so `getCharge` right after confirm already has the truth.
+    expect(body.get('capture_method')).toBe('automatic');
     expect(body.get('metadata[order_id]')).toBe('ord-uuid-1');
     expect(body.get('metadata[order_number]')).toBe('LU-260910-AB12');
   });
@@ -564,6 +570,13 @@ describe('getCharge', () => {
 
     expect(calls[0]?.url).toBe('https://api.stripe.com/v1/payment_intents/pi_1');
     expect(snapshot).toMatchObject({ state: 'paid', amountReceivedCents: 26_000, reference: 'pi_1' });
+  });
+
+  it('carries the order number through from the PaymentIntent metadata', async () => {
+    const { impl } = fakeFetch([
+      { status: 200, body: { id: 'pi_1', object: 'payment_intent', status: 'succeeded', amount: 26_000, amount_received: 26_000, metadata: { order_number: 'LU-261126-AB12' } } },
+    ]);
+    expect(await gateway(impl).getCharge('pi_1')).toMatchObject({ orderNumber: 'LU-261126-AB12' });
   });
 
   it('reports a card still awaiting confirmation (3DS, etc.) as pending, with no amount', async () => {

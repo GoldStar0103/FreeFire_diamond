@@ -13,6 +13,7 @@ import {
 import { getDb } from '../../../../lib/db';
 import { getMercadoPago } from '../../../../lib/mercadopago';
 import { getMercadoPagoEmbedded } from '../../../../lib/mercadopago-embedded';
+import { getStripe } from '../../../../lib/stripe';
 import { requireSession } from '../../../../lib/session';
 
 export interface ReviewState {
@@ -604,5 +605,114 @@ export async function relinkMercadoPagoPayment(_prev: RelinkState, formData: For
     ok: result.alreadyApproved
       ? `${result.orderNumber} ya estaba confirmado.`
       : `${result.orderNumber} vinculado y confirmado — la recarga se está procesando.`,
+  };
+}
+
+export interface ReactivateExpiredState {
+  ok?: string;
+  error?: string;
+}
+
+/**
+ * Force an order through even though its own payment window already closed
+ * — built 2026-11-26 after a real incident: a Stripe card authorized fine,
+ * but Stripe's own async capture reported the final status minutes after
+ * this app's own (already 2-hour) deadline had passed, and the order
+ * expired before the real news ever arrived. `releasePayment` above refuses
+ * here on purpose (`expired` was never an awaiting state) — this is the
+ * deliberate, audited override for exactly that case.
+ *
+ * Never trusts the admin's own say-so: re-checks the reference directly
+ * with whichever gateway is named, the same discipline
+ * `relinkMercadoPagoPayment` already follows, and refuses outright unless
+ * that gateway's own answer is `paid` for THIS order specifically.
+ * Reactivating an order whose Mega Oferta slot may have already been freed
+ * and resold is a real, accepted risk of this override — see
+ * `approvePayment`'s own doc comment on `reactivateExpired`.
+ */
+export async function reactivateExpiredPayment(
+  _prev: ReactivateExpiredState,
+  formData: FormData,
+): Promise<ReactivateExpiredState> {
+  const session = await requireSession();
+
+  const orderId = String(formData.get('orderId') ?? '');
+  const orderNumber = String(formData.get('orderNumber') ?? '').trim();
+  const gatewayName = String(formData.get('gatewayName') ?? '').trim();
+  const reference = String(formData.get('reference') ?? '').trim();
+  if (!orderId || !orderNumber) return { error: 'Falta el pedido.' };
+  if (!reference) return { error: 'Falta la referencia del pago en la pasarela.' };
+
+  let found: { state: ChargeState; amountReceivedCents: number | null; orderNumber: string | null };
+  try {
+    if (gatewayName === 'stripe') {
+      const gateway = getStripe();
+      if (!gateway) return { error: 'Stripe no está configurado en este servidor.' };
+      const snapshot = await gateway.getCharge(reference);
+      if (!snapshot) return { error: 'Stripe no tiene ningún pago con esa referencia.' };
+      found = { state: snapshot.state, amountReceivedCents: snapshot.amountReceivedCents, orderNumber: snapshot.orderNumber ?? null };
+    } else if (gatewayName === 'mercadopago-embedded') {
+      const gateway = getMercadoPagoEmbedded();
+      if (!gateway) return { error: 'Mercado Pago no está configurado en este servidor.' };
+      const snapshot = await gateway.getCharge(reference);
+      if (!snapshot) return { error: 'Mercado Pago no tiene ningún pago con esa referencia.' };
+      found = { state: snapshot.state, amountReceivedCents: snapshot.amountReceivedCents, orderNumber: snapshot.orderNumber ?? null };
+    } else if (gatewayName === 'mercadopago') {
+      const gateway = getMercadoPago();
+      if (!gateway) return { error: 'Mercado Pago no está configurado en este servidor.' };
+      const snapshot = await gateway.getPaymentById(reference);
+      if (!snapshot) return { error: 'Mercado Pago no tiene ningún pago con esa referencia.' };
+      found = { state: snapshot.state, amountReceivedCents: snapshot.amountReceivedCents, orderNumber: snapshot.orderNumber ?? null };
+    } else {
+      return { error: 'Pasarela no reconocida.' };
+    }
+  } catch (err) {
+    return {
+      error:
+        err instanceof GatewayError
+          ? `La pasarela no respondió: ${err.message}`
+          : 'No se pudo contactar a la pasarela. Intenta de nuevo.',
+    };
+  }
+
+  if (found.orderNumber !== orderNumber) {
+    return {
+      error: found.orderNumber
+        ? `Esa referencia pertenece al pedido ${found.orderNumber}, no a este. Ábrelo ahí en vez de aquí.`
+        : 'Esa referencia no está asociada a ningún pedido.',
+    };
+  }
+  if (found.state !== 'paid') {
+    return { error: `La pasarela todavía no confirma este pago (estado: ${found.state}) — no se reactivó nada.` };
+  }
+
+  const result = await approvePayment(
+    { store: new DrizzlePaymentStore(getDb()) },
+    {
+      orderId,
+      adminUserId: session.adminUserId,
+      ...(found.amountReceivedCents !== null ? { amountReceivedCents: found.amountReceivedCents } : {}),
+      reference,
+      reactivateExpired: true,
+    },
+  );
+
+  if (!result.ok) {
+    const explain: Partial<Record<string, string>> = {
+      ORDER_NOT_FOUND: 'Ese pedido ya no existe.',
+      AMOUNT_MISMATCH: 'Vinculado, pero el monto que reporta la pasarela no coincide con el del pedido. Revísalo a mano.',
+    };
+    return { error: explain[result.failure.code] ?? result.failure.message };
+  }
+
+  revalidatePath(`/pedidos/${orderId}`);
+  revalidatePath('/pedidos');
+  revalidatePath('/aprobaciones');
+  revalidatePath('/');
+
+  return {
+    ok: result.alreadyApproved
+      ? `${result.orderNumber} ya estaba confirmado.`
+      : `${result.orderNumber} reactivado y confirmado — la recarga se está procesando.`,
   };
 }

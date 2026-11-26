@@ -438,6 +438,22 @@ export class StripeGateway implements PaymentGateway {
    * not assumed away by the redirect setting. Wallets (Apple Pay/Google
    * Pay/Link) cannot be excluded this same way and don't need to be: they
    * ride on `card`, Stripe's own API rejects trying to exclude them here.
+   *
+   * `capture_method: 'automatic'` is also deliberate, not Stripe's own
+   * default: confirmed in production 2026-11-26 that Stripe's actual
+   * default for a PaymentIntent created this way is `automatic_async` —
+   * the card is authorized immediately but the final `succeeded` status can
+   * lag by several minutes while Stripe's own async review finishes. A real
+   * customer's payment authorized fine but the order had already been swept
+   * as expired by the time the real status arrived, and by then
+   * `approvePayment`'s own guard correctly refused to approve an expired
+   * order — money taken, nothing shipped, needing a human to sort out.
+   * Forcing synchronous capture means `getCharge` right after
+   * `confirmPayment` already reflects the final outcome, the same
+   * assumption Mercado Pago's embedded card flow gets to make. Standard
+   * real-time fraud checks still run either way; this only removes the
+   * extra asynchronous review buffer, which this storefront's existing
+   * payment-deadline design was never built to wait out.
    */
   private async createCardIntentCharge(input: CreateChargeInput): Promise<ChargeCreated> {
     const metadata = { order_id: input.orderId, order_number: input.orderNumber };
@@ -448,6 +464,7 @@ export class StripeGateway implements PaymentGateway {
       metadata,
       automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       excluded_payment_method_types: ['oxxo'],
+      capture_method: 'automatic',
       ...(input.customerEmail ? { receipt_email: input.customerEmail } : {}),
     };
 
@@ -622,6 +639,11 @@ export class StripeGateway implements PaymentGateway {
       amountReceivedCents: state === 'paid' ? (intent.amount_received ?? intent.amount ?? null) : null,
       paidAt: null,
       reference: intent.id,
+      // Cheap to carry through — the admin panel's own manual-relink tools
+      // (and `applyGatewayReport`'s self-heal) use this to confirm a charge
+      // actually belongs to the order it's about to be attached to, rather
+      // than trusting whichever order happens to be open.
+      orderNumber: intent.metadata?.order_number ?? null,
       voucherUrl: null,
       bankTransfer: null,
     };

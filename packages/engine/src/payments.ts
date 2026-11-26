@@ -67,6 +67,21 @@ export interface ApprovePaymentInput {
    * the client sometimes lets a few pesos short go through for a regular.
    */
   acceptMismatch?: boolean;
+  /**
+   * Force approval through even though this payment already expired —
+   * added 2026-11-26 after a real incident: a Stripe card authorized fine,
+   * but Stripe's own async capture reported the final status minutes after
+   * this app's own (already-generous) deadline had passed, and the order
+   * expired out from under a payment that genuinely arrived. For a human
+   * who has independently re-confirmed with the gateway directly (never
+   * taken on trust — see the admin panel's "Reactivar pedido vencido" own
+   * doc comment) that the money is real, same spirit as `acceptMismatch`:
+   * a deliberate, attributable override, not something any automatic path
+   * sets. Reactivating an order whose Mega Oferta slot may have already
+   * been freed and re-sold to someone else is a real, accepted risk of
+   * this override — the human doing it is expected to have looked.
+   */
+  reactivateExpired?: boolean;
 }
 
 export type PaymentFailure =
@@ -146,7 +161,8 @@ export async function approvePayment(
     };
   }
 
-  if (!AWAITING.has(payable.paymentStatus)) {
+  const reactivatingExpired = input.reactivateExpired && payable.paymentStatus === 'expired';
+  if (!AWAITING.has(payable.paymentStatus) && !reactivatingExpired) {
     return fail({
       code: 'NOT_AWAITING_PAYMENT',
       message: `Payment for ${payable.orderNumber} is ${payable.paymentStatus}.`,
@@ -156,7 +172,9 @@ export async function approvePayment(
 
   // An OXXO voucher paid after expiry needs a human: the promo may have rotated
   // and the recipe snapshot may no longer reflect what is on sale.
-  if (payable.expiresAt && now > payable.expiresAt && !input.acceptMismatch) {
+  // `reactivatingExpired` already means exactly that human looked and chose
+  // to proceed anyway — the whole point of asking for it in the first place.
+  if (payable.expiresAt && now > payable.expiresAt && !input.acceptMismatch && !reactivatingExpired) {
     return fail({
       code: 'PAYMENT_EXPIRED',
       message: `Payment window for ${payable.orderNumber} closed on ${payable.expiresAt.toISOString()}.`,

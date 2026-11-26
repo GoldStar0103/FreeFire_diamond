@@ -4,6 +4,8 @@ import {
   attachGatewayCharge,
   DrizzleItemOrderingStore,
   DrizzlePaymentStore,
+  extendPaymentDeadline,
+  findGatewayPayment,
   findResumableItemOrder,
   getArsRate,
 } from '@levelup/db';
@@ -12,7 +14,7 @@ import type { ChargeState, PaymentInstructions } from '@levelup/payments';
 import { getDb, paymentAttemptLimiter, callerIp } from '../../../lib/server';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
-import { applyStripeReport, getStripe, STRIPE } from '../../../lib/stripe';
+import { applyStripeReport, getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
 import { getMercadoPago, MERCADOPAGO } from '../../../lib/mercadopago';
 import { applyMercadoPagoEmbeddedReport, getMercadoPagoEmbedded, MERCADOPAGO_EMBEDDED } from '../../../lib/mercadopago-embedded';
 import { trackingContext } from '../../../lib/tracking';
@@ -149,6 +151,14 @@ export async function payWithItemStripeCard(
       ...(resumable ? { method: 'card' as const } : {}),
     });
     if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    // See the combo checkout's own `payWithStripeCard` for why this matters:
+    // a PaymentIntent has no session expiry to lean on, and Stripe's own
+    // async capture can report the final status minutes after confirm.
+    const linked = await findGatewayPayment(db, STRIPE, charge.gatewayChargeId);
+    if (linked) {
+      await extendPaymentDeadline(db, linked.paymentId, new Date(Date.now() + SESSION_GRACE_MS));
+    }
 
     return {
       clientSecret: charge.instructions.clientSecret,

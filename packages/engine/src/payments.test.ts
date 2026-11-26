@@ -211,6 +211,63 @@ describe('expiry', () => {
   });
 });
 
+describe('reactivating an already-expired payment', () => {
+  // Built 2026-11-26 after a real incident: a Stripe card authorized fine,
+  // but Stripe's own async capture reported the final status minutes after
+  // this app's own order had already been swept to `expired`. A human who
+  // independently re-confirms with the gateway directly needs a way to push
+  // it through anyway — `releasePayment`'s existing "force it" path refuses
+  // here, since `expired` was never in `AWAITING`.
+  it('refuses an expired payment without the explicit flag, same as always', async () => {
+    const { deps, store } = harness(payable({ paymentStatus: 'expired' }));
+
+    const result = await approvePayment(deps, { orderId: 'order-1' });
+
+    expect(result).toMatchObject({ ok: false, failure: { code: 'NOT_AWAITING_PAYMENT', paymentStatus: 'expired' } });
+    expect(store.confirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('confirms an expired payment when reactivateExpired is set', async () => {
+    const { deps, store } = harness(payable({ paymentStatus: 'expired', expiresAt: new Date('2026-09-14T12:00:00Z') }));
+
+    const result = await approvePayment(deps, {
+      orderId: 'order-1',
+      adminUserId: 'admin-1',
+      reactivateExpired: true,
+    });
+
+    expect(result).toMatchObject({ ok: true, alreadyApproved: false });
+    expect(store.confirmPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId: 'order-1', amountReceivedCents: 153_000, adminUserId: 'admin-1' }),
+    );
+  });
+
+  it('still flags a genuine amount mismatch even while reactivating', async () => {
+    // Overriding the expiry is not a blank check to also skip the amount
+    // check — those are two separate, deliberately independent guards.
+    const { deps, store } = harness(payable({ paymentStatus: 'expired' }));
+
+    const result = await approvePayment(deps, {
+      orderId: 'order-1',
+      amountReceivedCents: 1_000,
+      reactivateExpired: true,
+    });
+
+    expect(result).toMatchObject({ ok: false, failure: { code: 'AMOUNT_MISMATCH' } });
+    expect(store.confirmPayment).not.toHaveBeenCalled();
+    expect(store.flagMismatch).toHaveBeenCalled();
+  });
+
+  it('does nothing to an order that is not actually expired, flag or not', async () => {
+    const { deps, store } = harness(payable({ paymentStatus: 'pending' }));
+
+    const result = await approvePayment(deps, { orderId: 'order-1', reactivateExpired: true });
+
+    expect(result.ok).toBe(true);
+    expect(store.confirmPayment).toHaveBeenCalled();
+  });
+});
+
 describe('rejection', () => {
   it('rejects an unpaid order', async () => {
     const { deps, store } = harness(payable());
