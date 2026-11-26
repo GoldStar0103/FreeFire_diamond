@@ -122,8 +122,15 @@ export default async function HomePage() {
     rated.length >= 3 ? rated.reduce((sum, t) => t.rating! + sum, 0) / rated.length : null;
 
   const packs = campaigns.flatMap((campaign) => campaign.combos.map((combo) => ({ campaign, combo })));
+  // Cheapest 110-diamond combo, not just the first one found — confirmed
+  // live 2026-11-25 (Jose): "MINI PACKS 110 x $18" and "MEGA OFERTA 110 x
+  // $15" are both real, active 110-diamond combos, and a plain `.find()`
+  // here picked whichever campaign happened to come first in the list,
+  // showing the $18 pack as the homepage's main promotion instead of the
+  // actual best deal that promotion is supposed to feature.
+  const combos110 = packs.filter((p) => p.combo.advertisedDiamonds === 110);
   const featured =
-    packs.find((p) => p.combo.advertisedDiamonds === 110) ??
+    combos110.sort((a, b) => a.combo.priceMxnCents - b.combo.priceMxnCents)[0] ??
     packs.find((p) => p.campaign.permanent) ??
     packs[0] ??
     null;
