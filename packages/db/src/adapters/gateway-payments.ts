@@ -7,7 +7,7 @@
  * `approvePayment` a human tap does. This file only records and looks up.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Database } from '../index.js';
 import { orders, paymentEvents, payments } from '../schema.js';
 
@@ -206,4 +206,50 @@ export async function markPaymentEventProcessed(
     .update(paymentEvents)
     .set({ processedAt: new Date(), ...(paymentId ? { paymentId } : {}) })
     .where(and(eq(paymentEvents.id, eventRowId), isNull(paymentEvents.processedAt)));
+}
+
+export interface PendingGatewayPayment {
+  paymentId: string;
+  orderId: string;
+  orderNumber: string;
+  gatewayChargeId: string;
+}
+
+/**
+ * Payments still sitting at `pending` on a given gateway, past a minimum age.
+ *
+ * Built 2026-11-26 for the worker's own reconcile sweep — confirmed in
+ * production that Mercado Pago's Checkout Pro webhook was not reaching this
+ * app at all (zero deliveries logged), so for that gateway this is not a
+ * lagging-webhook safety net, it's the only path an order the customer never
+ * reloads their own tracking page for will ever settle through. The minimum
+ * age is there so a checkout still genuinely in progress a few seconds ago
+ * isn't asked about before it's had a chance to finish on its own.
+ */
+export async function listPendingGatewayPayments(
+  db: Database,
+  input: { gateway: string; olderThanMs: number; limit: number },
+): Promise<PendingGatewayPayment[]> {
+  const cutoff = new Date(Date.now() - input.olderThanMs);
+  const rows = await db
+    .select({
+      paymentId: payments.id,
+      orderId: orders.id,
+      orderNumber: orders.orderNumber,
+      gatewayChargeId: payments.gatewayChargeId,
+    })
+    .from(payments)
+    .innerJoin(orders, eq(orders.id, payments.orderId))
+    .where(
+      and(
+        eq(payments.status, 'pending'),
+        eq(payments.gateway, input.gateway),
+        isNotNull(payments.gatewayChargeId),
+        lt(payments.createdAt, cutoff),
+      ),
+    )
+    .orderBy(asc(payments.createdAt))
+    .limit(input.limit);
+
+  return rows.map((r) => ({ ...r, gatewayChargeId: r.gatewayChargeId! }));
 }

@@ -19,6 +19,7 @@ import {
   DrizzleItemOrderQueue,
   DrizzleLevelPassStore,
   DrizzleOrderQueue,
+  DrizzlePaymentStore,
   DrizzleRecoveryStore,
   DrizzleRocketPassCatalogStore,
   DrizzleSeasonStore,
@@ -43,6 +44,7 @@ import { RocketPassClient } from '@levelup/rocketpass';
 import { ConsoleAlerter, TelegramAlerter } from './alerter.js';
 import { loadConfig } from './config.js';
 import { startHeartbeat } from './heartbeat.js';
+import { buildMercadoPagoCheckoutPro } from './mercadopago.js';
 import { MetaConversionsReporter } from './meta-capi.js';
 import {
   CatalogSyncSchedule,
@@ -241,6 +243,10 @@ async function main(): Promise<void> {
     alerter,
     config,
     isEmergencyMode: async () => (await getEmergencyMode(db)).enabled,
+    gatewayReconcile: {
+      store: new DrizzlePaymentStore(db),
+      mercadoPagoCheckoutPro: buildMercadoPagoCheckoutPro(),
+    },
   };
 
   const catalogSchedule = new CatalogSyncSchedule(config.catalogSync.intervalMs);

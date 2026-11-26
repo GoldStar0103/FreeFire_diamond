@@ -27,6 +27,7 @@ import {
   ORDER_BOUNDARY_KEY,
   runCatalogSync,
   runFulfillmentLoop,
+  runGatewayReconcile,
   runItemFulfillmentLoop,
   ShutdownSignal,
   type RunnerDeps,
@@ -112,8 +113,34 @@ function harness(
     alerter,
     config: testConfig(),
     isEmergencyMode,
+    // Checkout Pro not configured in these tests — the sweep step is a
+    // no-op; its own behavior is covered directly in
+    // @levelup/engine's gateway-reconcile.test.ts and runGatewayReconcile's
+    // own test below.
+    gatewayReconcile: { store: new FakeGatewayReconcileStore(), mercadoPagoCheckoutPro: null },
   };
   return { deps, queue, store, catalog, alerter, provider, centralOneProvider };
+}
+
+class FakeGatewayReconcileStore {
+  async listPendingGatewayPayments(): Promise<never[]> {
+    return [];
+  }
+  async findPayable(): Promise<null> {
+    return null;
+  }
+  async confirmPayment(): Promise<void> {
+    return undefined;
+  }
+  async flagMismatch(): Promise<void> {
+    return undefined;
+  }
+  async rejectPayment(): Promise<void> {
+    return undefined;
+  }
+  async expirePayment(): Promise<void> {
+    return undefined;
+  }
 }
 
 describe('runFulfillmentLoop', () => {
@@ -543,6 +570,73 @@ describe('checkWallet', () => {
 
     await expect(
       checkWallet({ ...deps, providers: { ...deps.providers, recargas_america: provider } }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('runGatewayReconcile', () => {
+  it('does nothing when Checkout Pro is not configured on this deployment', async () => {
+    const { deps } = harness([]);
+    const listPendingGatewayPayments = vi.fn(async () => []);
+
+    await runGatewayReconcile({
+      ...deps,
+      gatewayReconcile: { store: { ...deps.gatewayReconcile.store, listPendingGatewayPayments }, mercadoPagoCheckoutPro: null },
+    });
+
+    expect(listPendingGatewayPayments).not.toHaveBeenCalled();
+  });
+
+  it('settles a pending payment Mercado Pago now reports paid, using the sweep config knobs', async () => {
+    const { deps } = harness([]);
+    const confirmPayment = vi.fn(async () => undefined);
+    const store = {
+      ...deps.gatewayReconcile.store,
+      listPendingGatewayPayments: vi.fn(async () => [
+        { paymentId: 'pay-1', orderId: 'order-1', orderNumber: 'LU-261126-AB12', gatewayChargeId: 'LU-261126-AB12' },
+      ]),
+      findPayable: vi.fn(async () => ({
+        orderId: 'order-1',
+        orderNumber: 'LU-261126-AB12',
+        orderStatus: 'pending_payment' as const,
+        paymentId: 'pay-1',
+        paymentStatus: 'pending' as const,
+        method: 'card' as const,
+        amountExpectedCents: 86_000,
+        expiresAt: null,
+      })),
+      confirmPayment,
+    };
+    const getCharge = vi.fn(async () => ({ state: 'paid' as const, amountReceivedCents: 86_000, reference: 'mp-ref-1' }));
+
+    await runGatewayReconcile({
+      ...deps,
+      gatewayReconcile: { store, mercadoPagoCheckoutPro: { getCharge } },
+    });
+
+    expect(store.listPendingGatewayPayments).toHaveBeenCalledWith({
+      gateway: 'mercadopago',
+      olderThanMs: deps.config.sweeps.minAgeMs,
+      limit: deps.config.sweeps.batchSize,
+    });
+    expect(getCharge).toHaveBeenCalledWith('LU-261126-AB12');
+    expect(confirmPayment).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1', amountReceivedCents: 86_000 }));
+  });
+
+  it('does not throw when the gateway check itself fails', async () => {
+    const { deps } = harness([]);
+    const store = {
+      ...deps.gatewayReconcile.store,
+      listPendingGatewayPayments: vi.fn(async () => [
+        { paymentId: 'pay-1', orderId: 'order-1', orderNumber: 'LU-261126-AB12', gatewayChargeId: 'LU-261126-AB12' },
+      ]),
+    };
+    const getCharge = vi.fn(async () => {
+      throw new Error('Mercado Pago unreachable');
+    });
+
+    await expect(
+      runGatewayReconcile({ ...deps, gatewayReconcile: { store, mercadoPagoCheckoutPro: { getCharge } } }),
     ).resolves.toBeUndefined();
   });
 });

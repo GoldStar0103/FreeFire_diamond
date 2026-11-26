@@ -16,6 +16,7 @@
     "dependencies":  {
                          "@levelup/db":  "workspace:*",
                          "@levelup/engine":  "workspace:*",
+                         "@levelup/payments":  "workspace:*",
                          "@levelup/provider":  "workspace:*",
                          "@levelup/rocketpass":  "workspace:*",
                          "@levelup/shared":  "workspace:*",

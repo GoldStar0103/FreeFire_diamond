@@ -22,6 +22,7 @@ import {
   extendPaymentDeadline,
   findGatewayPayment,
   findPaymentByOrderNumber,
+  listPendingGatewayPayments,
   markPaymentEventProcessed,
   recordPaymentEvent,
 } from './gateway-payments.js';
@@ -241,5 +242,60 @@ describe.skipIf(!PG_AVAILABLE)('a card payment end to end', () => {
     // The same player can try again — the one-per-player index ignores
     // expired orders.
     await expect(cardOrder()).resolves.toBeDefined();
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('listPendingGatewayPayments', () => {
+  // Built 2026-11-26 for the worker's own reconcile sweep — see that
+  // function's own doc comment for the real incident behind it.
+  it('finds a pending payment on the given gateway, past the minimum age', async () => {
+    const order = await cardOrder();
+    await attachGatewayCharge(db, {
+      orderId: order.id,
+      gateway: 'mercadopago',
+      gatewayChargeId: order.orderNumber,
+      expiresAt: null,
+    });
+    await db
+      .update(payments)
+      .set({ createdAt: new Date(Date.now() - 60_000) })
+      .where(eq(payments.orderId, order.id));
+
+    const found = await listPendingGatewayPayments(db, { gateway: 'mercadopago', olderThanMs: 30_000, limit: 25 });
+
+    expect(found).toEqual([
+      {
+        paymentId: expect.any(String),
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        gatewayChargeId: order.orderNumber,
+      },
+    ]);
+  });
+
+  it('ignores a payment younger than the minimum age — still mid-checkout', async () => {
+    const order = await cardOrder();
+    await attachGatewayCharge(db, {
+      orderId: order.id,
+      gateway: 'mercadopago',
+      gatewayChargeId: order.orderNumber,
+      expiresAt: null,
+    });
+
+    const found = await listPendingGatewayPayments(db, { gateway: 'mercadopago', olderThanMs: 30_000, limit: 25 });
+    expect(found).toEqual([]);
+  });
+
+  it('ignores a different gateway, and a payment already settled', async () => {
+    const stripeOrder = await cardOrder('7288567051');
+    await attachGatewayCharge(db, { orderId: stripeOrder.id, gateway: 'stripe', gatewayChargeId: 'cs_1', expiresAt: null });
+
+    const paidOrder = await cardOrder('7288567052');
+    await attachGatewayCharge(db, { orderId: paidOrder.id, gateway: 'mercadopago', gatewayChargeId: paidOrder.orderNumber, expiresAt: null });
+    await db.update(payments).set({ status: 'paid', createdAt: new Date(Date.now() - 60_000) }).where(eq(payments.orderId, paidOrder.id));
+    await db.update(payments).set({ createdAt: new Date(Date.now() - 60_000) }).where(eq(payments.orderId, stripeOrder.id));
+
+    const found = await listPendingGatewayPayments(db, { gateway: 'mercadopago', olderThanMs: 30_000, limit: 25 });
+    expect(found).toEqual([]);
   });
 });

@@ -11,12 +11,22 @@
  */
 
 import { and, desc, eq, ne } from 'drizzle-orm';
-import type { PayableOrder, PaymentStore, PaymentState } from '@levelup/engine';
+import type { GatewayReconcileStore, PayableOrder, PaymentStore, PaymentState } from '@levelup/engine';
 import type { Database } from '../index.js';
 import { auditLog, notifications, orders, payments } from '../schema.js';
+import { listPendingGatewayPayments } from './gateway-payments.js';
 
-export class DrizzlePaymentStore implements PaymentStore {
+export class DrizzlePaymentStore implements PaymentStore, GatewayReconcileStore {
   constructor(private readonly db: Database) {}
+
+  /** See `listPendingGatewayPayments`'s own doc comment in gateway-payments.ts. */
+  listPendingGatewayPayments(input: {
+    gateway: string;
+    olderThanMs: number;
+    limit: number;
+  }): ReturnType<typeof listPendingGatewayPayments> {
+    return listPendingGatewayPayments(this.db, input);
+  }
 
   async findPayable(orderId: string): Promise<PayableOrder | null> {
     const [row] = await this.db

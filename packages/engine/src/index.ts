@@ -5,6 +5,7 @@ export * from './poller.js';
 export * from './ordering.js';
 export * from './item-ordering.js';
 export * from './payments.js';
+export * from './gateway-reconcile.js';
 export * from './expiry.js';
 export * from './expiry-reminders.js';
 export * from './rocketpass-sync.js';

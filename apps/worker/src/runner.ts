@@ -19,6 +19,7 @@ import {
   PROVIDER_LOCK_KEYS,
   recoverStalledItems,
   pollPendingOrders,
+  reconcilePendingGatewayPayments,
   reportConversions,
   sendExpiryReminders,
   summariseSync,
@@ -36,10 +37,13 @@ import type {
   ExpiryReminderDeps,
   ExpiryReminderResult,
   ExpiryStore,
+  GatewayChargeCheck,
+  GatewayReconcileStore,
   GiveawayPrizeDeliveryStore,
   ItemFulfillmentStore,
   LevelPassSweepResult,
   LevelPassSweepStore,
+  PaymentStore,
   RecoveryStore,
   RewardFulfillmentStore,
   RocketPassOrderClient,
@@ -78,6 +82,21 @@ export interface RunnerDeps {
    * DB hiccup must not silently stall paid orders with no visible reason.
    */
   isEmergencyMode: () => Promise<boolean>;
+  /**
+   * For `runGatewayReconcile` (2026-11-26) — the full `PaymentStore` +
+   * `GatewayReconcileStore` surface `settleGatewayCharge`/
+   * `reconcilePendingGatewayPayments` need, which `store` above doesn't
+   * carry. A separate field rather than folding into `store` because this
+   * is genuinely a different concern (settling a payment, not fulfilling an
+   * already-settled one) — same reasoning every other sweep-specific store
+   * in this file (`levelPassStore`, `seasonStore`, etc.) already follows.
+   * `null` when Mercado Pago's Checkout Pro isn't configured on this
+   * deployment at all — the sweep step simply does nothing then.
+   */
+  gatewayReconcile: {
+    store: PaymentStore & GatewayReconcileStore;
+    mercadoPagoCheckoutPro: GatewayChargeCheck | null;
+  };
 }
 
 /**
@@ -333,6 +352,8 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
     console.error(`[sweep] Expiry failed: ${String(err)}`);
   }
 
+  await runGatewayReconcile(deps);
+
   // No Telegram alert for a pending OXXO/SPEI payment sitting quiet past a
   // few hours any more (removed 2026-09-27, client request): the large
   // majority turned out to be customers who generated a payment reference
@@ -343,6 +364,42 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
   // unused, in case this needs to come back.
 
   await checkWallet(deps);
+}
+
+/**
+ * Ask Mercado Pago's Checkout Pro directly about any card payment still
+ * sitting `pending` past its own webhook's reasonable arrival window —
+ * see `reconcilePendingGatewayPayments`'s own doc comment in @levelup/engine
+ * for the real incident this closes. A no-op (not even the `examined > 0`
+ * log line fires) when Checkout Pro isn't configured on this deployment.
+ *
+ * Same `minAgeMs`/`batchSize` knobs the poller above already uses — no new
+ * env var needed for a sensible "don't ask about a checkout that started
+ * ten seconds ago" / "don't hammer Mercado Pago in one sweep tick" pair.
+ */
+export async function runGatewayReconcile(deps: RunnerDeps): Promise<void> {
+  const { gatewayReconcile, config } = deps;
+  const gateway = gatewayReconcile.mercadoPagoCheckoutPro;
+  if (!gateway) return;
+
+  try {
+    const result = await reconcilePendingGatewayPayments(
+      { store: gatewayReconcile.store, gateway },
+      {
+        gatewayName: 'mercadopago',
+        olderThanMs: config.sweeps.minAgeMs,
+        limit: config.sweeps.batchSize,
+      },
+    );
+    if (result.examined > 0) {
+      console.log(
+        `[sweep] gateway-reconcile (mercadopago) examined ${result.examined}: ` +
+          `${result.settled} settled, ${result.stillPending} still pending, ${result.errored} errored`,
+      );
+    }
+  } catch (err) {
+    console.error(`[sweep] gateway-reconcile (mercadopago) failed: ${String(err)}`);
+  }
 }
 
 /**
