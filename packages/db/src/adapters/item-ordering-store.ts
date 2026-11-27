@@ -153,7 +153,15 @@ export class DrizzleItemOrderingStore implements ItemOrderingStore {
  * The item-order equivalent of `storefront-queries.ts`'s `findResumableOrder`
  * — same reasoning, same exclusions (only a genuinely untouched `'pending'`
  * payment counts), keyed by `(playerId, sku)` instead of `(playerId, comboKey)`
- * since an item order has no combo key.
+ * since an item order has no combo key. Also requires an exact `quantity`
+ * match, which a combo order never needs (a combo's price is fixed; an item
+ * order's isn't) — confirmed missing in production 2026-11-27: a customer
+ * who started checkout at one quantity, didn't pay, came back and changed
+ * the quantity, had the *new* quantity shown on this page while the *old*
+ * one's frozen price was silently reused for the actual charge (Stripe's own
+ * Apple Pay sheet showing $91 for what this page displayed as $10). Without
+ * this, any quantity change on a still-pending order charges the wrong
+ * amount instead of either matching or starting a fresh order.
  */
 export interface ResumableItemOrder {
   id: string;
@@ -175,7 +183,7 @@ export interface ResumableItemOrder {
 
 export async function findResumableItemOrder(
   db: Database,
-  input: { playerId: string; sku: string },
+  input: { playerId: string; sku: string; quantity: number },
 ): Promise<ResumableItemOrder | null> {
   const [row] = await db
     .select({
@@ -193,6 +201,7 @@ export async function findResumableItemOrder(
         eq(orders.playerId, input.playerId.trim()),
         eq(orders.orderType, 'item'),
         eq(itemOrderDetails.itemSku, input.sku),
+        eq(itemOrderDetails.quantity, input.quantity),
         eq(orders.status, 'pending_payment'),
       ),
     )

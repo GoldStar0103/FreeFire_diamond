@@ -140,21 +140,26 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleItemOrderingStore.persist', () => {
 });
 
 describe.skipIf(!PG_AVAILABLE)('findResumableItemOrder', () => {
-  it('finds a still-pending order for the same player and sku', async () => {
+  it('finds a still-pending order for the same player, sku, and quantity', async () => {
     const { orderNumber } = await store().persist(newOrder());
-    const resumable = await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate' });
+    const resumable = await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate', quantity: 2 });
     expect(resumable?.orderNumber).toBe(orderNumber);
   });
 
   it('ignores an order under review', async () => {
     const { id } = await store().persist(newOrder());
     await db.update(payments).set({ status: 'under_review' }).where(eq(payments.orderId, id));
-    expect(await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate' })).toBeNull();
+    expect(await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate', quantity: 2 })).toBeNull();
   });
 
   it('never matches a different sku', async () => {
     await store().persist(newOrder());
-    expect(await findResumableItemOrder(db, { playerId: '123456789', sku: 'token' })).toBeNull();
+    expect(await findResumableItemOrder(db, { playerId: '123456789', sku: 'token', quantity: 2 })).toBeNull();
+  });
+
+  it('never matches a different quantity — a changed quantity must charge the new amount, not the old one', async () => {
+    await store().persist(newOrder());
+    expect(await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate', quantity: 10 })).toBeNull();
   });
 
   it('surfaces the attached gatewayChargeId so a caller can re-check a still-live SPEI reference', async () => {
@@ -163,7 +168,7 @@ describe.skipIf(!PG_AVAILABLE)('findResumableItemOrder', () => {
       .update(payments)
       .set({ gateway: 'mercadopago_embedded', gatewayChargeId: 'mp-order-123' })
       .where(eq(payments.orderId, id));
-    const resumable = await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate' });
+    const resumable = await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate', quantity: 2 });
     expect(resumable?.gatewayChargeId).toBe('mp-order-123');
   });
 });

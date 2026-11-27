@@ -208,7 +208,7 @@ export async function payWithItemStripeCard(
 
   // Reuse a still-genuinely-untouched pending order for this exact sku instead
   // of inserting a second one — see `findResumableItemOrder`'s own doc comment.
-  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
+  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku, quantity });
 
   let order: { id: string; orderNumber: string; priceMxnCents: number; itemName: string };
   if (resumable) {
@@ -366,7 +366,7 @@ export async function payWithItemMercadoPagoCardCheckoutPro(
   if (!confirmed.ok) return { error: confirmed.message };
 
   const db = getDb();
-  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
+  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku, quantity });
 
   let order: { id: string; orderNumber: string; priceMxnCents: number; itemName: string };
   if (resumable) {
@@ -496,7 +496,7 @@ export async function payWithItemMercadoPagoCard(
   if (!confirmed.ok) return { error: confirmed.message };
 
   const db = getDb();
-  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
+  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku, quantity });
 
   let order: { id: string; orderNumber: string; priceMxnCents: number; itemName: string };
   if (resumable) {
@@ -627,7 +627,7 @@ export async function payWithItemMercadoPagoSpei(
   if (!confirmed.ok) return { error: confirmed.message };
 
   const db = getDb();
-  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
+  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku, quantity });
 
   let order: { id: string; orderNumber: string; priceMxnCents: number; itemName: string };
   if (resumable) {
