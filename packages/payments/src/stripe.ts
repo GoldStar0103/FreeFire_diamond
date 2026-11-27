@@ -231,10 +231,39 @@ const EVENT_STATES: Record<string, (s: StripeSession) => ChargeState> = {
   'checkout.session.expired': () => 'expired',
 };
 
-/** The embedded card flow's own event types — a direct `PaymentIntent`, never a Checkout Session. */
+/**
+ * The embedded card flow's own event types — a direct `PaymentIntent`, never
+ * a Checkout Session.
+ *
+ * `payment_intent.payment_failed` is NOT the same as `.canceled` — confirmed
+ * against `intentState` below, which this must agree with (both ultimately
+ * describe the same underlying PaymentIntent status, just via two different
+ * wires: a webhook push here, a `GET` in `getCardIntentCharge`). A declined
+ * attempt (wrong CVC, insufficient funds, a thousand ordinary reasons) only
+ * moves Stripe's own PaymentIntent back to `requires_payment_method` — not
+ * terminal, the exact state `stripe-payment-element.tsx`'s own comment
+ * describes: "the same Payment Element stays mounted and usable for a
+ * different card." Mapping that to `'failed'` here used to feed straight
+ * into `settleGatewayCharge`'s terminal branch, which calls `expirePayment`
+ * — so one ordinary declined first attempt, retried successfully moments
+ * later on the very same PaymentIntent, could retire the order out from
+ * under its own retry. Confirmed as the real mechanism in production
+ * 2026-11-27 from Jose's own reports (duplicate NOT_AWAITING_PAYMENT
+ * alerts for genuinely-paid orders) and a direct log pull showing
+ * `payment_intent.payment_failed` events landing minutes before a
+ * `payment_intent.succeeded` for the very same `pi_...` id, each already
+ * refused by then. `'pending'` here — same as every other non-terminal
+ * status `intentState` already falls through to — means a decline is simply
+ * ignored (see `settleGatewayCharge`'s own `'pending'` branch): the order
+ * keeps its existing deadline, a retry on the same intent still settles
+ * normally, and a customer who never does come back is still caught by the
+ * ordinary expiry sweep once that deadline genuinely passes. `.canceled` is
+ * the real terminal event (Stripe gives up on the intent itself, no more
+ * confirmations possible against it) and keeps mapping to `'failed'`.
+ */
 const PAYMENT_INTENT_EVENT_STATES: Record<string, ChargeState> = {
   'payment_intent.succeeded': 'paid',
-  'payment_intent.payment_failed': 'failed',
+  'payment_intent.payment_failed': 'pending',
   'payment_intent.canceled': 'failed',
 };
 

@@ -496,9 +496,19 @@ describe('verifyWebhook — card, embedded PaymentIntent', () => {
     expect(result).toMatchObject({ ok: true, event: { amountReceivedCents: 26_000 } });
   });
 
-  it('reads a declined or canceled intent as failed, never as money', async () => {
+  it('reads a declined attempt as still pending — the same PaymentIntent stays retryable, never as money', async () => {
+    // A decline only moves Stripe's own intent back to
+    // requires_payment_method, not a terminal state — must agree with
+    // `intentState` (used by `getCharge`), which already treats that same
+    // underlying status as `'pending'`. Mapping this to `'failed'` here used
+    // to let one ordinary declined first attempt expire the whole order out
+    // from under a successful retry on the very same intent — confirmed as
+    // the real mechanism behind a real production incident, 2026-11-27.
     expect(await deliver(intentEvent('payment_intent.payment_failed', {})))
-      .toMatchObject({ ok: true, event: { state: 'failed', amountReceivedCents: null } });
+      .toMatchObject({ ok: true, event: { state: 'pending', amountReceivedCents: null } });
+  });
+
+  it('reads a canceled intent as failed, never as money — genuinely terminal, no retry possible', async () => {
     expect(await deliver(intentEvent('payment_intent.canceled', {})))
       .toMatchObject({ ok: true, event: { state: 'failed', amountReceivedCents: null } });
   });
