@@ -6,6 +6,8 @@ import { requireSession } from '../../../../lib/session';
 import { orderWhatsappMessage, waUrl } from '../../../../lib/whatsapp';
 import { ReviewPanel } from './review-panel';
 import { ReleasePaymentButton } from './release-payment-button';
+import { ReleaseItemOrderForm } from './release-item-order-form';
+import { RetryItemOrderForm } from './retry-item-order-form';
 import { CheckMercadoPagoButton, CheckMercadoPagoReferenceForm, RelinkMercadoPagoForm } from './check-mercadopago-button';
 import { ReactivateExpiredForm } from './reactivate-expired-form';
 import { ReverseOrderForm } from './reverse-order-form';
@@ -28,6 +30,9 @@ const PROVIDER_LABEL: Record<string, string> = {
   recargas_america: 'RecargasAmérica',
   central_one: 'Central One',
 };
+
+/** Statuses `ReleaseItemOrderForm` has nothing left to do for. */
+const ITEM_ORDER_TERMINAL = new Set(['completed', 'cancelled', 'payment_expired', 'refunded', 'refund_required']);
 
 const PAYMENT_STATUS_LABEL: Record<string, string> = {
   pending: 'Pendiente',
@@ -358,6 +363,18 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               </div>
             )}
           </div>
+
+          {/* RocketPass never created an order for this attempt — safe to
+              resend once whatever blocked it (e.g. low balance) is fixed. */}
+          {order.status === 'needs_review' && !order.itemDetail.rocketpassOrderId && (
+            <RetryItemOrderForm orderId={order.orderId} orderNumber={order.orderNumber} />
+          )}
+
+          {/* Only while there's something left to close out — once the order
+              is completed/cancelled/expired/refunded there's nothing to release. */}
+          {!ITEM_ORDER_TERMINAL.has(order.status) && (
+            <ReleaseItemOrderForm orderId={order.orderId} orderNumber={order.orderNumber} />
+          )}
         </>
       )}
 

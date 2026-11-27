@@ -20,6 +20,7 @@ import {
   recoverStalledItems,
   pollPendingOrders,
   reconcilePendingGatewayPayments,
+  reconcilePendingItemOrders,
   reportConversions,
   sendExpiryReminders,
   summariseSync,
@@ -41,6 +42,8 @@ import type {
   GatewayReconcileStore,
   GiveawayPrizeDeliveryStore,
   ItemFulfillmentStore,
+  ItemOrderStatusCheck,
+  ItemReconcileStore,
   LevelPassSweepResult,
   LevelPassSweepStore,
   PaymentStore,
@@ -103,6 +106,13 @@ export interface RunnerDeps {
     mercadoPagoCheckoutPro: GatewayChargeCheck | null;
     stripe: GatewayChargeCheck | null;
   };
+  /**
+   * Item-order equivalent of `gatewayReconcile` above (added 2026-11-27) —
+   * asks RocketPass directly about any item order its own webhook never
+   * settled. Null when RocketPass isn't configured on this deployment at
+   * all, same as `rocketpass` being null everywhere else in this file.
+   */
+  itemReconcile: { store: ItemReconcileStore; client: ItemOrderStatusCheck } | null;
 }
 
 /**
@@ -357,6 +367,7 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
   // wrong). The real fix for a late confirmation is this sweep running
   // continuously, every tick, well before any deadline — not this ordering.
   await runGatewayReconcile(deps);
+  await runItemReconcile(deps);
 
   try {
     // Retires orders nobody ever paid for. Cheap, and it is what frees a Mega
@@ -430,6 +441,36 @@ export async function runGatewayReconcile(deps: RunnerDeps): Promise<void> {
     } catch (err) {
       console.error(`[sweep] gateway-reconcile (${name}) failed: ${String(err)}`);
     }
+  }
+}
+
+/**
+ * Ask RocketPass directly about any item order still `processing` past a
+ * reasonable webhook-arrival window — see `reconcilePendingItemOrders`'s own
+ * doc comment in @levelup/engine for why this exists (Jose's report of
+ * orders RocketPass itself shows delivered sitting stuck here forever).
+ * A no-op when RocketPass isn't configured on this deployment at all.
+ *
+ * Reuses the same `minAgeMs`/`batchSize` sweep knobs `runGatewayReconcile`
+ * already uses — no new env var needed.
+ */
+export async function runItemReconcile(deps: RunnerDeps): Promise<void> {
+  const { itemReconcile, config, alerter } = deps;
+  if (!itemReconcile) return;
+
+  try {
+    const result = await reconcilePendingItemOrders(
+      { store: itemReconcile.store, client: itemReconcile.client, alerter, config: { maxAttempts: config.fulfillment.maxAttempts } },
+      { olderThanMs: config.sweeps.minAgeMs, limit: config.sweeps.batchSize },
+    );
+    if (result.examined > 0) {
+      console.log(
+        `[sweep] item-reconcile examined ${result.examined}: ` +
+          `${result.settled} settled, ${result.stillPending} still pending, ${result.errored} errored`,
+      );
+    }
+  } catch (err) {
+    console.error(`[sweep] item-reconcile failed: ${String(err)}`);
   }
 }
 
@@ -679,12 +720,30 @@ export async function runExpiryReminders(deps: ExpiryReminderDeps): Promise<Expi
  * caching stock more than a few minutes, and one call every 30s is nowhere
  * near its 60/min rate limit.
  */
-export async function runRocketPassSync(deps: RocketPassSyncDeps): Promise<RocketPassSyncResult | null> {
+/**
+ * Catalog sync, plus a low-balance alert on the same `GET /catalog` call —
+ * added 2026-11-27 after the account ran dry with nobody warned: the balance
+ * was always right there in `result.balanceArs`, it just never used to be
+ * checked against anything, unlike `checkWallet`'s equivalent for the
+ * diamond providers. Every real order refused with `INSUFFICIENT_BALANCE`
+ * that week could have been pre-empted by this.
+ */
+export async function runRocketPassSync(
+  deps: RocketPassSyncDeps & { alerter: Alerter; lowBalanceArs: number },
+): Promise<RocketPassSyncResult | null> {
   try {
     const result = await syncRocketPassCatalog(deps);
     if (result.synced > 0 || result.skipped > 0) {
       console.log(`[rocketpass] synced ${result.synced} item(s), skipped ${result.skipped} (level_pass)`);
     }
+
+    if (result.balanceArs < deps.lowBalanceArs) {
+      await deps.alerter.send('critical', 'RocketPass balance is low', {
+        balanceArs: result.balanceArs,
+        thresholdArs: deps.lowBalanceArs,
+      });
+    }
+
     return result;
   } catch (err) {
     console.error(`[rocketpass] Catalog sync failed: ${String(err)}`);

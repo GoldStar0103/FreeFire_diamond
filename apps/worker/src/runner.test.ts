@@ -29,6 +29,8 @@ import {
   runFulfillmentLoop,
   runGatewayReconcile,
   runItemFulfillmentLoop,
+  runItemReconcile,
+  runRocketPassSync,
   runSweepOnce,
   ShutdownSignal,
   type RunnerDeps,
@@ -119,6 +121,10 @@ function harness(
     // @levelup/engine's gateway-reconcile.test.ts and runGatewayReconcile's
     // own test below.
     gatewayReconcile: { store: new FakeGatewayReconcileStore(), mercadoPagoCheckoutPro: null, stripe: null },
+    // RocketPass not configured in these tests — the sweep step is a no-op;
+    // its own behavior is covered directly in @levelup/engine's
+    // item-reconcile.test.ts and runItemReconcile's own test below.
+    itemReconcile: null,
   };
   return { deps, queue, store, catalog, alerter, provider, centralOneProvider };
 }
@@ -730,6 +736,76 @@ describe('runGatewayReconcile', () => {
   });
 });
 
+describe('runItemReconcile', () => {
+  it('does nothing when RocketPass is not configured on this deployment', async () => {
+    const { deps } = harness([]);
+    const getOrder = vi.fn();
+
+    await runItemReconcile({ ...deps, itemReconcile: null });
+
+    expect(getOrder).not.toHaveBeenCalled();
+  });
+
+  it('settles an item order RocketPass now reports delivered, using the sweep config knobs', async () => {
+    const { deps } = harness([]);
+    const applyDecision = vi.fn(async () => undefined);
+    const store = {
+      listPendingItemOrders: vi.fn(async () => [
+        { orderId: 'order-3', orderNumber: 'LU-261127-ZK91', rocketpassOrderId: 'rp-abc', attemptCount: 1 },
+      ]),
+      applyDecision,
+    };
+    const getOrder = vi.fn(async () => ({ status: 'DELIVERED' as const }));
+
+    await runItemReconcile({ ...deps, itemReconcile: { store, client: { getOrder } } });
+
+    expect(store.listPendingItemOrders).toHaveBeenCalledWith({
+      olderThanMs: deps.config.sweeps.minAgeMs,
+      limit: deps.config.sweeps.batchSize,
+    });
+    expect(getOrder).toHaveBeenCalledWith('rp-abc');
+    expect(applyDecision).toHaveBeenCalledWith(
+      'order-3',
+      expect.objectContaining({ itemStatus: 'delivered', orderStatus: 'completed' }),
+    );
+  });
+
+  it('does not throw when RocketPass\'s own check fails', async () => {
+    const { deps } = harness([]);
+    const store = {
+      listPendingItemOrders: vi.fn(async () => [
+        { orderId: 'order-3', orderNumber: 'LU-261127-ZK91', rocketpassOrderId: 'rp-abc', attemptCount: 1 },
+      ]),
+      applyDecision: vi.fn(async () => undefined),
+    };
+    const getOrder = vi.fn(async () => {
+      throw new Error('RocketPass unreachable');
+    });
+
+    await expect(
+      runItemReconcile({ ...deps, itemReconcile: { store, client: { getOrder } } }),
+    ).resolves.toBeUndefined();
+
+    expect(store.applyDecision).not.toHaveBeenCalled();
+  });
+
+  it('leaves an order still processing or pending at RocketPass alone', async () => {
+    const { deps } = harness([]);
+    const applyDecision = vi.fn(async () => undefined);
+    const store = {
+      listPendingItemOrders: vi.fn(async () => [
+        { orderId: 'order-3', orderNumber: 'LU-261127-ZK91', rocketpassOrderId: 'rp-abc', attemptCount: 1 },
+      ]),
+      applyDecision,
+    };
+    const getOrder = vi.fn(async () => ({ status: 'PROCESSING' as const }));
+
+    await runItemReconcile({ ...deps, itemReconcile: { store, client: { getOrder } } });
+
+    expect(applyDecision).not.toHaveBeenCalled();
+  });
+});
+
 describe('runSweepOnce', () => {
   // Proves the real value of cfcaf64 end-to-end, not just by reading the
   // source: a payment still inside its deadline, whose only problem is that
@@ -815,6 +891,51 @@ describe('runSweepOnce', () => {
     expect(confirmPayment).toHaveBeenCalledTimes(1);
     expect(expirePayment).not.toHaveBeenCalled();
     expect(record.status).toBe('paid');
+  });
+});
+
+describe('runRocketPassSync', () => {
+  function syncHarness(balanceArs: number) {
+    const client = {
+      listCatalog: vi.fn(async () => ({
+        items: [],
+        regions: [],
+        balanceArs,
+        currency: 'ARS',
+      })),
+    };
+    const store = { upsertCatalog: vi.fn(async () => undefined) };
+    const alerter = { send: vi.fn(async () => undefined) };
+    return { client, store, alerter };
+  }
+
+  it('alerts when the balance drops below the threshold — the gap that let the account run dry unnoticed', async () => {
+    const { client, store, alerter } = syncHarness(30_000);
+
+    await runRocketPassSync({ client, store, alerter, lowBalanceArs: 50_000 });
+
+    expect(alerter.send).toHaveBeenCalledWith(
+      'critical',
+      'RocketPass balance is low',
+      expect.objectContaining({ balanceArs: 30_000, thresholdArs: 50_000 }),
+    );
+  });
+
+  it('stays quiet while the balance is healthy', async () => {
+    const { client, store, alerter } = syncHarness(100_000);
+
+    await runRocketPassSync({ client, store, alerter, lowBalanceArs: 50_000 });
+
+    expect(alerter.send).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when the sync itself fails, and never alerts on a balance it never got', async () => {
+    const client = { listCatalog: vi.fn(async () => { throw new Error('RocketPass unreachable'); }) };
+    const store = { upsertCatalog: vi.fn(async () => undefined) };
+    const alerter = { send: vi.fn(async () => undefined) };
+
+    await expect(runRocketPassSync({ client, store, alerter, lowBalanceArs: 50_000 })).resolves.toBeNull();
+    expect(alerter.send).not.toHaveBeenCalled();
   });
 });
 

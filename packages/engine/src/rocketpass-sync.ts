@@ -48,6 +48,14 @@ export interface RocketPassSyncResult {
   synced: number;
   /** Items RocketPass returned that this sync deliberately never persists (currently: `level_pass`). */
   skipped: number;
+  /**
+   * The account's current ARS balance, straight from the same `GET /catalog`
+   * call — added 2026-11-27 so the worker can alert on it (see
+   * `runRocketPassSync`'s own low-balance check) instead of silently
+   * discarding it every sync, which is what let the account run dry with
+   * nobody warned.
+   */
+  balanceArs: number;
 }
 
 export async function syncRocketPassCatalog(deps: RocketPassSyncDeps): Promise<RocketPassSyncResult> {
@@ -69,5 +77,9 @@ export async function syncRocketPassCatalog(deps: RocketPassSyncDeps): Promise<R
     now,
   );
 
-  return { synced: supported.length, skipped: catalog.items.length - supported.length };
+  return {
+    synced: supported.length,
+    skipped: catalog.items.length - supported.length,
+    balanceArs: catalog.balanceArs,
+  };
 }

@@ -9,8 +9,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { eq, sql as raw } from 'drizzle-orm';
+import { ItemReviewConflictError } from '@levelup/engine';
 import { createDb, type Database } from '../index.js';
-import { itemOrderDetails, notifications, orders, playerProfiles } from '../schema.js';
+import { adminUsers, auditLog, itemOrderDetails, notifications, orders, playerProfiles } from '../schema.js';
 import { DrizzleItemFulfillmentStore, DrizzleItemOrderQueue } from './item-fulfillment-store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -53,9 +54,14 @@ afterAll(async () => {
 beforeEach(async () => {
   if (!PG_AVAILABLE) return;
   await db.execute(
-    raw`TRUNCATE orders, order_items, item_order_details, player_profiles, notifications RESTART IDENTITY CASCADE`,
+    raw`TRUNCATE orders, order_items, item_order_details, player_profiles, notifications, admin_users, audit_log RESTART IDENTITY CASCADE`,
   );
 });
+
+async function seedAdmin(email = 'dueno@levelupstore.mx') {
+  const [admin] = await db.insert(adminUsers).values({ email, passwordHash: 'x' }).returning({ id: adminUsers.id });
+  return admin!.id;
+}
 
 async function seedProfile(playerId = '100001') {
   const [profile] = await db
@@ -100,6 +106,8 @@ async function seedItemOrder(opts: {
     unitPriceSnapshotCents: 10_000,
     fulfillmentStatus: opts.fulfillmentStatus ?? 'pending',
     rocketpassOrderId: opts.rocketpassOrderId ?? null,
+    createdAt: raw`now() - make_interval(secs => ${opts.ageSeconds ?? 0})`,
+    updatedAt: raw`now() - make_interval(secs => ${opts.ageSeconds ?? 0})`,
   });
 
   return order!;
@@ -279,5 +287,170 @@ describe.skipIf(!PG_AVAILABLE)('DrizzleItemFulfillmentStore', () => {
     await store.applyDecision(order.id, decision);
 
     expect(await db.select().from(notifications).where(eq(notifications.orderId, order.id))).toHaveLength(1);
+  });
+
+  it('listPendingItemOrders finds a stale processing order with a RocketPass id on file', async () => {
+    const order = await seedItemOrder({
+      orderNumber: 'LU-1',
+      orderStatus: 'processing',
+      fulfillmentStatus: 'processing',
+      rocketpassOrderId: 'ORD-1',
+      ageSeconds: 120,
+    });
+
+    const found = await new DrizzleItemFulfillmentStore(db).listPendingItemOrders({ olderThanMs: 30_000, limit: 10 });
+    expect(found).toEqual([{ orderId: order.id, orderNumber: 'LU-1', rocketpassOrderId: 'ORD-1', attemptCount: 0 }]);
+  });
+
+  it('listPendingItemOrders skips an order too fresh to ask about yet', async () => {
+    await seedItemOrder({
+      orderNumber: 'LU-1',
+      orderStatus: 'processing',
+      fulfillmentStatus: 'processing',
+      rocketpassOrderId: 'ORD-1',
+      ageSeconds: 5,
+    });
+
+    expect(await new DrizzleItemFulfillmentStore(db).listPendingItemOrders({ olderThanMs: 30_000, limit: 10 })).toEqual([]);
+  });
+
+  it('listPendingItemOrders ignores a processing order with no RocketPass id yet — that belongs to the claim/recovery path', async () => {
+    await seedItemOrder({
+      orderNumber: 'LU-1',
+      orderStatus: 'processing',
+      fulfillmentStatus: 'processing',
+      rocketpassOrderId: null,
+      ageSeconds: 120,
+    });
+
+    expect(await new DrizzleItemFulfillmentStore(db).listPendingItemOrders({ olderThanMs: 30_000, limit: 10 })).toEqual([]);
+  });
+
+  it('listPendingItemOrders ignores an order that already settled', async () => {
+    await seedItemOrder({
+      orderNumber: 'LU-1',
+      orderStatus: 'completed',
+      fulfillmentStatus: 'delivered',
+      rocketpassOrderId: 'ORD-1',
+      ageSeconds: 120,
+    });
+
+    expect(await new DrizzleItemFulfillmentStore(db).listPendingItemOrders({ olderThanMs: 30_000, limit: 10 })).toEqual([]);
+  });
+});
+
+describe.skipIf(!PG_AVAILABLE)('DrizzleItemFulfillmentStore manual release', () => {
+  it('loadItemOrderForReview reads the order status and RocketPass id', async () => {
+    const order = await seedItemOrder({ orderNumber: 'LU-1', orderStatus: 'needs_review', rocketpassOrderId: 'ORD-1' });
+    const found = await new DrizzleItemFulfillmentStore(db).loadItemOrderForReview(order.id);
+    expect(found).toEqual({ orderId: order.id, orderNumber: 'LU-1', orderStatus: 'needs_review', rocketpassOrderId: 'ORD-1' });
+  });
+
+  it('loadItemOrderForReview returns null for a non-item order', async () => {
+    expect(
+      await new DrizzleItemFulfillmentStore(db).loadItemOrderForReview('00000000-0000-0000-0000-000000000000'),
+    ).toBeNull();
+  });
+
+  it('releaseItemOrderManually completes the order, marks the item delivered, notifies, and audits', async () => {
+    const adminId = await seedAdmin();
+    const profile = await seedProfile();
+    const order = await seedItemOrder({
+      orderNumber: 'LU-1',
+      orderStatus: 'needs_review',
+      fulfillmentStatus: 'failed',
+      playerProfileId: profile.id,
+    });
+
+    await new DrizzleItemFulfillmentStore(db).releaseItemOrderManually({
+      orderId: order.id,
+      expectedOrderStatus: 'needs_review',
+      adminUserId: adminId,
+      note: 'Checked RocketPass portal directly, order was delivered',
+    });
+
+    const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(row?.status).toBe('completed');
+    expect(row?.completedAt).toBeInstanceOf(Date);
+
+    const [item] = await db.select().from(itemOrderDetails).where(eq(itemOrderDetails.orderId, order.id));
+    expect(item?.fulfillmentStatus).toBe('delivered');
+
+    const [notif] = await db.select().from(notifications).where(eq(notifications.orderId, order.id));
+    expect(notif).toMatchObject({ type: 'order_delivered', playerProfileId: profile.id });
+
+    const [audit] = await db.select().from(auditLog).where(eq(auditLog.entityId, order.id));
+    expect(audit).toMatchObject({ action: 'item_review.released_manually' });
+    expect(audit?.detail).toMatchObject({ from: 'needs_review', to: 'completed' });
+  });
+
+  it('releaseItemOrderManually stays silent for a guest order', async () => {
+    const adminId = await seedAdmin();
+    const order = await seedItemOrder({ orderNumber: 'LU-1', orderStatus: 'processing' });
+
+    await new DrizzleItemFulfillmentStore(db).releaseItemOrderManually({
+      orderId: order.id,
+      expectedOrderStatus: 'processing',
+      adminUserId: adminId,
+      note: 'Confirmed delivered',
+    });
+
+    expect(await db.select().from(notifications)).toHaveLength(0);
+  });
+
+  it('releaseItemOrderManually refuses when the order already moved out from under the admin', async () => {
+    const adminId = await seedAdmin();
+    const order = await seedItemOrder({ orderNumber: 'LU-1', orderStatus: 'completed' });
+
+    await expect(
+      new DrizzleItemFulfillmentStore(db).releaseItemOrderManually({
+        orderId: order.id,
+        expectedOrderStatus: 'needs_review',
+        adminUserId: adminId,
+        note: 'Confirmed delivered',
+      }),
+    ).rejects.toThrow(ItemReviewConflictError);
+  });
+
+  it('retryItemOrderManually puts the order back to payment_confirmed with a fresh retry budget', async () => {
+    const adminId = await seedAdmin();
+    const order = await seedItemOrder({
+      orderNumber: 'LU-1',
+      orderStatus: 'needs_review',
+      fulfillmentStatus: 'failed',
+      rocketpassOrderId: null,
+    });
+    await db.update(itemOrderDetails).set({ attemptCount: 3 }).where(eq(itemOrderDetails.orderId, order.id));
+
+    await new DrizzleItemFulfillmentStore(db).retryItemOrderManually({
+      orderId: order.id,
+      expectedOrderStatus: 'needs_review',
+      adminUserId: adminId,
+      note: 'Topped up the RocketPass balance, safe to retry',
+    });
+
+    const [row] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(row?.status).toBe('payment_confirmed');
+
+    const [item] = await db.select().from(itemOrderDetails).where(eq(itemOrderDetails.orderId, order.id));
+    expect(item).toMatchObject({ fulfillmentStatus: 'pending', attemptCount: 0 });
+
+    const [audit] = await db.select().from(auditLog).where(eq(auditLog.entityId, order.id));
+    expect(audit).toMatchObject({ action: 'item_review.retried_manually' });
+    expect(audit?.detail).toMatchObject({ from: 'needs_review', to: 'payment_confirmed' });
+  });
+
+  it('retryItemOrderManually refuses when the order already moved out from under the admin', async () => {
+    const adminId = await seedAdmin();
+    const order = await seedItemOrder({ orderNumber: 'LU-1', orderStatus: 'completed' });
+
+    await expect(
+      new DrizzleItemFulfillmentStore(db).retryItemOrderManually({
+        orderId: order.id,
+        expectedOrderStatus: 'needs_review',
+        adminUserId: adminId,
+        note: 'Topped up the balance',
+      }),
+    ).rejects.toThrow(ItemReviewConflictError);
   });
 });

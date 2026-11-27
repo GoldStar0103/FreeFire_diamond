@@ -232,6 +232,20 @@ async function main(): Promise<void> {
     ),
   };
 
+  // Module 3 (RocketPass vendor items). Null — and simply never run — until
+  // `ROCKETPASS_API_KEY` is set; everything else in this worker is unaffected.
+  // Built before `deps` below so `itemReconcile` can reference it.
+  const rocketpass = config.rocketpass
+    ? {
+        client: new RocketPassClient({ apiKey: config.rocketpass.apiKey, baseUrl: config.rocketpass.baseUrl }),
+        store: new DrizzleRocketPassCatalogStore(db),
+        itemQueue: new DrizzleItemOrderQueue(db),
+        itemStore: new DrizzleItemFulfillmentStore(db),
+        alerter,
+        lowBalanceArs: config.rocketpass.lowBalanceArs,
+      }
+    : null;
+
   const deps: RunnerDeps = {
     queue: new DrizzleOrderQueue(db),
     store: new DrizzleRecoveryStore(db),
@@ -249,6 +263,7 @@ async function main(): Promise<void> {
       mercadoPagoCheckoutPro: buildMercadoPagoCheckoutPro(),
       stripe: buildStripeCheck(),
     },
+    itemReconcile: rocketpass ? { store: rocketpass.itemStore, client: rocketpass.client } : null,
   };
 
   const catalogSchedule = new CatalogSyncSchedule(config.catalogSync.intervalMs);
@@ -257,17 +272,6 @@ async function main(): Promise<void> {
   const seasonStore = new DrizzleSeasonStore(db);
   const expiryReminderStore = new DrizzleExpiryReminderStore(db);
   const giveawayStore = new DrizzleGiveawayAdminStore(db);
-
-  // Module 3 (RocketPass vendor items). Null — and simply never run — until
-  // `ROCKETPASS_API_KEY` is set; everything else in this worker is unaffected.
-  const rocketpass = config.rocketpass
-    ? {
-        client: new RocketPassClient({ apiKey: config.rocketpass.apiKey, baseUrl: config.rocketpass.baseUrl }),
-        store: new DrizzleRocketPassCatalogStore(db),
-        itemQueue: new DrizzleItemOrderQueue(db),
-        itemStore: new DrizzleItemFulfillmentStore(db),
-      }
-    : null;
 
   // Server-side purchase reporting for the ad account. Off without a token.
   const conversions = config.meta

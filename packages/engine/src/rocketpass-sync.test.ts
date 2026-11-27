@@ -57,7 +57,7 @@ describe('syncRocketPassCatalog', () => {
     const { store, deps } = harness([giftItem, membershipItem]);
     const result = await syncRocketPassCatalog(deps);
 
-    expect(result).toEqual({ synced: 2, skipped: 0 });
+    expect(result).toEqual({ synced: 2, skipped: 0, balanceArs: 10_000 });
     expect(store.upsertCatalog).toHaveBeenCalledTimes(1);
     const [items] = vi.mocked(store.upsertCatalog).mock.calls[0]!;
     expect(items).toEqual([
@@ -86,7 +86,7 @@ describe('syncRocketPassCatalog', () => {
     const { store, deps } = harness([giftItem, levelPassItem]);
     const result = await syncRocketPassCatalog(deps);
 
-    expect(result).toEqual({ synced: 1, skipped: 1 });
+    expect(result).toEqual({ synced: 1, skipped: 1, balanceArs: 10_000 });
     const [items] = vi.mocked(store.upsertCatalog).mock.calls[0]!;
     expect((items as SyncedCatalogItem[]).map((i) => i.sku)).toEqual(['crate']);
   });
@@ -102,7 +102,7 @@ describe('syncRocketPassCatalog', () => {
 
   it('does nothing when the catalog is empty', async () => {
     const { store, deps } = harness([]);
-    expect(await syncRocketPassCatalog(deps)).toEqual({ synced: 0, skipped: 0 });
+    expect(await syncRocketPassCatalog(deps)).toEqual({ synced: 0, skipped: 0, balanceArs: 10_000 });
     expect(store.upsertCatalog).toHaveBeenCalledWith([], expect.any(Date));
   });
 });

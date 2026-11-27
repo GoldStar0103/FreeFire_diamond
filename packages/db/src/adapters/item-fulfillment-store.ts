@@ -7,16 +7,55 @@
  * around the diamond recipe (`order_items`) an item order never has any of.
  */
 
-import { eq, sql } from 'drizzle-orm';
-import type {
-  ItemFulfillmentDecision,
-  ItemFulfillmentStore,
-  ItemOrderRecord,
-  ItemWebhookStore,
+import { and, asc, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import {
+  ItemReviewConflictError,
+  type ItemFulfillmentDecision,
+  type ItemFulfillmentStore,
+  type ItemOrderRecord,
+  type ItemReconcileStore,
+  type ItemReviewOrder,
+  type ItemReviewStore,
+  type ItemWebhookStore,
+  type OrderStatus,
+  type PendingItemOrder,
 } from '@levelup/engine';
 import type { CreateOrderInput } from '@levelup/rocketpass';
 import type { Database } from '../index.js';
-import { itemOrderDetails, notifications, orders } from '../schema.js';
+import { auditLog, itemOrderDetails, notifications, orders } from '../schema.js';
+
+/**
+ * Item orders stuck `processing` with a RocketPass id on file but no
+ * settlement yet — see `reconcilePendingItemOrders`'s own doc comment for
+ * why this is needed. Mirrors `listPendingGatewayPayments` in
+ * gateway-payments.ts exactly.
+ */
+export async function listPendingItemOrders(
+  db: Database,
+  input: { olderThanMs: number; limit: number },
+): Promise<PendingItemOrder[]> {
+  const cutoff = new Date(Date.now() - input.olderThanMs);
+  const rows = await db
+    .select({
+      orderId: orders.id,
+      orderNumber: orders.orderNumber,
+      rocketpassOrderId: itemOrderDetails.rocketpassOrderId,
+      attemptCount: itemOrderDetails.attemptCount,
+    })
+    .from(itemOrderDetails)
+    .innerJoin(orders, eq(orders.id, itemOrderDetails.orderId))
+    .where(
+      and(
+        eq(itemOrderDetails.fulfillmentStatus, 'processing'),
+        isNotNull(itemOrderDetails.rocketpassOrderId),
+        lt(itemOrderDetails.updatedAt, cutoff),
+      ),
+    )
+    .orderBy(asc(itemOrderDetails.updatedAt))
+    .limit(input.limit);
+
+  return rows.map((r) => ({ ...r, rocketpassOrderId: r.rocketpassOrderId! }));
+}
 
 export interface ClaimedItemOrder {
   id: string;
@@ -73,8 +112,128 @@ export class DrizzleItemOrderQueue {
   }
 }
 
-export class DrizzleItemFulfillmentStore implements ItemFulfillmentStore, ItemWebhookStore {
+export class DrizzleItemFulfillmentStore
+  implements ItemFulfillmentStore, ItemWebhookStore, ItemReconcileStore, ItemReviewStore
+{
   constructor(private readonly db: Database) {}
+
+  /** See `listPendingItemOrders`'s own doc comment above. */
+  listPendingItemOrders(input: { olderThanMs: number; limit: number }): ReturnType<typeof listPendingItemOrders> {
+    return listPendingItemOrders(this.db, input);
+  }
+
+  async loadItemOrderForReview(orderId: string): Promise<ItemReviewOrder | null> {
+    const [row] = await this.db
+      .select({
+        orderId: orders.id,
+        orderNumber: orders.orderNumber,
+        orderStatus: orders.status,
+        rocketpassOrderId: itemOrderDetails.rocketpassOrderId,
+      })
+      .from(orders)
+      .innerJoin(itemOrderDetails, eq(itemOrderDetails.orderId, orders.id))
+      .where(eq(orders.id, orderId))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Compare-and-set, same shape as `DrizzleReviewStore.applyReview`: the
+   * order is only moved to `completed` while still in `expectedOrderStatus`,
+   * inside one transaction with the audit row and the player's notification.
+   */
+  async releaseItemOrderManually(input: {
+    orderId: string;
+    expectedOrderStatus: OrderStatus;
+    adminUserId: string;
+    note: string;
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const now = new Date();
+      const [order] = await tx
+        .update(orders)
+        .set({ status: 'completed', updatedAt: now, completedAt: now })
+        .where(and(eq(orders.id, input.orderId), eq(orders.status, input.expectedOrderStatus)))
+        .returning({ orderNumber: orders.orderNumber, playerId: orders.playerId, playerProfileId: orders.playerProfileId });
+
+      if (!order) {
+        throw new ItemReviewConflictError(
+          `Order ${input.orderId} is no longer ${input.expectedOrderStatus} — reload and check again.`,
+        );
+      }
+
+      await tx
+        .update(itemOrderDetails)
+        .set({ fulfillmentStatus: 'delivered', updatedAt: now })
+        .where(eq(itemOrderDetails.orderId, input.orderId));
+
+      await tx.insert(auditLog).values({
+        adminUserId: input.adminUserId,
+        action: 'item_review.released_manually',
+        entityType: 'order',
+        entityId: input.orderId,
+        detail: { orderNumber: order.orderNumber, note: input.note, from: input.expectedOrderStatus, to: 'completed' },
+      });
+
+      // Only accounts have a bell to ring — a guest checkout has no bell,
+      // same gate `applyDecision` below already uses.
+      if (!order.playerProfileId) return;
+
+      await tx
+        .insert(notifications)
+        .values({
+          playerProfileId: order.playerProfileId,
+          type: 'order_delivered',
+          title: '¡Tu artículo ya llegó!',
+          message: `Tu pedido ${order.orderNumber} fue entregado.`,
+          targetUrl: `/pedido/${order.orderNumber}?id=${encodeURIComponent(order.playerId)}`,
+          orderId: input.orderId,
+        })
+        .onConflictDoNothing({ target: [notifications.orderId, notifications.type] });
+    });
+  }
+
+  /**
+   * Compare-and-set, same shape as `releaseItemOrderManually` above: puts
+   * the item back to `pending` with a fresh retry budget and the order back
+   * to `payment_confirmed` — the exact state `DrizzleItemOrderQueue.claimNext`
+   * already picks up from, so the next sweep tick places it with RocketPass
+   * again without any separate "resume" step.
+   */
+  async retryItemOrderManually(input: {
+    orderId: string;
+    expectedOrderStatus: OrderStatus;
+    adminUserId: string;
+    note: string;
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const now = new Date();
+      const [order] = await tx
+        .update(orders)
+        .set({ status: 'payment_confirmed', updatedAt: now })
+        .where(and(eq(orders.id, input.orderId), eq(orders.status, input.expectedOrderStatus)))
+        .returning({ orderNumber: orders.orderNumber });
+
+      if (!order) {
+        throw new ItemReviewConflictError(
+          `Order ${input.orderId} is no longer ${input.expectedOrderStatus} — reload and check again.`,
+        );
+      }
+
+      await tx
+        .update(itemOrderDetails)
+        .set({ fulfillmentStatus: 'pending', attemptCount: 0, updatedAt: now })
+        .where(eq(itemOrderDetails.orderId, input.orderId));
+
+      await tx.insert(auditLog).values({
+        adminUserId: input.adminUserId,
+        action: 'item_review.retried_manually',
+        entityType: 'order',
+        entityId: input.orderId,
+        detail: { orderNumber: order.orderNumber, note: input.note, from: input.expectedOrderStatus, to: 'payment_confirmed' },
+      });
+    });
+  }
 
   async loadItemOrder(orderId: string): Promise<ItemOrderRecord | null> {
     const [row] = await this.db

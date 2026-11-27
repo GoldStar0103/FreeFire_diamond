@@ -10,6 +10,8 @@ export * from './expiry.js';
 export * from './expiry-reminders.js';
 export * from './rocketpass-sync.js';
 export * from './item-fulfillment.js';
+export * from './item-reconcile.js';
+export * from './item-review.js';
 export * from './stuck-payments.js';
 export * from './catalog-sync.js';
 export * from './provider-routing.js';

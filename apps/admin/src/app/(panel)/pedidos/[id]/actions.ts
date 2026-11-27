@@ -1,10 +1,19 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { applyReviewAction, approvePayment, type ReviewAction, type ReviewFailureCode } from '@levelup/engine';
+import {
+  applyReviewAction,
+  approvePayment,
+  releaseItemOrderManually,
+  retryItemOrderManually,
+  type ItemReviewFailureCode,
+  type ReviewAction,
+  type ReviewFailureCode,
+} from '@levelup/engine';
 import { GatewayError, type ChargeState } from '@levelup/payments';
 import {
   attachGatewayCharge,
+  DrizzleItemFulfillmentStore,
   DrizzlePaymentStore,
   DrizzleReviewStore,
   overrideOrderLp,
@@ -156,6 +165,91 @@ export async function releasePayment(_prev: ReleaseState, formData: FormData): P
       ? `${result.orderNumber} ya estaba confirmado.`
       : `${result.orderNumber} liberado — la recarga se está procesando.`,
   };
+}
+
+export interface ItemReleaseState {
+  ok?: string;
+  error?: string;
+}
+
+const EXPLAIN_ITEM_RELEASE: Partial<Record<ItemReviewFailureCode, string>> = {
+  ORDER_NOT_FOUND: 'Ese pedido ya no existe.',
+  ALREADY_RESOLVED: 'Este pedido ya estaba cerrado. Recarga la página.',
+  ILLEGAL_TRANSITION: 'Este pedido no se puede liberar desde su estado actual. Recarga la página.',
+  NOTE_REQUIRED: 'Di cómo confirmaste la entrega (ID de pedido en RocketPass, captura, etc).',
+  CONFLICT: 'El pedido cambió mientras lo revisabas. Recarga la página y vuelve a intentar.',
+};
+
+export interface ItemRetryState {
+  ok?: string;
+  error?: string;
+}
+
+const EXPLAIN_ITEM_RETRY: Partial<Record<ItemReviewFailureCode, string>> = {
+  ORDER_NOT_FOUND: 'Ese pedido ya no existe.',
+  ILLEGAL_TRANSITION: 'Este pedido ya no está en revisión. Recarga la página.',
+  NOT_RETRYABLE: 'RocketPass ya tiene un pedido registrado para esto — revisa su propio panel y usa "Liberar", no "Reintentar".',
+  NOTE_REQUIRED: 'Di por qué es seguro reintentar ahora (por ejemplo, ya se recargó el saldo de RocketPass).',
+  CONFLICT: 'El pedido cambió mientras lo revisabas. Recarga la página y vuelve a intentar.',
+};
+
+/**
+ * Manually close out a RocketPass item order — the item-order equivalent of
+ * `review`'s `mark_item_delivered`/`mark_item_delivered_manually` above.
+ * Added 2026-11-27 per Jose's report: item orders had no way out of
+ * `processing`/`needs_review` short of a developer touching the database,
+ * even once he'd already confirmed in RocketPass's own portal that the
+ * order went through.
+ */
+export async function releaseItemOrder(_prev: ItemReleaseState, formData: FormData): Promise<ItemReleaseState> {
+  const session = await requireSession();
+
+  const orderId = String(formData.get('orderId') ?? '');
+  const note = String(formData.get('note') ?? '');
+  if (!orderId) return { error: 'Falta el pedido.' };
+
+  const result = await releaseItemOrderManually(
+    { store: new DrizzleItemFulfillmentStore(getDb()) },
+    { orderId, adminUserId: session.adminUserId, note },
+  );
+
+  if (!result.ok) return { error: EXPLAIN_ITEM_RELEASE[result.failure.code] ?? result.failure.message };
+
+  revalidatePath(`/pedidos/${orderId}`);
+  revalidatePath('/pedidos');
+  revalidatePath('/');
+
+  return { ok: `${result.orderNumber} quedó completado.` };
+}
+
+/**
+ * Manually requeue a `needs_review` item order RocketPass never actually
+ * placed (e.g. refused with `INSUFFICIENT_BALANCE`) — added 2026-11-27
+ * alongside `releaseItemOrder`, after finding that was the wrong tool for
+ * that specific case: nothing was ever delivered, so "release" would have
+ * told the customer they got an item they didn't. This instead puts the
+ * order back where the worker's own claim loop picks it up and tries
+ * RocketPass again on the next sweep.
+ */
+export async function retryItemOrder(_prev: ItemRetryState, formData: FormData): Promise<ItemRetryState> {
+  const session = await requireSession();
+
+  const orderId = String(formData.get('orderId') ?? '');
+  const note = String(formData.get('note') ?? '');
+  if (!orderId) return { error: 'Falta el pedido.' };
+
+  const result = await retryItemOrderManually(
+    { store: new DrizzleItemFulfillmentStore(getDb()) },
+    { orderId, adminUserId: session.adminUserId, note },
+  );
+
+  if (!result.ok) return { error: EXPLAIN_ITEM_RETRY[result.failure.code] ?? result.failure.message };
+
+  revalidatePath(`/pedidos/${orderId}`);
+  revalidatePath('/pedidos');
+  revalidatePath('/');
+
+  return { ok: `${result.orderNumber} se enviará de nuevo a RocketPass en el siguiente ciclo.` };
 }
 
 export interface LpOverrideState {

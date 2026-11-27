@@ -32,6 +32,14 @@ export interface WorkerConfig {
     baseUrl: string;
     apiKey: string;
     syncIntervalMs: number;
+    /**
+     * Alert when the account's ARS balance drops below this — added
+     * 2026-11-27 after it ran dry with nobody warned: the catalog sync
+     * already reads this balance every cycle, it just never used to be
+     * checked against anything, unlike `provider.lowBalanceUsd` for the
+     * diamond providers.
+     */
+    lowBalanceArs: number;
   } | null;
   fulfillment: {
     maxAttempts: number;
@@ -176,6 +184,10 @@ export function loadConfig(): WorkerConfig {
           // prices more than a few minutes — far shorter than the diamond
           // catalog's hourly default.
           syncIntervalMs: number('ROCKETPASS_SYNC_INTERVAL_MS', 5 * 60_000),
+          // No agreed business threshold yet — 50,000 ARS is a rough
+          // starting point (comfortably above a single Booyah Pass/crate),
+          // adjustable without a code change later.
+          lowBalanceArs: number('ROCKETPASS_LOW_BALANCE_ARS', 50_000),
         }
       : null,
     fulfillment: {
