@@ -151,7 +151,7 @@ function explain(failure: CreateItemOrderFailure): string {
     case 'OUT_OF_STOCK':
       return 'Se agotó el stock de este artículo en esa región. Prueba con otra región o más tarde.';
     case 'INVALID_QUANTITY':
-      return `La cantidad debe ser entre 1 y ${failure.max}.`;
+      return `La cantidad debe ser entre ${failure.min} y ${failure.max}.`;
     case 'REGION_REQUIRED':
       return 'Elige una región.';
     case 'INVALID_PLAYER_ID':
@@ -575,5 +575,175 @@ export async function payWithItemMercadoPagoCard(
       );
     }
     return { error: 'No pudimos procesar tu tarjeta. Revisa los datos o intenta con otra.' };
+  }
+}
+
+// ── SPEI, through Mercado Pago's embedded Checkout ──────────────────────────────
+
+/**
+ * Jose's own ask, 2026-11-27: items were card-only since the stock-reservation
+ * risk the original plan flagged (a 48h manual-transfer hold against a
+ * vendor's limited stock) — SPEI's own grace window is hours, not 48h, and
+ * he wants it added anyway. Mirrors `comprar/[combo]/actions.ts`'s own
+ * `payWithEmbeddedMethod('spei', ...)` closely, including the resumed-order
+ * re-check dance: a SPEI reference stays real, payable money for days, so a
+ * resumed order must never mint a second one while the first could still be
+ * paid — see that function's own doc comment for the two real incidents
+ * this exact check exists for.
+ */
+export async function payWithItemMercadoPagoSpei(
+  _prev: EmbeddedCheckoutState,
+  formData: FormData,
+): Promise<EmbeddedCheckoutState> {
+  const gateway = getMercadoPagoEmbedded();
+  if (!gateway || !gateway.supportedMethods.includes('spei')) {
+    return { error: 'La transferencia SPEI no está disponible en este momento.' };
+  }
+
+  const sku = String(formData.get('sku') ?? '');
+  const targetUid = String(formData.get('targetUid') ?? '').trim();
+  const quantity = Number(formData.get('quantity') ?? 1);
+  const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
+  const deviceSessionId = String(formData.get('deviceSessionId') ?? '').trim() || null;
+  // Mercado Pago's Orders API requires a non-empty `payer` object on every
+  // order (confirmed in sandbox, see the combo checkout's own doc comment) —
+  // SPEI has no Brick on screen to collect this from, so the form carries a
+  // plain `email` input instead.
+  const payerEmail = String(formData.get('email') ?? '').trim() || null;
+
+  if (!whatsapp) {
+    return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
+  }
+  if (!payerEmail) {
+    return { error: 'Ingresa tu correo para poder generar el pago con Mercado Pago.' };
+  }
+
+  const rateDecision = paymentAttemptLimiter.check(await callerIp());
+  if (!rateDecision.allowed) {
+    return { error: `Demasiados intentos. Espera ${Math.ceil(rateDecision.retryAfterMs / 1000)} segundos.` };
+  }
+
+  const confirmed = await confirmItemPlayer(targetUid);
+  if (!confirmed.ok) return { error: confirmed.message };
+
+  const db = getDb();
+  const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
+
+  let order: { id: string; orderNumber: string; priceMxnCents: number; itemName: string };
+  if (resumable) {
+    order = resumable;
+  } else {
+    const arsRate = await getArsRate(db);
+    const buyer = await getCustomerSession();
+    const created = await createItemOrder(
+      { store: new DrizzleItemOrderingStore(db), arsRate },
+      {
+        sku,
+        quantity,
+        region: confirmed.region,
+        targetUid,
+        targetNickname: confirmed.nickname,
+        contactWhatsapp: whatsapp,
+        paymentMethod: 'spei',
+        source: 'storefront',
+        tracking: await trackingContext(),
+        buyerProfileId: buyer?.playerProfileId ?? null,
+      },
+    );
+    if (!created.ok) return { error: explain(created.failure) };
+    order = { ...created.order, itemName: created.order.item.itemName };
+  }
+
+  const orderPage = `/pedido/${order.orderNumber}?id=${encodeURIComponent(targetUid)}`;
+
+  if (resumable?.gateway === MERCADOPAGO_EMBEDDED && resumable.gatewayChargeId) {
+    try {
+      const existing = await gateway.getCharge(resumable.gatewayChargeId);
+
+      if (existing?.state === 'paid') {
+        // Already settled — most likely by a webhook moments ago. Report it
+        // again (idempotent no-op if so) rather than generate a reference
+        // for something already paid.
+        await applyMercadoPagoEmbeddedReport({
+          gatewayChargeId: existing.gatewayChargeId,
+          state: 'paid',
+          amountReceivedCents: existing.amountReceivedCents,
+          reference: existing.reference ?? null,
+          orderNumber: order.orderNumber,
+          voucherIssued: false,
+        });
+        return {
+          instructions: { kind: 'resolved', state: 'paid', reference: existing.reference ?? null },
+          orderPageUrl: orderPage,
+        };
+      }
+
+      if (existing?.state === 'pending' && resumable.paymentMethod === 'spei' && existing.bankTransfer) {
+        return {
+          instructions: {
+            kind: 'spei',
+            clabe: existing.bankTransfer.clabe ?? '',
+            bank: existing.bankTransfer.bankName ?? '',
+            reference: existing.bankTransfer.reference,
+          },
+          orderPageUrl: orderPage,
+        };
+      }
+      // Not a still-live SPEI reference (failed/expired, or a method switch)
+      // — fall through and mint a fresh charge, same as if none existed.
+    } catch (err) {
+      console.error(`[comprar-articulo] ${order.orderNumber}: could not re-check existing Mercado Pago charge`, err);
+      // Fall through — minting a fresh charge is still better than failing
+      // the customer outright over a re-check that didn't work.
+    }
+  }
+
+  try {
+    const charge = await gateway.createCharge({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      amountCents: order.priceMxnCents,
+      method: 'spei',
+      description: `${order.itemName} · LevelUp Store`,
+      customerPhone: whatsapp,
+      customerEmail: payerEmail,
+      deviceSessionId,
+    });
+
+    if (charge.instructions.kind !== 'spei') {
+      throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+    }
+
+    const attached = await attachGatewayCharge(db, {
+      orderId: order.id,
+      gateway: MERCADOPAGO_EMBEDDED,
+      gatewayChargeId: charge.gatewayChargeId,
+      expiresAt: charge.expiresAt,
+      ...(resumable ? { method: 'spei' as const } : {}),
+    });
+    if (!attached) throw new Error(`Could not link ${charge.gatewayChargeId} to ${order.orderNumber}`);
+
+    // A SPEI reference was just issued — money is hours away, not seconds.
+    await applyMercadoPagoEmbeddedReport({
+      gatewayChargeId: charge.gatewayChargeId,
+      state: 'pending',
+      amountReceivedCents: null,
+      reference: charge.instructions.reference,
+      orderNumber: order.orderNumber,
+      voucherIssued: true,
+    });
+
+    return { instructions: charge.instructions, orderPageUrl: orderPage };
+  } catch (err) {
+    console.error(`[comprar-articulo] ${order.orderNumber}: could not generate a SPEI reference`, err);
+    if (!resumable) {
+      await rejectPayment(
+        { store: new DrizzlePaymentStore(db) },
+        { orderId: order.id, adminUserId: null, reason: 'No se pudo generar la referencia SPEI' },
+      ).catch((cancelErr: unknown) =>
+        console.error(`[comprar-articulo] ${order.orderNumber}: and could not cancel it`, cancelErr),
+      );
+    }
+    return { error: 'No pudimos generar tu referencia SPEI. Intenta de nuevo o paga con tarjeta.' };
   }
 }

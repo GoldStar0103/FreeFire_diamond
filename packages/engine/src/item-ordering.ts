@@ -42,6 +42,8 @@ export interface ItemForOrder {
   /** Admin-typed sale price for one unit, in MXN cents. Null means not priced yet — treated as unavailable. */
   priceMxnCents: number | null;
   maxQuantity: number;
+  /** LevelUp's own minimum order quantity — admin-set, never vendor-synced. 1 means no minimum. */
+  minQuantity: number;
   active: boolean;
   rocketpassAvailable: boolean;
   /** Region code -> quantity. Always empty for `kind === 'membership'`. */
@@ -97,7 +99,7 @@ export type CreateItemOrderFailure =
   | { code: 'ITEM_INACTIVE'; message: string }
   | { code: 'ITEM_UNAVAILABLE'; message: string }
   | { code: 'PRICE_NOT_SET'; message: string }
-  | { code: 'INVALID_QUANTITY'; message: string; max: number }
+  | { code: 'INVALID_QUANTITY'; message: string; min: number; max: number }
   | { code: 'REGION_REQUIRED'; message: string }
   | { code: 'OUT_OF_STOCK'; message: string }
   | { code: 'INVALID_PLAYER_ID'; message: string };
@@ -155,10 +157,11 @@ export async function createItemOrder(
   }
 
   const quantity = Math.trunc(input.quantity);
-  if (!Number.isFinite(quantity) || quantity < 1 || quantity > item.maxQuantity) {
+  if (!Number.isFinite(quantity) || quantity < item.minQuantity || quantity > item.maxQuantity) {
     return fail({
       code: 'INVALID_QUANTITY',
-      message: `Quantity must be between 1 and ${item.maxQuantity}.`,
+      message: `Quantity must be between ${item.minQuantity} and ${item.maxQuantity}.`,
+      min: item.minQuantity,
       max: item.maxQuantity,
     });
   }

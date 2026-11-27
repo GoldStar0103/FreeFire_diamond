@@ -1,0 +1,1 @@
+ALTER TABLE "item_catalog" ADD COLUMN "min_quantity" integer DEFAULT 1 NOT NULL;

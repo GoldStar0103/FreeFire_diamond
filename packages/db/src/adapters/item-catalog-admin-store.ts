@@ -21,6 +21,8 @@ export interface AdminItemRow {
   /** Admin-set sale price in MXN cents, like `combos.priceMxnCents`. Null until set — see schema comment. */
   priceMxnCents: number | null;
   maxQuantity: number;
+  /** LevelUp's own minimum order quantity — admin-set, never vendor-synced. See schema's own doc comment. */
+  minQuantity: number;
   active: boolean;
   rocketpassAvailable: boolean;
   lastSyncedAt: Date | null;
@@ -42,6 +44,7 @@ export class DrizzleItemCatalogAdminStore {
         priceArs: itemCatalog.priceArs,
         priceMxnCents: itemCatalog.priceMxnCents,
         maxQuantity: itemCatalog.maxQuantity,
+        minQuantity: itemCatalog.minQuantity,
         active: itemCatalog.active,
         rocketpassAvailable: itemCatalog.rocketpassAvailable,
         lastSyncedAt: itemCatalog.lastSyncedAt,
@@ -70,6 +73,7 @@ export class DrizzleItemCatalogAdminStore {
       priceArs: Number(r.priceArs),
       priceMxnCents: r.priceMxnCents,
       maxQuantity: r.maxQuantity,
+      minQuantity: r.minQuantity,
       active: r.active,
       rocketpassAvailable: r.rocketpassAvailable,
       lastSyncedAt: r.lastSyncedAt,
@@ -96,6 +100,14 @@ export class DrizzleItemCatalogAdminStore {
     await this.db
       .update(itemCatalog)
       .set({ priceMxnCents, updatedAt: new Date() })
+      .where(eq(itemCatalog.sku, sku));
+  }
+
+  /** LevelUp's own minimum order quantity — see schema's own doc comment. 1 means no minimum. */
+  async setItemMinQuantity(sku: string, minQuantity: number, _adminUserId: string): Promise<void> {
+    await this.db
+      .update(itemCatalog)
+      .set({ minQuantity, updatedAt: new Date() })
       .where(eq(itemCatalog.sku, sku));
   }
 }

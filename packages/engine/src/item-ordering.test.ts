@@ -15,6 +15,7 @@ const evoCrate = (overrides: Partial<ItemForOrder> = {}): ItemForOrder => ({
   priceArs: 1000,
   priceMxnCents: 2100,
   maxQuantity: 10,
+  minQuantity: 1,
   active: true,
   rocketpassAvailable: true,
   stockByRegion: { US: 5, SAC: 5 },
@@ -29,6 +30,7 @@ const weeklyMembership = (overrides: Partial<ItemForOrder> = {}): ItemForOrder =
   priceArs: 2000,
   priceMxnCents: 4200,
   maxQuantity: 1,
+  minQuantity: 1,
   active: true,
   rocketpassAvailable: true,
   stockByRegion: {},
@@ -120,6 +122,22 @@ describe('createItemOrder', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.code).toBe('INVALID_QUANTITY');
+  });
+
+  it('rejects a quantity under the admin-set minQuantity', async () => {
+    const { store } = harness(evoCrate({ minQuantity: 25, maxQuantity: 500, stockByRegion: { US: 500 } }));
+    const result = await createItemOrder({ store, arsRate: 0.015 }, { ...baseInput, quantity: 10 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failure.code).toBe('INVALID_QUANTITY');
+    if (result.failure.code !== 'INVALID_QUANTITY') return;
+    expect(result.failure.min).toBe(25);
+  });
+
+  it('allows a quantity at exactly minQuantity', async () => {
+    const { store } = harness(evoCrate({ minQuantity: 25, maxQuantity: 500, stockByRegion: { US: 500 } }));
+    const result = await createItemOrder({ store, arsRate: 0.015 }, { ...baseInput, quantity: 25 });
+    expect(result.ok).toBe(true);
   });
 
   it('requires a region for a gift-kind item', async () => {

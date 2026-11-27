@@ -2,7 +2,7 @@ import { DrizzleItemCatalogAdminStore, getArsRate } from '@levelup/db';
 import { getDb } from '../../../lib/db';
 import { requireSession } from '../../../lib/session';
 import { mxn } from '../../../lib/format';
-import { renameItem, setItemPrice, toggleItemActive } from './actions';
+import { renameItem, setItemMinQuantity, setItemPrice, toggleItemActive } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +49,7 @@ export default async function ArticulosAdminPage() {
               <th className="num">Costo</th>
               <th className="num">Precio al cliente</th>
               <th className="num">Ganancia</th>
+              <th className="num">Compra mínima</th>
               <th>Stock</th>
               <th>Disponible en RocketPass</th>
               <th>Estado</th>
@@ -109,6 +110,23 @@ export default async function ArticulosAdminPage() {
                         {mxn(marginMxnCents)} ({marginPct!.toFixed(1)}%)
                       </span>
                     )}
+                  </td>
+                  <td className="num">
+                    <form action={setItemMinQuantity} className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                      <input type="hidden" name="sku" value={item.sku} />
+                      <input
+                        name="minQuantity"
+                        type="number"
+                        step="1"
+                        min="1"
+                        defaultValue={item.minQuantity}
+                        className="mono"
+                        style={{ maxWidth: 70 }}
+                      />
+                      <button className="btn sm" type="submit">
+                        Guardar
+                      </button>
+                    </form>
                   </td>
                   <td>{stockLabel(item.stockByRegion)}</td>
                   <td>

@@ -41,3 +41,15 @@ export async function setItemPrice(formData: FormData): Promise<void> {
 
   revalidatePath('/articulos');
 }
+
+/** Minimum order quantity — Jose's own ask 2026-11-27. 1 means no minimum. */
+export async function setItemMinQuantity(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const sku = String(formData.get('sku') ?? '');
+  const minQuantity = Math.trunc(Number(formData.get('minQuantity') ?? ''));
+  if (!Number.isFinite(minQuantity) || minQuantity < 1) return;
+
+  await new DrizzleItemCatalogAdminStore(getDb()).setItemMinQuantity(sku, minQuantity, session.adminUserId);
+
+  revalidatePath('/articulos');
+}

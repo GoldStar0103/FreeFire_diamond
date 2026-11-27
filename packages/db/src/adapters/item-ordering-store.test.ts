@@ -156,4 +156,14 @@ describe.skipIf(!PG_AVAILABLE)('findResumableItemOrder', () => {
     await store().persist(newOrder());
     expect(await findResumableItemOrder(db, { playerId: '123456789', sku: 'token' })).toBeNull();
   });
+
+  it('surfaces the attached gatewayChargeId so a caller can re-check a still-live SPEI reference', async () => {
+    const { id } = await store().persist(newOrder());
+    await db
+      .update(payments)
+      .set({ gateway: 'mercadopago_embedded', gatewayChargeId: 'mp-order-123' })
+      .where(eq(payments.orderId, id));
+    const resumable = await findResumableItemOrder(db, { playerId: '123456789', sku: 'crate' });
+    expect(resumable?.gatewayChargeId).toBe('mp-order-123');
+  });
 });

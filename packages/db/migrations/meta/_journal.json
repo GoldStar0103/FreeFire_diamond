@@ -169,6 +169,13 @@
       "when": 1795370938049,
       "tag": "0023_mature_mesmero",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795743518586,
+      "tag": "0024_superb_killraven",
+      "breakpoints": true
     }
   ]
 }

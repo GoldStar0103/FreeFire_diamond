@@ -49,10 +49,12 @@ export default async function ComprarArticuloPage({
         price={mxn(item.salePriceMxnCents)}
         priceMxn={item.salePriceMxnCents / 100}
         maxQuantity={item.maxQuantity}
+        minQuantity={item.minQuantity}
         stockByRegion={item.stockByRegion}
         cancelledNotice={cancelado ? 'No se completó tu pago anterior. Puedes intentarlo de nuevo.' : null}
         mercadoPagoCardCheckoutProEnabled={mercadoPago?.supportedMethods.includes('card') ?? false}
         mercadoPagoCardEnabled={mercadoPagoEmbedded?.supportedMethods.includes('card') ?? false}
+        mercadoPagoSpeiEmbeddedEnabled={mercadoPagoEmbedded?.supportedMethods.includes('spei') ?? false}
         mercadoPagoPublicKey={process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? null}
         stripePublishableKey={process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? null}
       />

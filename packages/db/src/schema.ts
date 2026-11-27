@@ -1351,6 +1351,15 @@ export const itemCatalog = pgTable('item_catalog', {
    */
   priceMxnCents: integer('price_mxn_cents'),
   maxQuantity: integer('max_quantity').notNull(),
+  /**
+   * LevelUp's own minimum order quantity for this item — never written by
+   * the catalog sync (unlike `maxQuantity`, which is RocketPass's own
+   * per-item cap). Admin-set, like `priceMxnCents`; defaults to 1 (no
+   * minimum) for every item until Jose sets one. Added 2026-11-27, Jose's
+   * own ask: a $1-$5 item is cheap enough that RocketPass's own per-"cuenta
+   * emisora" gift-sending overhead isn't worth it below a minimum order size.
+   */
+  minQuantity: integer('min_quantity').notNull().default(1),
   active: boolean('active').notNull().default(true),
   rocketpassAvailable: boolean('rocketpass_available').notNull().default(true),
   lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),

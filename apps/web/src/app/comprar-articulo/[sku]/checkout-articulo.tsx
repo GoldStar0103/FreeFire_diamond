@@ -6,6 +6,7 @@ import {
   confirmItemStripeCardPayment,
   payWithItemMercadoPagoCard,
   payWithItemMercadoPagoCardCheckoutPro,
+  payWithItemMercadoPagoSpei,
   payWithItemStripeCard,
   validateItemPlayer,
   type CheckoutState,
@@ -37,6 +38,8 @@ interface Props {
   price: string;
   priceMxn: number;
   maxQuantity: number;
+  /** LevelUp's own minimum order quantity — 1 means no minimum. Added 2026-11-27, Jose's own ask. */
+  minQuantity: number;
   /** Region code -> quantity. Empty for a membership. */
   stockByRegion: Record<string, number>;
   cancelledNotice: string | null;
@@ -44,6 +47,8 @@ interface Props {
   mercadoPagoCardCheckoutProEnabled: boolean;
   /** Mercado Pago's embedded Checkout is configured for card — dormant as of 2026-11-26, see the combo checkout's own doc comment. */
   mercadoPagoCardEnabled: boolean;
+  /** Mercado Pago's embedded Checkout is configured for SPEI — added 2026-11-27, Jose's own ask. */
+  mercadoPagoSpeiEmbeddedEnabled: boolean;
   mercadoPagoPublicKey: string | null;
   /** Stripe's publishable (non-secret) key for the Payment Element — see the combo checkout's own prop. */
   stripePublishableKey: string | null;
@@ -65,10 +70,12 @@ export function CheckoutArticulo({
   price,
   priceMxn,
   maxQuantity,
+  minQuantity,
   stockByRegion,
   cancelledNotice,
   mercadoPagoCardCheckoutProEnabled,
   mercadoPagoCardEnabled,
+  mercadoPagoSpeiEmbeddedEnabled,
   mercadoPagoPublicKey,
   stripePublishableKey,
 }: Props) {
@@ -81,7 +88,7 @@ export function CheckoutArticulo({
   const targetUid = validation.playerId ?? '';
   const targetNickname = validation.nickname ?? '';
   const region = kind === 'gift' ? (validation.region ?? null) : null;
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(minQuantity);
   const router = useRouter();
 
   // `price`/`priceMxn` are the item's per-unit price — real everywhere a
@@ -114,23 +121,46 @@ export function CheckoutArticulo({
   // floor, confirmed in production) — below that, Stripe isn't a real choice
   // regardless of whether it's configured.
   const stripeCardAllowed = totalMxnCents >= STRIPE_MIN_CARD_CENTS;
-  // Only asked when there is a real choice to make — a single configured
-  // card method just renders directly, same as this page always did before
-  // Mercado Pago's card option existed.
-  const [cardChoice, setCardChoice] = useState<'stripe' | 'mercadopago' | null>(null);
-  // No real choice without Mercado Pago configured too — defaults straight
-  // to Stripe, same as this page always did before that option existed,
-  // unless the total can't clear Stripe's own minimum and Mercado Pago is
-  // available to take it instead.
-  const effectiveCardChoice: 'stripe' | 'mercadopago' =
-    cardChoice ?? (!stripeCardAllowed && mpCardOption ? 'mercadopago' : 'stripe');
-  const showCardChooser = mpCardOption && stripeCardAllowed && cardChoice === null;
+  // SPEI added 2026-11-27 (Jose's own ask) — a third, explicit option next to
+  // the two card ones, same Mercado Pago embedded gateway the combo checkout
+  // already uses for it.
+  const speiOption = mercadoPagoSpeiEmbeddedEnabled;
+  // Only asked when there is a real choice to make — a single available
+  // method just renders directly, same as this page always did before a
+  // second method existed. Built from whichever of the three are actually
+  // usable right now, in display order.
+  const methodOptions: Array<'stripe' | 'mercadopago' | 'spei'> = [
+    ...(stripeCardAllowed ? (['stripe'] as const) : []),
+    ...(mpCardOption ? (['mercadopago'] as const) : []),
+    ...(speiOption ? (['spei'] as const) : []),
+  ];
+  const [methodChoice, setMethodChoice] = useState<'stripe' | 'mercadopago' | 'spei' | null>(null);
+  const effectiveMethod: 'stripe' | 'mercadopago' | 'spei' = methodChoice ?? (methodOptions[0] ?? 'stripe');
+  const showMethodChooser = methodOptions.length > 1 && methodChoice === null;
 
   const [mpCardResult, setMpCardResult] = useState<EmbeddedCheckoutState | null>(null);
   const [mpCardSubmitting, setMpCardSubmitting] = useState(false);
   const [mpCardWhatsapp, setMpCardWhatsapp] = useState('');
   const mpCardWhatsappRef = useRef(mpCardWhatsapp);
   mpCardWhatsappRef.current = mpCardWhatsapp;
+
+  // SPEI, through the same Mercado Pago embedded gateway — a plain form
+  // submission (no Brick on screen), so this goes through `useActionState`
+  // directly, same as the combo checkout's own `mpSpeiEmbeddedAction`.
+  const [mpSpei, mpSpeiAction, mpSpeiProcessing] = useActionState<EmbeddedCheckoutState, FormData>(
+    payWithItemMercadoPagoSpei,
+    {},
+  );
+  const deviceInputRef = useRef<HTMLInputElement>(null);
+  // Same reasoning as the combo checkout's own doc comment on this effect:
+  // the order page already builds exactly the layout a CLABE result needs
+  // (loading state, payment details, order summary, already polling for
+  // confirmation) — no reason to maintain a second, static copy here.
+  useEffect(() => {
+    if (mpSpei.instructions?.kind === 'spei' && mpSpei.orderPageUrl) {
+      router.push(mpSpei.orderPageUrl);
+    }
+  }, [mpSpei, router]);
 
   // Same fix as the combo checkout (confirmed needed in production
   // 2026-11-24): scroll whichever status message just appeared into view the
@@ -190,7 +220,7 @@ export function CheckoutArticulo({
   const stockAvailable = kind === 'gift' && region ? (stockByRegion[region] ?? 0) : null;
   const insufficientStock = stockAvailable !== null && quantity > stockAvailable;
   const canContinue =
-    found && regionValid && quantity >= 1 && quantity <= maxQuantity && !insufficientStock;
+    found && regionValid && quantity >= minQuantity && quantity <= maxQuantity && !insufficientStock;
 
   const confirmStep = () => {
     setStep('confirmacion');
@@ -341,13 +371,17 @@ export function CheckoutArticulo({
 
           {found && (
             <label className="field">
-              <span>Cantidad ({price} c/u)</span>
+              <span>
+                Cantidad ({price} c/u){minQuantity > 1 ? ` · mínimo ${minQuantity}` : ''}
+              </span>
               <input
                 type="number"
-                min={1}
+                min={minQuantity}
                 max={maxQuantity}
                 value={quantity}
-                onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, Number(e.target.value) || 1)))}
+                onChange={(e) =>
+                  setQuantity(Math.max(minQuantity, Math.min(maxQuantity, Number(e.target.value) || minQuantity)))
+                }
               />
             </label>
           )}
@@ -412,32 +446,90 @@ export function CheckoutArticulo({
             </div>
           </div>
 
-          {showCardChooser ? (
+          {showMethodChooser ? (
             <div className="pagos">
-              <button
-                type="button"
-                className="pago tarjeta"
-                onClick={() => setCardChoice('stripe')}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className="head">
-                  <h3>Tarjeta de crédito/débito</h3>
-                </div>
-                <p className="hint">Visa · Mastercard · Amex</p>
-              </button>
-              <button
-                type="button"
-                className="pago tarjeta"
-                onClick={() => setCardChoice('mercadopago')}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className="head">
-                  <h3>Mercado Pago</h3>
-                </div>
-                <p className="hint">Abre la app si la tienes instalada</p>
-              </button>
+              {stripeCardAllowed && (
+                <button
+                  type="button"
+                  className="pago tarjeta"
+                  onClick={() => setMethodChoice('stripe')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="head">
+                    <h3>Tarjeta de crédito/débito</h3>
+                  </div>
+                  <p className="hint">Visa · Mastercard · Amex</p>
+                </button>
+              )}
+              {mpCardOption && (
+                <button
+                  type="button"
+                  className="pago tarjeta"
+                  onClick={() => setMethodChoice('mercadopago')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="head">
+                    <h3>Mercado Pago</h3>
+                  </div>
+                  <p className="hint">Abre la app si la tienes instalada</p>
+                </button>
+              )}
+              {speiOption && (
+                <button
+                  type="button"
+                  className="pago tarjeta"
+                  onClick={() => setMethodChoice('spei')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="head">
+                    <h3>Transferencia SPEI</h3>
+                  </div>
+                  <p className="hint">Te damos la cuenta CLABE al continuar</p>
+                </button>
+              )}
             </div>
-          ) : effectiveCardChoice === 'mercadopago' && mpCardKind === 'mercadopago-embedded' && mercadoPagoPublicKey ? (
+          ) : effectiveMethod === 'spei' ? (
+            <form
+              action={mpSpeiAction}
+              onSubmit={(e) => {
+                if (deviceInputRef.current) {
+                  deviceInputRef.current.value = getMercadoPagoDeviceSessionId() ?? '';
+                }
+                trackPaymentInfo(e.currentTarget);
+              }}
+            >
+              <input type="hidden" name="sku" value={sku} />
+              <input type="hidden" name="targetUid" value={targetUid} />
+              <input type="hidden" name="quantity" value={quantity} />
+              <input type="hidden" name="deviceSessionId" ref={deviceInputRef} defaultValue="" />
+
+              <label className="field">
+                <span>Tu WhatsApp</span>
+                <input
+                  type="tel"
+                  name="whatsapp"
+                  inputMode="tel"
+                  placeholder="Solo por si necesitamos contactarte"
+                  disabled={mpSpeiProcessing}
+                  required
+                />
+              </label>
+
+              <label className="field">
+                <span>Tu correo</span>
+                <input type="email" name="email" placeholder="tu@correo.com" disabled={mpSpeiProcessing} required />
+              </label>
+
+              {mpSpei.error && <div className="alert bad">{mpSpei.error}</div>}
+
+              <button className="btn-primary" type="submit" disabled={mpSpeiProcessing}>
+                {mpSpeiProcessing ? 'Generando tu CLABE…' : `Confirmar pedido — ${totalLabel}`}
+              </button>
+              <p className="hint center">
+                🏦 Te damos tu cuenta CLABE para SPEI al continuar, en esta misma pantalla.
+              </p>
+            </form>
+          ) : effectiveMethod === 'mercadopago' && mpCardKind === 'mercadopago-embedded' && mercadoPagoPublicKey ? (
             <div>
               <label className="field">
                 <span>Tu WhatsApp</span>
@@ -568,7 +660,7 @@ export function CheckoutArticulo({
                 🔒 Pagas directo con Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
               </p>
             </div>
-          ) : effectiveCardChoice === 'mercadopago' && mpCardKind === 'mercadopago-checkoutpro' ? (
+          ) : effectiveMethod === 'mercadopago' && mpCardKind === 'mercadopago-checkoutpro' ? (
             <form
               action={mpCheckoutProCardAction}
               onSubmit={(e) => {
@@ -648,8 +740,8 @@ export function CheckoutArticulo({
             </div>
           )}
 
-          {mpCardOption && cardChoice !== null && (
-            <button type="button" className="btn-ghost" onClick={() => setCardChoice(null)}>
+          {methodOptions.length > 1 && methodChoice !== null && (
+            <button type="button" className="btn-ghost" onClick={() => setMethodChoice(null)}>
               ← Elegir otro método
             </button>
           )}

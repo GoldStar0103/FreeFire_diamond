@@ -18,6 +18,8 @@ export interface StorefrontItem {
   kind: 'gift' | 'membership';
   salePriceMxnCents: number;
   maxQuantity: number;
+  /** LevelUp's own minimum order quantity — admin-set, 1 means no minimum. */
+  minQuantity: number;
   /** Region code -> quantity. Empty for `kind === 'membership'`. */
   stockByRegion: Record<string, number>;
 }
@@ -32,6 +34,7 @@ export async function listStorefrontItems(db: Database): Promise<StorefrontItem[
       kind: itemCatalog.kind,
       priceMxnCents: itemCatalog.priceMxnCents,
       maxQuantity: itemCatalog.maxQuantity,
+      minQuantity: itemCatalog.minQuantity,
     })
     .from(itemCatalog)
     .where(
@@ -63,6 +66,7 @@ export async function listStorefrontItems(db: Database): Promise<StorefrontItem[
     // Safe: the `isNotNull` filter above guarantees this.
     salePriceMxnCents: r.priceMxnCents!,
     maxQuantity: r.maxQuantity,
+    minQuantity: r.minQuantity,
     stockByRegion: stockById.get(r.id) ?? {},
   }));
 }
@@ -77,6 +81,7 @@ export async function getStorefrontItem(db: Database, sku: string): Promise<Stor
       kind: itemCatalog.kind,
       priceMxnCents: itemCatalog.priceMxnCents,
       maxQuantity: itemCatalog.maxQuantity,
+      minQuantity: itemCatalog.minQuantity,
       active: itemCatalog.active,
       rocketpassAvailable: itemCatalog.rocketpassAvailable,
     })
@@ -103,6 +108,7 @@ export async function getStorefrontItem(db: Database, sku: string): Promise<Stor
     kind: row.kind,
     salePriceMxnCents: row.priceMxnCents,
     maxQuantity: row.maxQuantity,
+    minQuantity: row.minQuantity,
     stockByRegion,
   };
 }

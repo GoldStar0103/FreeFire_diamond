@@ -39,6 +39,7 @@ export class DrizzleItemOrderingStore implements ItemOrderingStore {
         priceArs: itemCatalog.priceArs,
         priceMxnCents: itemCatalog.priceMxnCents,
         maxQuantity: itemCatalog.maxQuantity,
+        minQuantity: itemCatalog.minQuantity,
         active: itemCatalog.active,
         rocketpassAvailable: itemCatalog.rocketpassAvailable,
       })
@@ -67,6 +68,7 @@ export class DrizzleItemOrderingStore implements ItemOrderingStore {
       priceArs: Number(row.priceArs),
       priceMxnCents: row.priceMxnCents,
       maxQuantity: row.maxQuantity,
+      minQuantity: row.minQuantity,
       active: row.active,
       rocketpassAvailable: row.rocketpassAvailable,
       stockByRegion,
@@ -161,6 +163,14 @@ export interface ResumableItemOrder {
   contactWhatsapp: string | null;
   paymentMethod: string | null;
   gateway: string | null;
+  /**
+   * The charge already attached to this order's pending payment, if any —
+   * same field, same reason as `storefront-queries.ts`'s own
+   * `ResumableOrder.gatewayChargeId`: lets a caller re-check a still-live
+   * SPEI reference before minting a second one on resume, instead of
+   * silently abandoning the first while it's still real, payable money.
+   */
+  gatewayChargeId: string | null;
 }
 
 export async function findResumableItemOrder(
@@ -195,6 +205,7 @@ export async function findResumableItemOrder(
       method: payments.method,
       status: payments.status,
       gateway: payments.gateway,
+      gatewayChargeId: payments.gatewayChargeId,
       expiresAt: payments.expiresAt,
     })
     .from(payments)
@@ -213,5 +224,6 @@ export async function findResumableItemOrder(
     contactWhatsapp: row.contactWhatsapp,
     paymentMethod: payment.method,
     gateway: payment.gateway,
+    gatewayChargeId: payment.gatewayChargeId,
   };
 }
