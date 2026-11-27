@@ -15,11 +15,22 @@ export const dynamic = 'force-dynamic';
 
 const KIND_LABEL: Record<'gift' | 'membership', string> = { gift: 'Artículo', membership: 'Membresía' };
 
+/** Matches RocketPass's own reseller dashboard naming (confirmed against a real screenshot: "SUR"/"US"), not `RocketPassRegion`'s internal 'SAC' code. */
+const REGION_SHORT_LABEL: Record<string, string> = { SAC: 'SUR', US: 'US' };
+const REGION_ORDER = ['SAC', 'US'];
+
+/**
+ * Per region, not combined — Jose's own report 2026-11-27: a single summed
+ * total (e.g. "505 disponibles") hides that it might all be in one region,
+ * same gap he pointed at in RocketPass's own dashboard showing "SUR: 505
+ * US: 0" instead. A region with zero stock is shown too, not hidden, same
+ * as that reference.
+ */
 function stockLabel(stockByRegion: Record<string, number>): string | null {
-  const total = Object.values(stockByRegion).reduce((sum, n) => sum + n, 0);
-  if (Object.keys(stockByRegion).length === 0) return null;
-  if (total === 0) return 'Sin stock';
-  return `${total} disponibles`;
+  const regions = Object.keys(stockByRegion);
+  if (regions.length === 0) return null;
+  const ordered = [...regions].sort((a, b) => REGION_ORDER.indexOf(a) - REGION_ORDER.indexOf(b));
+  return ordered.map((r) => `${REGION_SHORT_LABEL[r] ?? r}: ${stockByRegion[r]}`).join(' · ');
 }
 
 function isSoldOut(item: { stockByRegion: Record<string, number> }): boolean {
