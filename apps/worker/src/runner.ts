@@ -345,13 +345,17 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
   }
 
   // Ask each gateway directly before retiring anything — see
-  // `runGatewayReconcile`'s own doc comment. Ordered before the expiry sweep
-  // below on purpose: `findOverduePayments` only selects payments still
-  // `pending`, so a payment this reconcile just settled (paid or failed)
-  // is no longer a candidate by the time the expiry check runs in this same
-  // tick — the exact same-tick race that originally let a payment Stripe had
-  // already confirmed get retired as NOT_AWAITING_PAYMENT one `pending` read
-  // away from a reconcile that would have caught it.
+  // `runGatewayReconcile`'s own doc comment for why this sweep exists at
+  // all. Ordered before the expiry sweep below mostly for hygiene
+  // (`findOverduePayments` only selects payments still `pending`, so
+  // anything this reconcile just settled this same tick is naturally
+  // excluded rather than briefly double-counted) — NOT a rescue for a
+  // payment whose deadline has already passed: `approvePayment`'s own
+  // expiry check refuses a `paid` report past `expiresAt` regardless of
+  // DB row status or which sweep step reaches it first (confirmed via
+  // `runSweepOnce`'s own test below, which tried the opposite claim and was
+  // wrong). The real fix for a late confirmation is this sweep running
+  // continuously, every tick, well before any deadline — not this ordering.
   await runGatewayReconcile(deps);
 
   try {

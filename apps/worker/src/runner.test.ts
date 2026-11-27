@@ -29,6 +29,7 @@ import {
   runFulfillmentLoop,
   runGatewayReconcile,
   runItemFulfillmentLoop,
+  runSweepOnce,
   ShutdownSignal,
   type RunnerDeps,
 } from './runner.js';
@@ -726,6 +727,94 @@ describe('runGatewayReconcile', () => {
     ).resolves.toBeUndefined();
 
     expect(mpConfirmPayment).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1' }));
+  });
+});
+
+describe('runSweepOnce', () => {
+  // Proves the real value of cfcaf64 end-to-end, not just by reading the
+  // source: a payment still inside its deadline, whose only problem is that
+  // nobody (webhook, page reload) ever told the app Stripe already approved
+  // it, must get picked up and settled by the proactive reconcile sweep
+  // without ever reaching the expiry step. Both fakes share one mutable
+  // record so `findOverduePayments` genuinely reflects the settlement, the
+  // same way the real `payments.status = 'pending'` filter would in
+  // Postgres.
+  //
+  // This deliberately does NOT set `expiresAt` in the past — a payment whose
+  // deadline has already passed is correctly refused by `approvePayment`'s
+  // own expiry check (`PAYMENT_EXPIRED`) regardless of which sweep step
+  // reaches it first or in what order; nothing in this file changes that,
+  // nor should it (see payments.ts's own "OXXO voucher paid after expiry
+  // needs a human" reasoning). An earlier version of this test got that
+  // wrong — it set `expiresAt` in the past and expected the reorder in
+  // e149bac to rescue it, which `approvePayment`'s own deadline check makes
+  // structurally impossible. The real, fixable gap this sweep closes is
+  // "nobody ever asked the gateway while there was still time to", not
+  // "rescue something already past its deadline".
+  it('reconciles a Stripe payment nobody has reported yet, before its deadline, without touching the expiry sweep', async () => {
+    const { deps } = harness([]);
+
+    const record: { status: 'pending' | 'paid' | 'expired' } = { status: 'pending' };
+    const orderId = 'order-9';
+    const paymentId = 'pay-9';
+    const orderNumber = 'LU-261127-N7JH';
+    const gatewayChargeId = 'pi_live_abc';
+
+    const expirePayment = vi.fn(async () => {
+      record.status = 'expired';
+    });
+    const findOverduePayments = vi.fn(async () =>
+      // Not due yet — its deadline is still minutes away. This is the
+      // ordinary case: the expiry sweep has nothing to do regardless of
+      // whether it runs before or after reconcile this tick.
+      [],
+    );
+
+    const confirmPayment = vi.fn(async () => {
+      record.status = 'paid';
+    });
+    const gatewayStore = {
+      listPendingGatewayPayments: vi.fn(async () =>
+        record.status === 'pending'
+          ? [{ paymentId, orderId, orderNumber, gatewayChargeId }]
+          : [],
+      ),
+      findPayable: vi.fn(async () =>
+        record.status === 'pending'
+          ? {
+              orderId,
+              orderNumber,
+              orderStatus: 'pending_payment' as const,
+              paymentId,
+              paymentStatus: 'pending' as const,
+              method: 'card' as const,
+              amountExpectedCents: 1_500,
+              expiresAt: new Date(Date.now() + 10 * 60_000),
+            }
+          : null,
+      ),
+      confirmPayment,
+      flagMismatch: vi.fn(async () => undefined),
+      rejectPayment: vi.fn(async () => undefined),
+      expirePayment: vi.fn(async () => undefined),
+    };
+    const getCharge = vi.fn(async () => ({
+      state: 'paid' as const,
+      amountReceivedCents: 1_500,
+      reference: gatewayChargeId,
+    }));
+
+    deps.store.findOverduePayments = findOverduePayments;
+    deps.store.expirePayment = expirePayment;
+
+    await runSweepOnce({
+      ...deps,
+      gatewayReconcile: { store: gatewayStore, mercadoPagoCheckoutPro: null, stripe: { getCharge } },
+    });
+
+    expect(confirmPayment).toHaveBeenCalledTimes(1);
+    expect(expirePayment).not.toHaveBeenCalled();
+    expect(record.status).toBe('paid');
   });
 });
 

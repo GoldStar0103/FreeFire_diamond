@@ -18,6 +18,7 @@
 
 import 'server-only';
 import { StripeGateway } from '@levelup/payments';
+import { INSTANT_PAYMENT_TTL_MS } from '@levelup/engine';
 import { applyGatewayReport, type AppliedReport, type GatewayReport } from './gateway-report';
 
 export const STRIPE = 'stripe';
@@ -61,8 +62,25 @@ export function getStripe(): StripeGateway | null {
   return built;
 }
 
-/** How long past the session's own expiry our payment row waits before the sweep retires it. */
-export const SESSION_GRACE_MS = 30 * 60_000;
+/**
+ * How long past the session's own expiry our payment row waits before the
+ * sweep retires it.
+ *
+ * Was 30 minutes (added 2026-11-26 for the embedded card flow — see
+ * `payWithStripeCard`'s own doc comment). Widened to the full
+ * `INSTANT_PAYMENT_TTL_MS` on 2026-11-27 after that 30-minute grace turned
+ * out not to be enough for a real, recurring fraction of customers (Jose:
+ * "1/5 orders... with stripe") — `approvePayment` refuses a `paid` report
+ * outright once `now` is past the stored `expiresAt`, regardless of whether
+ * the sweep has physically marked the row expired yet (see its own
+ * `PAYMENT_EXPIRED` check), so a 3D Secure/bank-OTP confirmation — or a
+ * customer resuming a nearly-expired cart who then needs a retry or two —
+ * taking longer than 30 minutes hit this no matter how promptly the gateway
+ * was asked. A customer who has just committed to paying gets the same full
+ * window Jose already approved for every instant method, counted fresh from
+ * that moment, not the leftover sliver of their original order's deadline.
+ */
+export const SESSION_GRACE_MS = INSTANT_PAYMENT_TTL_MS;
 
 export type StripeReport = GatewayReport;
 export type { AppliedReport };
