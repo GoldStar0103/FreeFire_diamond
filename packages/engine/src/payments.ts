@@ -203,14 +203,36 @@ export async function approvePayment(
     });
   }
 
-  await deps.store.confirmPayment({
-    orderId: payable.orderId,
-    paymentId: payable.paymentId,
-    amountReceivedCents: received,
-    adminUserId: input.adminUserId ?? null,
-    reference: input.reference ?? null,
-    acceptedMismatch: received !== payable.amountExpectedCents,
-  });
+  try {
+    await deps.store.confirmPayment({
+      orderId: payable.orderId,
+      paymentId: payable.paymentId,
+      amountReceivedCents: received,
+      adminUserId: input.adminUserId ?? null,
+      reference: input.reference ?? null,
+      acceptedMismatch: received !== payable.amountExpectedCents,
+    });
+  } catch (err) {
+    // The store's own compare-and-set guard against two approvals racing
+    // (see payment-store.ts's own comment on `confirmPayment`) — the exact
+    // same race `rejectPayment` below already re-checks for, which this
+    // function never did. Confirmed happening for real in production
+    // 2026-11-27 (web logs: "[stripe] failed handling evt_...: Error:
+    // Payment ... was already settled by another request"): a webhook, the
+    // order-page fallback, and now the worker's gateway-reconcile sweep can
+    // all reach here for the same charge within moments of each other.
+    // Without this, the loser's exception propagates uncaught straight to
+    // the webhook route's try/catch, which answers Stripe with a 500 —
+    // Stripe then redelivers the same event for up to three days even
+    // though the payment was, in fact, correctly approved (by the winner).
+    // Re-reading settles it: if the race resolved in the customer's favor,
+    // this is exactly `alreadyApproved`, not a failure to surface.
+    const now = await deps.store.findPayable(input.orderId);
+    if (now?.paymentStatus === 'paid') {
+      return { ok: true, orderId: payable.orderId, orderNumber: payable.orderNumber, alreadyApproved: true };
+    }
+    throw err;
+  }
 
   return {
     ok: true,

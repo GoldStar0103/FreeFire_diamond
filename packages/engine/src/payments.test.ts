@@ -76,6 +76,41 @@ describe('approving a comprobante', () => {
     expect(store.confirmPayment).not.toHaveBeenCalled();
   });
 
+  it('turns a race lost at the store into alreadyApproved, not a thrown error', async () => {
+    // The read above only catches a payment that was ALREADY paid when this
+    // function started. The store's own guarded write (DrizzlePaymentStore's
+    // `confirmPayment`) is what catches one that becomes paid in the gap
+    // between that read and the write landing, and reports it by throwing.
+    // Confirmed happening for real in production 2026-11-27: a webhook and
+    // the order-page fallback (or the worker's gateway-reconcile sweep)
+    // landing within moments of each other on the same charge. Uncaught,
+    // this exception used to reach the webhook route's own try/catch, which
+    // answers Stripe with a 500 and gets the same event redelivered for up
+    // to three days even though the payment was, in fact, correctly
+    // approved by the winner of the race.
+    const { deps, store } = harness(payable());
+    vi.mocked(store.confirmPayment).mockRejectedValueOnce(new Error('already settled by another request'));
+    vi.mocked(store.findPayable)
+      .mockResolvedValueOnce(payable())
+      .mockResolvedValueOnce(payable({ paymentStatus: 'paid' }));
+
+    const result = await approvePayment(deps, { orderId: 'order-1', amountReceivedCents: 153_000 });
+
+    expect(result).toMatchObject({ ok: true, alreadyApproved: true });
+  });
+
+  it('still surfaces a genuine confirmPayment failure that is not the race', async () => {
+    const { deps, store } = harness(payable());
+    vi.mocked(store.confirmPayment).mockRejectedValueOnce(new Error('connection reset'));
+    // Re-read shows the payment is still just pending — not the race, a
+    // real failure that must not be swallowed as a false "already approved".
+    vi.mocked(store.findPayable).mockResolvedValueOnce(payable()).mockResolvedValueOnce(payable());
+
+    await expect(
+      approvePayment(deps, { orderId: 'order-1', amountReceivedCents: 153_000 }),
+    ).rejects.toThrow('connection reset');
+  });
+
   it('can approve a payment previously flagged as mismatched', async () => {
     // The admin looked at the receipt and decided it was fine.
     const { deps, store } = harness(payable({ paymentStatus: 'amount_mismatch' }));
