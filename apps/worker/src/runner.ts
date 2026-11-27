@@ -344,6 +344,16 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
     console.error(`[sweep] Recovery failed: ${String(err)}`);
   }
 
+  // Ask each gateway directly before retiring anything — see
+  // `runGatewayReconcile`'s own doc comment. Ordered before the expiry sweep
+  // below on purpose: `findOverduePayments` only selects payments still
+  // `pending`, so a payment this reconcile just settled (paid or failed)
+  // is no longer a candidate by the time the expiry check runs in this same
+  // tick — the exact same-tick race that originally let a payment Stripe had
+  // already confirmed get retired as NOT_AWAITING_PAYMENT one `pending` read
+  // away from a reconcile that would have caught it.
+  await runGatewayReconcile(deps);
+
   try {
     // Retires orders nobody ever paid for. Cheap, and it is what frees a Mega
     // Oferta slot that an abandoned attempt would otherwise hold forever.
@@ -357,8 +367,6 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
   } catch (err) {
     console.error(`[sweep] Expiry failed: ${String(err)}`);
   }
-
-  await runGatewayReconcile(deps);
 
   // No Telegram alert for a pending OXXO/SPEI payment sitting quiet past a
   // few hours any more (removed 2026-09-27, client request): the large
