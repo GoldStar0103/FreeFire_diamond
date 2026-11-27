@@ -37,6 +37,12 @@ export function ParticiparSorteo({
   const remainingByCap = maxEntriesPerPlayer != null ? Math.max(0, maxEntriesPerPlayer - currentEntries) : Infinity;
   const maxAffordable = Math.min(affordableMax, remainingByCap);
   const [entryCount, setEntryCount] = useState(Math.min(1, maxAffordable || 1));
+  // The input's own text, separate from `entryCount` — see the item
+  // checkout's identical quantity field for why: binding the input directly
+  // to a pre-clamped number meant every keystroke, including the empty
+  // instant while backspacing out an old value, snapped straight back to 1,
+  // so the field could never actually be cleared to type a replacement.
+  const [entryCountInput, setEntryCountInput] = useState(String(Math.min(1, maxAffordable || 1)));
 
   const currentBalance = state.ok ? state.ok.resultingBalance : ticketBalance;
   const cost = entryCount * entryCostTickets;
@@ -93,15 +99,29 @@ export function ParticiparSorteo({
               />
             </label>
           )}
+          {/* Submission always reads the clamped `entryCount` below, not this
+              field directly — see `entryCountInput`'s own comment for why a
+              number input can't be both freely-typeable and the literal
+              submitted value at the same time. */}
+          <input type="hidden" name="entryCount" value={entryCount} />
           <label className="field">
             <span>Cantidad de entradas ({entryCostTickets} ticket{entryCostTickets === 1 ? '' : 's'} cada una)</span>
             <input
               type="number"
-              name="entryCount"
               min={1}
               max={maxAffordable}
-              value={entryCount}
-              onChange={(e) => setEntryCount(Math.max(1, Math.min(maxAffordable, Number(e.target.value) || 1)))}
+              value={entryCountInput}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setEntryCountInput(raw);
+                const parsed = Math.trunc(Number(raw));
+                if (raw.trim() !== '' && Number.isFinite(parsed)) setEntryCount(parsed);
+              }}
+              onBlur={() => {
+                const clamped = Math.max(1, Math.min(maxAffordable, entryCount || 1));
+                setEntryCount(clamped);
+                setEntryCountInput(String(clamped));
+              }}
             />
           </label>
           <p className="hint">

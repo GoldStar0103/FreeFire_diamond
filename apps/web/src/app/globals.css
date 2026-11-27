@@ -2256,7 +2256,7 @@ a.btn-edit:hover {
 .field { display: block; margin-bottom: 14px; }
 .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 
-input[type="text"], input[type="tel"], input[type="email"], input[type="file"], input:not([type]) {
+input[type="text"], input[type="tel"], input[type="email"], input[type="file"], input[type="number"], input:not([type]) {
   font: inherit;
   width: 100%;
   padding: 12px 13px;

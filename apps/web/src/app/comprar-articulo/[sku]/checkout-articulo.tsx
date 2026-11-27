@@ -89,6 +89,16 @@ export function CheckoutArticulo({
   const targetNickname = validation.nickname ?? '';
   const region = kind === 'gift' ? (validation.region ?? null) : null;
   const [quantity, setQuantity] = useState(minQuantity);
+  // The quantity `<input>`'s own text, kept separate from `quantity` (the
+  // clamped number everything else reads). Binding the input directly to a
+  // pre-clamped value meant every keystroke — including the empty instant
+  // while backspacing out an old number — snapped straight back to
+  // `minQuantity`, so the field could never actually be cleared to type a
+  // replacement. Confirmed live 2026-11-27 (Jose: "Can't delete the number
+  // one"). Clamping now only happens on blur; while typing, any value (even
+  // temporarily out of range) is accepted and read live by `canContinue`/the
+  // stock check below, so feedback is still immediate, just not a trap.
+  const [quantityInput, setQuantityInput] = useState(String(minQuantity));
   const router = useRouter();
 
   // `price`/`priceMxn` are the item's per-unit price — real everywhere a
@@ -219,8 +229,9 @@ export function CheckoutArticulo({
   // details, not after — confirmed needed per Jose's own report of this case.
   const stockAvailable = kind === 'gift' && region ? (stockByRegion[region] ?? 0) : null;
   const insufficientStock = stockAvailable !== null && quantity > stockAvailable;
-  const canContinue =
-    found && regionValid && quantity >= minQuantity && quantity <= maxQuantity && !insufficientStock;
+  const belowMinimum = quantity < minQuantity;
+  const aboveMaximum = quantity > maxQuantity;
+  const canContinue = found && regionValid && !belowMinimum && !aboveMaximum && !insufficientStock;
 
   const confirmStep = () => {
     setStep('confirmacion');
@@ -378,15 +389,31 @@ export function CheckoutArticulo({
                 type="number"
                 min={minQuantity}
                 max={maxQuantity}
-                value={quantity}
-                onChange={(e) =>
-                  setQuantity(Math.max(minQuantity, Math.min(maxQuantity, Number(e.target.value) || minQuantity)))
-                }
+                value={quantityInput}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setQuantityInput(raw);
+                  const parsed = Math.trunc(Number(raw));
+                  if (raw.trim() !== '' && Number.isFinite(parsed)) setQuantity(parsed);
+                }}
+                onBlur={() => {
+                  const clamped = Math.max(minQuantity, Math.min(maxQuantity, quantity || minQuantity));
+                  setQuantity(clamped);
+                  setQuantityInput(String(clamped));
+                }}
               />
             </label>
           )}
 
-          {found && insufficientStock && (
+          {found && belowMinimum && (
+            <div className="alert warn">La compra mínima de este artículo es {minQuantity} unidades.</div>
+          )}
+
+          {found && aboveMaximum && (
+            <div className="alert warn">La cantidad máxima por pedido es {maxQuantity} unidades.</div>
+          )}
+
+          {found && !belowMinimum && !aboveMaximum && insufficientStock && (
             <div className="alert warn">
               Solo quedan {stockAvailable} disponibles en esta región. Reduce la cantidad para continuar.
             </div>
