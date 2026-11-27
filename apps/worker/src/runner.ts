@@ -90,12 +90,18 @@ export interface RunnerDeps {
    * is genuinely a different concern (settling a payment, not fulfilling an
    * already-settled one) — same reasoning every other sweep-specific store
    * in this file (`levelPassStore`, `seasonStore`, etc.) already follows.
-   * `null` when Mercado Pago's Checkout Pro isn't configured on this
-   * deployment at all — the sweep step simply does nothing then.
+   * `null` when a given gateway isn't configured on this deployment at all —
+   * that gateway's own reconcile step simply does nothing then. `stripe`
+   * added 2026-11-27 (see ./stripe.ts's own doc comment) — the embedded card
+   * flow had only the webhook and the order-page fallback, with nothing
+   * proactively re-checking a payment whose confirmation (a real-world 3D
+   * Secure/bank-OTP step included) took long enough that the customer never
+   * came back to the page that would have asked Stripe directly.
    */
   gatewayReconcile: {
     store: PaymentStore & GatewayReconcileStore;
     mercadoPagoCheckoutPro: GatewayChargeCheck | null;
+    stripe: GatewayChargeCheck | null;
   };
 }
 
@@ -367,38 +373,51 @@ export async function runSweepOnce(deps: RunnerDeps): Promise<void> {
 }
 
 /**
- * Ask Mercado Pago's Checkout Pro directly about any card payment still
- * sitting `pending` past its own webhook's reasonable arrival window —
- * see `reconcilePendingGatewayPayments`'s own doc comment in @levelup/engine
- * for the real incident this closes. A no-op (not even the `examined > 0`
- * log line fires) when Checkout Pro isn't configured on this deployment.
+ * Ask each configured gateway directly about any card/SPEI payment still
+ * sitting `pending` past its own webhook's reasonable arrival window — see
+ * `reconcilePendingGatewayPayments`'s own doc comment in @levelup/engine for
+ * the Mercado Pago incident this was originally built to close, and
+ * ./stripe.ts's own doc comment for why Stripe needs the exact same sweep
+ * (added 2026-11-27): its embedded card flow only ever settled through the
+ * webhook or the customer reloading their order page, and a real 3D
+ * Secure/bank-OTP confirmation can take long enough that neither ever
+ * fires before the sweep's own `expireOverduePayments` retires the order.
+ * A no-op (not even the `examined > 0` log line fires) for a gateway that
+ * isn't configured on this deployment at all.
  *
- * Same `minAgeMs`/`batchSize` knobs the poller above already uses — no new
- * env var needed for a sensible "don't ask about a checkout that started
- * ten seconds ago" / "don't hammer Mercado Pago in one sweep tick" pair.
+ * Same `minAgeMs`/`batchSize` knobs the poller above already uses for every
+ * gateway — no new env var needed for a sensible "don't ask about a
+ * checkout that started ten seconds ago" / "don't hammer the gateway in one
+ * sweep tick" pair.
  */
 export async function runGatewayReconcile(deps: RunnerDeps): Promise<void> {
   const { gatewayReconcile, config } = deps;
-  const gateway = gatewayReconcile.mercadoPagoCheckoutPro;
-  if (!gateway) return;
+  const gateways: ReadonlyArray<{ name: string; gateway: GatewayChargeCheck | null }> = [
+    { name: 'mercadopago', gateway: gatewayReconcile.mercadoPagoCheckoutPro },
+    { name: 'stripe', gateway: gatewayReconcile.stripe },
+  ];
 
-  try {
-    const result = await reconcilePendingGatewayPayments(
-      { store: gatewayReconcile.store, gateway },
-      {
-        gatewayName: 'mercadopago',
-        olderThanMs: config.sweeps.minAgeMs,
-        limit: config.sweeps.batchSize,
-      },
-    );
-    if (result.examined > 0) {
-      console.log(
-        `[sweep] gateway-reconcile (mercadopago) examined ${result.examined}: ` +
-          `${result.settled} settled, ${result.stillPending} still pending, ${result.errored} errored`,
+  for (const { name, gateway } of gateways) {
+    if (!gateway) continue;
+
+    try {
+      const result = await reconcilePendingGatewayPayments(
+        { store: gatewayReconcile.store, gateway },
+        {
+          gatewayName: name,
+          olderThanMs: config.sweeps.minAgeMs,
+          limit: config.sweeps.batchSize,
+        },
       );
+      if (result.examined > 0) {
+        console.log(
+          `[sweep] gateway-reconcile (${name}) examined ${result.examined}: ` +
+            `${result.settled} settled, ${result.stillPending} still pending, ${result.errored} errored`,
+        );
+      }
+    } catch (err) {
+      console.error(`[sweep] gateway-reconcile (${name}) failed: ${String(err)}`);
     }
-  } catch (err) {
-    console.error(`[sweep] gateway-reconcile (mercadopago) failed: ${String(err)}`);
   }
 }
 

@@ -113,11 +113,11 @@ function harness(
     alerter,
     config: testConfig(),
     isEmergencyMode,
-    // Checkout Pro not configured in these tests — the sweep step is a
-    // no-op; its own behavior is covered directly in
+    // Checkout Pro/Stripe not configured in these tests — the sweep step is
+    // a no-op; its own behavior is covered directly in
     // @levelup/engine's gateway-reconcile.test.ts and runGatewayReconcile's
     // own test below.
-    gatewayReconcile: { store: new FakeGatewayReconcileStore(), mercadoPagoCheckoutPro: null },
+    gatewayReconcile: { store: new FakeGatewayReconcileStore(), mercadoPagoCheckoutPro: null, stripe: null },
   };
   return { deps, queue, store, catalog, alerter, provider, centralOneProvider };
 }
@@ -575,13 +575,17 @@ describe('checkWallet', () => {
 });
 
 describe('runGatewayReconcile', () => {
-  it('does nothing when Checkout Pro is not configured on this deployment', async () => {
+  it('does nothing when neither gateway is configured on this deployment', async () => {
     const { deps } = harness([]);
     const listPendingGatewayPayments = vi.fn(async () => []);
 
     await runGatewayReconcile({
       ...deps,
-      gatewayReconcile: { store: { ...deps.gatewayReconcile.store, listPendingGatewayPayments }, mercadoPagoCheckoutPro: null },
+      gatewayReconcile: {
+        store: { ...deps.gatewayReconcile.store, listPendingGatewayPayments },
+        mercadoPagoCheckoutPro: null,
+        stripe: null,
+      },
     });
 
     expect(listPendingGatewayPayments).not.toHaveBeenCalled();
@@ -611,7 +615,7 @@ describe('runGatewayReconcile', () => {
 
     await runGatewayReconcile({
       ...deps,
-      gatewayReconcile: { store, mercadoPagoCheckoutPro: { getCharge } },
+      gatewayReconcile: { store, mercadoPagoCheckoutPro: { getCharge }, stripe: null },
     });
 
     expect(store.listPendingGatewayPayments).toHaveBeenCalledWith({
@@ -623,7 +627,7 @@ describe('runGatewayReconcile', () => {
     expect(confirmPayment).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1', amountReceivedCents: 86_000 }));
   });
 
-  it('does not throw when the gateway check itself fails', async () => {
+  it('does not throw when the Mercado Pago gateway check itself fails', async () => {
     const { deps } = harness([]);
     const store = {
       ...deps.gatewayReconcile.store,
@@ -636,8 +640,92 @@ describe('runGatewayReconcile', () => {
     });
 
     await expect(
-      runGatewayReconcile({ ...deps, gatewayReconcile: { store, mercadoPagoCheckoutPro: { getCharge } } }),
+      runGatewayReconcile({ ...deps, gatewayReconcile: { store, mercadoPagoCheckoutPro: { getCharge }, stripe: null } }),
     ).resolves.toBeUndefined();
+  });
+
+  // Added 2026-11-27 — see ./stripe.ts's own doc comment: Stripe's embedded
+  // card flow had no proactive reconcile at all, only the webhook and the
+  // order-page fallback, which is exactly what let a real, already-paid
+  // Stripe charge get retired as NOT_AWAITING_PAYMENT before either of those
+  // two caught up with it.
+  it('settles a pending payment Stripe now reports paid, independently of Mercado Pago', async () => {
+    const { deps } = harness([]);
+    const confirmPayment = vi.fn(async () => undefined);
+    const store = {
+      ...deps.gatewayReconcile.store,
+      listPendingGatewayPayments: vi.fn(async (input: { gateway: string }) =>
+        input.gateway === 'stripe'
+          ? [{ paymentId: 'pay-2', orderId: 'order-2', orderNumber: 'LU-261127-N7JH', gatewayChargeId: 'pi_abc123' }]
+          : [],
+      ),
+      findPayable: vi.fn(async () => ({
+        orderId: 'order-2',
+        orderNumber: 'LU-261127-N7JH',
+        orderStatus: 'pending_payment' as const,
+        paymentId: 'pay-2',
+        paymentStatus: 'pending' as const,
+        method: 'card' as const,
+        amountExpectedCents: 1_500,
+        expiresAt: null,
+      })),
+      confirmPayment,
+    };
+    const getCharge = vi.fn(async () => ({ state: 'paid' as const, amountReceivedCents: 1_500, reference: 'pi_abc123' }));
+
+    await runGatewayReconcile({
+      ...deps,
+      gatewayReconcile: { store, mercadoPagoCheckoutPro: null, stripe: { getCharge } },
+    });
+
+    expect(store.listPendingGatewayPayments).toHaveBeenCalledWith({
+      gateway: 'stripe',
+      olderThanMs: deps.config.sweeps.minAgeMs,
+      limit: deps.config.sweeps.batchSize,
+    });
+    expect(getCharge).toHaveBeenCalledWith('pi_abc123');
+    expect(confirmPayment).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-2', amountReceivedCents: 1_500 }));
+  });
+
+  it('does not throw when the Stripe gateway check itself fails, and still runs Mercado Pago', async () => {
+    const { deps } = harness([]);
+    const mpConfirmPayment = vi.fn(async () => undefined);
+    const store = {
+      ...deps.gatewayReconcile.store,
+      listPendingGatewayPayments: vi.fn(async (input: { gateway: string }) =>
+        input.gateway === 'stripe'
+          ? [{ paymentId: 'pay-2', orderId: 'order-2', orderNumber: 'LU-261127-N7JH', gatewayChargeId: 'pi_abc123' }]
+          : [{ paymentId: 'pay-1', orderId: 'order-1', orderNumber: 'LU-261126-AB12', gatewayChargeId: 'LU-261126-AB12' }],
+      ),
+      findPayable: vi.fn(async () => ({
+        orderId: 'order-1',
+        orderNumber: 'LU-261126-AB12',
+        orderStatus: 'pending_payment' as const,
+        paymentId: 'pay-1',
+        paymentStatus: 'pending' as const,
+        method: 'card' as const,
+        amountExpectedCents: 86_000,
+        expiresAt: null,
+      })),
+      confirmPayment: mpConfirmPayment,
+    };
+    const stripeGetCharge = vi.fn(async () => {
+      throw new Error('Stripe unreachable');
+    });
+    const mpGetCharge = vi.fn(async () => ({ state: 'paid' as const, amountReceivedCents: 86_000, reference: 'mp-ref-1' }));
+
+    await expect(
+      runGatewayReconcile({
+        ...deps,
+        gatewayReconcile: {
+          store,
+          mercadoPagoCheckoutPro: { getCharge: mpGetCharge },
+          stripe: { getCharge: stripeGetCharge },
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mpConfirmPayment).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1' }));
   });
 });
 

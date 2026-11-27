@@ -46,6 +46,7 @@ import { loadConfig } from './config.js';
 import { startHeartbeat } from './heartbeat.js';
 import { buildMercadoPagoCheckoutPro } from './mercadopago.js';
 import { MetaConversionsReporter } from './meta-capi.js';
+import { buildStripeCheck } from './stripe.js';
 import {
   CatalogSyncSchedule,
   runConversions,
@@ -246,6 +247,7 @@ async function main(): Promise<void> {
     gatewayReconcile: {
       store: new DrizzlePaymentStore(db),
       mercadoPagoCheckoutPro: buildMercadoPagoCheckoutPro(),
+      stripe: buildStripeCheck(),
     },
   };
 
