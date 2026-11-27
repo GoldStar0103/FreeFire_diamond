@@ -53,6 +53,17 @@ const MIN_SESSION_MINUTES = 30;
 /** And anything longer. */
 const MAX_SESSION_MINUTES = 24 * 60;
 
+/**
+ * Stripe's own documented minimum charge for MXN — confirmed via a real
+ * `400: Amount must be at least $10.00 MXN` in production 2026-11-27, from a
+ * $1 MXN item-checkout order. Only enforced for `card`: OXXO/SPEI's own
+ * minimums aren't confirmed here and may differ. Checked proactively so a
+ * sub-$10 order gets one clear, specific `GatewayError` instead of letting
+ * every attempt — and every resumed retry of the same order — mint a new
+ * PaymentIntent request against Stripe just to fail the same way each time.
+ */
+const MIN_CARD_AMOUNT_CENTS_MXN = 1000;
+
 /** Our method names, mapped to what Stripe's `payment_method_types` actually calls them. */
 const STRIPE_WIRE_TYPE = {
   card: 'card',
@@ -286,6 +297,13 @@ export class StripeGateway implements PaymentGateway {
     // neither a return/cancel URL nor any of hosted Checkout's session
     // machinery below.
     if (input.method === 'card') {
+      if (input.amountCents < MIN_CARD_AMOUNT_CENTS_MXN) {
+        throw new GatewayError(
+          `Amount ${input.amountCents} is below Stripe's $10.00 MXN minimum for card`,
+          this.name,
+          false,
+        );
+      }
       return this.createCardIntentCharge(input);
     }
 

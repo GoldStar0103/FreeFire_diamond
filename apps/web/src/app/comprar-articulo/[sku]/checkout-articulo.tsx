@@ -15,10 +15,20 @@ import {
 import { CardPaymentBrick } from '../../comprar/[combo]/card-payment-brick';
 import { StripePaymentElement } from '../../comprar/[combo]/stripe-payment-element';
 import { setPixelUserData, trackPixel } from '../../../lib/pixel';
+import { mxn } from '../../../lib/format';
 import { GatewayTabNotice, useStripeTabRedirect } from '../../../lib/gateway-tab-redirect';
 import { getMercadoPagoDeviceSessionId, loadMercadoPagoSecurity } from '../../../lib/mercadopago-device';
 
 type Step = 'datos' | 'confirmacion';
+
+/**
+ * Must match `packages/payments/src/stripe.ts`'s own `MIN_CARD_AMOUNT_CENTS_MXN`
+ * — confirmed in production 2026-11-27 (a $1 MXN order failed with Stripe's
+ * real `400: Amount must be at least $10.00 MXN`). Used to skip straight to
+ * Mercado Pago when the order's real total can't clear Stripe's own floor,
+ * instead of offering a card option guaranteed to fail.
+ */
+const STRIPE_MIN_CARD_CENTS = 1000;
 
 interface Props {
   sku: string;
@@ -74,6 +84,15 @@ export function CheckoutArticulo({
   const [quantity, setQuantity] = useState(1);
   const router = useRouter();
 
+  // `price`/`priceMxn` are the item's per-unit price — real everywhere a
+  // quantity-aware total is needed (what's actually charged, what a payment
+  // brick needs to match the server-side charge, what's shown as "Total").
+  // Confirmed missing in production 2026-11-27: every one of these read the
+  // flat per-unit price regardless of the selected quantity.
+  const totalMxnCents = Math.round(priceMxn * 100) * quantity;
+  const totalMxn = totalMxnCents / 100;
+  const totalLabel = mxn(totalMxnCents);
+
   const [mpCheckoutProCard, mpCheckoutProCardAction, mpCheckoutProRedirecting] = useActionState<
     CheckoutState,
     FormData
@@ -91,14 +110,21 @@ export function CheckoutArticulo({
         ? 'mercadopago-embedded'
         : null;
   const mpCardOption = mpCardKind !== null;
+  // Stripe refuses any card charge under $10 MXN outright (its own hard
+  // floor, confirmed in production) — below that, Stripe isn't a real choice
+  // regardless of whether it's configured.
+  const stripeCardAllowed = totalMxnCents >= STRIPE_MIN_CARD_CENTS;
   // Only asked when there is a real choice to make — a single configured
   // card method just renders directly, same as this page always did before
   // Mercado Pago's card option existed.
   const [cardChoice, setCardChoice] = useState<'stripe' | 'mercadopago' | null>(null);
   // No real choice without Mercado Pago configured too — defaults straight
-  // to Stripe, same as this page always did before that option existed.
-  const effectiveCardChoice: 'stripe' | 'mercadopago' = cardChoice ?? 'stripe';
-  const showCardChooser = mpCardOption && cardChoice === null;
+  // to Stripe, same as this page always did before that option existed,
+  // unless the total can't clear Stripe's own minimum and Mercado Pago is
+  // available to take it instead.
+  const effectiveCardChoice: 'stripe' | 'mercadopago' =
+    cardChoice ?? (!stripeCardAllowed && mpCardOption ? 'mercadopago' : 'stripe');
+  const showCardChooser = mpCardOption && stripeCardAllowed && cardChoice === null;
 
   const [mpCardResult, setMpCardResult] = useState<EmbeddedCheckoutState | null>(null);
   const [mpCardSubmitting, setMpCardSubmitting] = useState(false);
@@ -143,7 +169,7 @@ export function CheckoutArticulo({
   }, []);
 
   const pixel = {
-    value: priceMxn,
+    value: totalMxn,
     currency: 'MXN' as const,
     content_ids: [sku],
     content_type: 'product' as const,
@@ -241,7 +267,7 @@ export function CheckoutArticulo({
           <span>{kind === 'gift' ? 'Artículo RocketPass' : 'Membresía RocketPass'}</span>
         </div>
         <div className="pr">
-          {price.replace(/\s*MXN$/i, '')} <small>MXN</small>
+          {totalLabel.replace(/\s*MXN$/i, '')} <small>MXN</small>
         </div>
       </div>
 
@@ -315,7 +341,7 @@ export function CheckoutArticulo({
 
           {found && (
             <label className="field">
-              <span>Cantidad</span>
+              <span>Cantidad ({price} c/u)</span>
               <input
                 type="number"
                 min={1}
@@ -330,6 +356,12 @@ export function CheckoutArticulo({
             <div className="alert warn">
               Solo quedan {stockAvailable} disponibles en esta región. Reduce la cantidad para continuar.
             </div>
+          )}
+
+          {found && quantity > 1 && (
+            <p className="hint" style={{ marginTop: -4 }}>
+              Total: {totalLabel}
+            </p>
           )}
 
           {found && (
@@ -376,7 +408,7 @@ export function CheckoutArticulo({
             </div>
             <div className="fila">
               <span className="k">Total</span>
-              <span className="v total">{price}</span>
+              <span className="v total">{totalLabel}</span>
             </div>
           </div>
 
@@ -462,7 +494,7 @@ export function CheckoutArticulo({
               {mpCardWhatsapp.trim() ? (
                 <div style={mpCardSubmitting ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
                 <CardPaymentBrick
-                  amountMxn={priceMxn}
+                  amountMxn={totalMxn}
                   publicKey={mercadoPagoPublicKey}
                   onToken={async ({ token, paymentMethodId, installments, payerEmail, payerIdentification }) => {
                     setMpCardSubmitting(true);
@@ -566,7 +598,7 @@ export function CheckoutArticulo({
               {mpCheckoutProCard.error && <div className="alert bad">{mpCheckoutProCard.error}</div>}
 
               <button className="btn-primary" type="submit" disabled={mpCheckoutProRedirecting}>
-                {mpCheckoutProRedirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${price}`}
+                {mpCheckoutProRedirecting ? 'Abriendo pago seguro…' : `Pagar con tarjeta — ${totalLabel}`}
               </button>
               <p className="hint center">
                 🔒 Pagas en la página segura de Mercado Pago. Nunca vemos ni guardamos tu tarjeta.
@@ -598,7 +630,7 @@ export function CheckoutArticulo({
                   <StripePaymentElement
                     publishableKey={stripePublishableKey}
                     clientSecret={stripeSession.clientSecret}
-                    submitLabel={`Pagar con tarjeta — ${price}`}
+                    submitLabel={`Pagar con tarjeta — ${totalLabel}`}
                     disabled={stripeConfirming}
                     onConfirmed={handleStripeConfirmed}
                     onError={handleStripeError}

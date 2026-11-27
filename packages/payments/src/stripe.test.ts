@@ -346,6 +346,25 @@ describe('createCharge — card, embedded PaymentIntent', () => {
     await expect(gateway(impl).createCharge(chargeInput)).rejects.toBeInstanceOf(GatewayError);
   });
 
+  it('refuses a card charge below Stripe\'s $10 MXN minimum before ever calling Stripe', async () => {
+    const { impl, calls } = fakeFetch([]);
+    const err = await gateway(impl)
+      .createCharge({ ...chargeInput, amountCents: 100 })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GatewayError);
+    expect((err as GatewayError).message).toMatch(/10\.00 MXN/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('allows a card charge at exactly the $10 MXN minimum', async () => {
+    const { impl } = fakeFetch([
+      { status: 200, body: { id: 'pi_1', object: 'payment_intent', amount: 1000, client_secret: 'secret-1' } },
+    ]);
+    await expect(
+      gateway(impl).createCharge({ ...chargeInput, amountCents: 1000 }),
+    ).resolves.toMatchObject({ gatewayChargeId: 'pi_1' });
+  });
+
   it('still refuses card when the account does not have it enabled', async () => {
     const { impl, calls } = fakeFetch([]);
     await expect(gateway(impl, { methods: ['oxxo'] }).createCharge(chargeInput)).rejects.toMatchObject({
