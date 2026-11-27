@@ -523,6 +523,7 @@ export default async function OrderPage({
                 orderNumber={order.orderNumber}
                 playerId={order.playerId}
                 gatewayLabel={gatewayLabel}
+                stripePublishableKey={process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? null}
               />
             )}
             {canCancelManual && <CancelOrderButton orderNumber={order.orderNumber} playerId={order.playerId} />}

@@ -1,6 +1,12 @@
 'use server';
 
-import { attachGatewayCharge, DrizzlePaymentStore, findPendingOrderForAction } from '@levelup/db';
+import {
+  attachGatewayCharge,
+  DrizzlePaymentStore,
+  extendPaymentDeadline,
+  findGatewayPayment,
+  findPendingOrderForAction,
+} from '@levelup/db';
 import { rejectPayment } from '@levelup/engine';
 import { diamonds } from '../../../lib/format';
 import { callerIp, getDb, lookupLimiter } from '../../../lib/server';
@@ -17,6 +23,20 @@ export interface ContinueState {
   error?: string;
   checkoutUrl?: string;
   orderPageUrl?: string;
+  /**
+   * Set instead of `checkoutUrl` for a resumed Stripe card order — card
+   * never redirects (see stripe.ts's own doc comment), so there is no URL to
+   * open, only a fresh `PaymentIntent` for `order-actions.tsx` to mount a
+   * `StripePaymentElement` against. Added 2026-11-27 after production logs
+   * showed every single "Continuar pago" attempt on a Stripe card order
+   * failing with "Unexpected instructions stripe_elements" — this resume
+   * action had never been updated for the embedded flow (2026-11-26) and
+   * unconditionally assumed a `redirect` kind for every gateway/method.
+   */
+  clientSecret?: string;
+  gatewayChargeId?: string;
+  orderNumber?: string;
+  playerId?: string;
 }
 
 const GATEWAY_METHODS = new Set(['card', 'oxxo', 'spei']);
@@ -154,6 +174,62 @@ export async function continuePendingOrder(
     } catch (err) {
       console.error(`[pedido] ${order.orderNumber}: could not reopen a ${MERCADOPAGO_EMBEDDED}/spei charge`, err);
       return { error: 'No pudimos generar tu referencia. Intenta de nuevo o escríbenos por WhatsApp.' };
+    }
+  }
+
+  // Card through Stripe never redirects — it is created and confirmed
+  // in-page via a Payment Element, same as a first attempt
+  // (`payWithStripeCard`, comprar/[combo]/actions.ts). Must be handled
+  // before the generic branch below, which hard-assumes every gateway
+  // returns a `redirect` and throws otherwise — exactly the bug confirmed
+  // in production 2026-11-27 (every "Continuar pago" on a card order
+  // logging "Unexpected instructions stripe_elements").
+  if (gatewayName === STRIPE && method === 'card') {
+    const stripe = getStripe();
+    if (!stripe || !stripe.supportedMethods.includes('card')) {
+      return { error: 'Este método de pago ya no está disponible. Escríbenos por WhatsApp.' };
+    }
+
+    try {
+      const charge = await stripe.createCharge({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        amountCents: order.priceMxnCents,
+        method: 'card',
+        description: `${order.comboName} · ${diamonds(order.advertisedDiamonds)} diamantes Free Fire`,
+        customerPhone: order.contactWhatsapp,
+      });
+
+      if (charge.instructions.kind !== 'stripe_elements') {
+        throw new Error(`Unexpected instructions ${charge.instructions.kind}`);
+      }
+
+      const attached = await attachGatewayCharge(getDb(), {
+        orderId: order.id,
+        gateway: STRIPE,
+        gatewayChargeId: charge.gatewayChargeId,
+        expiresAt: null,
+      });
+      if (!attached) return { error: 'Este pedido ya no está esperando pago.' };
+
+      // Same grace as a first attempt — a resumed order can otherwise be
+      // seconds from its original deadline by the time the customer commits
+      // to paying again.
+      const linked = await findGatewayPayment(getDb(), STRIPE, charge.gatewayChargeId);
+      if (linked) {
+        await extendPaymentDeadline(getDb(), linked.paymentId, new Date(Date.now() + SESSION_GRACE_MS));
+      }
+
+      return {
+        clientSecret: charge.instructions.clientSecret,
+        gatewayChargeId: charge.gatewayChargeId,
+        orderNumber: order.orderNumber,
+        playerId,
+        orderPageUrl: orderPage,
+      };
+    } catch (err) {
+      console.error(`[pedido] ${order.orderNumber}: could not reopen a ${STRIPE}/card checkout`, err);
+      return { error: 'No pudimos abrir el pago con tarjeta. Intenta de nuevo o escríbenos por WhatsApp.' };
     }
   }
 
