@@ -16,6 +16,7 @@ import type {
   CatalogItem,
   CreateOrderInput,
   CreateOrderResult,
+  PlayerLookup,
   RocketPassItem,
   RocketPassOrder,
   RocketPassRegion,
@@ -64,6 +65,44 @@ export interface RawOrder {
   test: boolean;
   created_at: string;
   completed_at: string | null;
+}
+
+interface RawPlayerLookup {
+  uid: string;
+  valid: boolean;
+  found: boolean;
+  region_autocorrected: boolean;
+  warning: string | null;
+  nickname: string;
+  level: number | null;
+  region: string;
+  requested_region: string;
+  region_mismatch: boolean;
+  suggested_region: string | null;
+  avatar_url: string | null;
+  banner_url: string | null;
+  clan_name: string | null;
+  error: string | null;
+}
+
+function toPlayerLookup(raw: RawPlayerLookup): PlayerLookup {
+  return {
+    uid: raw.uid,
+    valid: raw.valid,
+    found: raw.found,
+    nickname: raw.nickname || null,
+    level: raw.level,
+    region: raw.region as RocketPassRegion,
+    requestedRegion: raw.requested_region as RocketPassRegion,
+    regionMismatch: raw.region_mismatch,
+    regionAutocorrected: raw.region_autocorrected,
+    suggestedRegion: raw.suggested_region as RocketPassRegion | null,
+    avatarUrl: raw.avatar_url,
+    bannerUrl: raw.banner_url,
+    clanName: raw.clan_name,
+    warning: raw.warning,
+    error: raw.error,
+  };
 }
 
 function toCatalogItem(raw: RawCatalogItem): CatalogItem {
@@ -214,6 +253,21 @@ export class RocketPassClient {
       retryAfterSeconds: data.retry_after_seconds,
       balanceArs: data.balance_ars,
     };
+  }
+
+  /**
+   * Confirm a Free Fire UID before dispatching — nick, level, avatar, and
+   * the account's real region, regardless of what `region` was requested
+   * with (see `PlayerLookup`'s own doc comment). `region` is ignored by
+   * RocketPass for an account that doesn't need one (memberships) — omit it
+   * when the item being bought is a membership.
+   *
+   * Requires the `players:read` scope on the API key.
+   */
+  async getPlayer(uid: string, region?: RocketPassRegion): Promise<PlayerLookup> {
+    const query = region ? `?region=${encodeURIComponent(region)}` : '';
+    const data = await this.request<RawPlayerLookup>('GET', `/players/${encodeURIComponent(uid)}${query}`);
+    return toPlayerLookup(data);
   }
 
   /**

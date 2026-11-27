@@ -230,6 +230,125 @@ describe('getOrder', () => {
   });
 });
 
+describe('getPlayer', () => {
+  it('maps a found player, including a real region regardless of what was requested', async () => {
+    const { impl, calls } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          success: true,
+          data: {
+            uid: '2159146470',
+            valid: true,
+            found: true,
+            region_autocorrected: true,
+            warning: 'La cuenta es de LATAM Norte (US): se despacha en US aunque la consulta fue con SAC.',
+            nickname: 'NRM4NNY',
+            level: 68,
+            region: 'US',
+            requested_region: 'SAC',
+            region_mismatch: true,
+            suggested_region: 'US',
+            avatar_url: 'https://rocketpass.store/api/item-icon?id=902000306',
+            banner_url: 'https://rocketpass.store/api/item-icon?id=901000276',
+            clan_name: null,
+            error: null,
+          },
+        },
+      },
+    ]);
+
+    const player = await client(impl).getPlayer('2159146470', 'SAC');
+
+    expect(calls[0]).toMatchObject({
+      method: 'GET',
+      url: 'https://rocketpass.store/api/v1/players/2159146470?region=SAC',
+    });
+    expect(player).toEqual({
+      uid: '2159146470',
+      valid: true,
+      found: true,
+      nickname: 'NRM4NNY',
+      level: 68,
+      region: 'US',
+      requestedRegion: 'SAC',
+      regionMismatch: true,
+      regionAutocorrected: true,
+      suggestedRegion: 'US',
+      avatarUrl: 'https://rocketpass.store/api/item-icon?id=902000306',
+      bannerUrl: 'https://rocketpass.store/api/item-icon?id=901000276',
+      clanName: null,
+      warning: 'La cuenta es de LATAM Norte (US): se despacha en US aunque la consulta fue con SAC.',
+      error: null,
+    });
+  });
+
+  it('omits the query string when no region is given', async () => {
+    const { impl, calls } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          success: true,
+          data: {
+            uid: '12345678',
+            valid: true,
+            found: true,
+            region_autocorrected: false,
+            warning: null,
+            nickname: 'Someone',
+            level: 10,
+            region: 'SAC',
+            requested_region: 'SAC',
+            region_mismatch: false,
+            suggested_region: null,
+            avatar_url: null,
+            banner_url: null,
+            clan_name: null,
+            error: null,
+          },
+        },
+      },
+    ]);
+
+    await client(impl).getPlayer('12345678');
+
+    expect(calls[0]?.url).toBe('https://rocketpass.store/api/v1/players/12345678');
+  });
+
+  it('reports an unknown uid as valid:false with a message, not a thrown error', async () => {
+    const { impl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          success: true,
+          data: {
+            uid: '000000000',
+            valid: false,
+            found: false,
+            region_autocorrected: false,
+            warning: null,
+            nickname: '',
+            level: null,
+            region: 'US',
+            requested_region: 'US',
+            region_mismatch: false,
+            suggested_region: null,
+            avatar_url: null,
+            banner_url: null,
+            clan_name: null,
+            error: 'El jugador con UID 0 no fue encontrado o el servidor no responde.',
+          },
+        },
+      },
+    ]);
+
+    const player = await client(impl).getPlayer('000000000', 'US');
+    expect(player.valid).toBe(false);
+    expect(player.nickname).toBeNull();
+    expect(player.error).toBe('El jugador con UID 0 no fue encontrado o el servidor no responde.');
+  });
+});
+
 describe('isSandbox', () => {
   it('is true for a test key and false for a live one', () => {
     expect(client(async () => new Response(), 'rpk_test_abc').isSandbox).toBe(true);

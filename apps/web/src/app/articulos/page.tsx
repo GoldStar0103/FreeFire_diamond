@@ -22,8 +22,15 @@ function stockLabel(stockByRegion: Record<string, number>): string | null {
   return `${total} disponibles`;
 }
 
+function isSoldOut(item: { stockByRegion: Record<string, number> }): boolean {
+  return (
+    Object.keys(item.stockByRegion).length > 0 &&
+    Object.values(item.stockByRegion).every((n) => n === 0)
+  );
+}
+
 export default async function ArticulosPage() {
-  const items = await listStorefrontItems(getDb());
+  const items = (await listStorefrontItems(getDb())).filter((item) => !isSoldOut(item));
 
   return (
     <main className="page pr">
@@ -44,40 +51,17 @@ export default async function ArticulosPage() {
         <div className="card empty">Estamos preparando el catálogo de artículos. Vuelve pronto.</div>
       ) : (
         <div className="art-grid">
-          {items.map((item) => {
-            const sold = Object.keys(item.stockByRegion).length > 0 &&
-              Object.values(item.stockByRegion).every((n) => n === 0);
-            const card = (
-              <>
-                <span className="art-card-kind">{KIND_LABEL[item.kind]}</span>
-                <span className="art-card-name">{item.displayName}</span>
-                <span className="art-card-price">{mxn(item.salePriceMxnCents)}</span>
-                {stockLabel(item.stockByRegion) && (
-                  <span className={`art-card-stock${sold ? ' is-sold-out' : ''}`}>
-                    {stockLabel(item.stockByRegion)}
-                  </span>
-                )}
-                <span className="art-card-cta">{sold ? 'Agotado' : 'Comprar →'}</span>
-              </>
-            );
-
-            // A sold-out card has nowhere to navigate to, so it renders as a
-            // plain non-interactive div rather than a Link whose navigation
-            // needs blocking — a Server Component can't pass an onClick
-            // handler to Link, since a function isn't serializable across
-            // the server/client boundary (confirmed in production: crashed
-            // the whole page with "Event handlers cannot be passed to
-            // Client Component props").
-            return sold ? (
-              <div key={item.sku} className="card art-card is-sold-out" aria-disabled="true">
-                {card}
-              </div>
-            ) : (
-              <Link key={item.sku} href={`/comprar-articulo/${item.sku}`} className="card art-card">
-                {card}
-              </Link>
-            );
-          })}
+          {items.map((item) => (
+            <Link key={item.sku} href={`/comprar-articulo/${item.sku}`} className="card art-card">
+              <span className="art-card-kind">{KIND_LABEL[item.kind]}</span>
+              <span className="art-card-name">{item.displayName}</span>
+              <span className="art-card-price">{mxn(item.salePriceMxnCents)}</span>
+              {stockLabel(item.stockByRegion) && (
+                <span className="art-card-stock">{stockLabel(item.stockByRegion)}</span>
+              )}
+              <span className="art-card-cta">Comprar →</span>
+            </Link>
+          ))}
         </div>
       )}
     </main>

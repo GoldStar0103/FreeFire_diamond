@@ -75,6 +75,38 @@ export interface RocketPassOrder {
   completedAt: string | null;
 }
 
+/**
+ * `GET /players/{uid}` — confirmed against a real live-key call 2026-11-26
+ * (both a matching and a mismatched `region`, and an unknown uid): `success`
+ * is `true` even when the player isn't found — `valid`/`found` are the real
+ * answer, `error` is a human (Spanish) message set only then. `region` is
+ * always the account's own real region regardless of what was requested;
+ * `regionMismatch`/`suggestedRegion` exist so a caller doesn't have to
+ * special-case "did I ask for the right one" itself. Costs nothing extra to
+ * call — it's a plain read, not a deduction against the account balance.
+ */
+export interface PlayerLookup {
+  uid: string;
+  valid: boolean;
+  found: boolean;
+  nickname: string | null;
+  level: number | null;
+  /** The account's real region, regardless of what `region` was requested with. */
+  region: RocketPassRegion;
+  requestedRegion: RocketPassRegion;
+  regionMismatch: boolean;
+  regionAutocorrected: boolean;
+  /** Only set when `regionMismatch` — per RocketPass's own docs, send the order with this one. */
+  suggestedRegion: RocketPassRegion | null;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  clanName: string | null;
+  /** Human (Spanish) message, e.g. explaining a region correction. Not an error. */
+  warning: string | null;
+  /** Human (Spanish) message set when `valid`/`found` is false. */
+  error: string | null;
+}
+
 export interface CreateOrderResult {
   order: RocketPassOrder;
   /** True when RocketPass itself queued the order rather than processing it inline. */

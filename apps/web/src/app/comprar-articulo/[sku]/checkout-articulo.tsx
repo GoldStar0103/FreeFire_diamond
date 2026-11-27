@@ -7,8 +7,10 @@ import {
   payWithItemMercadoPagoCard,
   payWithItemMercadoPagoCardCheckoutPro,
   payWithItemStripeCard,
+  validateItemPlayer,
   type CheckoutState,
   type EmbeddedCheckoutState,
+  type ValidateState,
 } from './actions';
 import { CardPaymentBrick } from '../../comprar/[combo]/card-payment-brick';
 import { StripePaymentElement } from '../../comprar/[combo]/stripe-payment-element';
@@ -40,12 +42,11 @@ interface Props {
 const REGION_LABEL: Record<string, string> = { US: 'Estados Unidos', SAC: 'Sudamérica' };
 
 /**
- * Two screens, not three — there is no identity-confirmation step like the
- * combo checkout's "¿Eres tú, X?", because RocketPass's own API has no
- * validate-uid endpoint to check against (confirmed in `packages/rocketpass`).
- * The warning below is the honest substitute: double-check before paying,
- * since an item sent to the wrong ID is exactly as unrecoverable as a
- * diamond recharge would be.
+ * Step 1 confirms identity via RocketPass's own `GET /players/{uid}` — see
+ * `validateItemPlayer`'s doc comment in `actions.ts`. Unlike the combo
+ * checkout's identity step, there is no separate region picker: the same
+ * lookup that confirms the ID also returns the account's real region, so
+ * the region shown below is detected, not chosen.
  */
 export function CheckoutArticulo({
   sku,
@@ -61,11 +62,15 @@ export function CheckoutArticulo({
   mercadoPagoPublicKey,
   stripePublishableKey,
 }: Props) {
-  const regions = Object.keys(stockByRegion);
   const [step, setStep] = useState<Step>('datos');
-  const [targetUid, setTargetUid] = useState('');
-  const [targetNickname, setTargetNickname] = useState('');
-  const [region, setRegion] = useState<string | null>(kind === 'gift' ? (regions[0] ?? null) : null);
+  const [validation, validateAction, validating] = useActionState<ValidateState, FormData>(
+    validateItemPlayer,
+    { status: 'idle' },
+  );
+  const found = validation.status === 'found';
+  const targetUid = validation.playerId ?? '';
+  const targetNickname = validation.nickname ?? '';
+  const region = kind === 'gift' ? (validation.region ?? null) : null;
   const [quantity, setQuantity] = useState(1);
   const router = useRouter();
 
@@ -128,8 +133,6 @@ export function CheckoutArticulo({
 
   const targetUidRef = useRef(targetUid);
   targetUidRef.current = targetUid;
-  const regionRef = useRef(region);
-  regionRef.current = region;
   const quantityRef = useRef(quantity);
   quantityRef.current = quantity;
   const targetNicknameRef = useRef(targetNickname);
@@ -151,9 +154,17 @@ export function CheckoutArticulo({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const idValid = /^\d{6,15}$/.test(targetUid);
   const regionValid = kind === 'membership' || Boolean(region);
-  const canContinue = idValid && regionValid && quantity >= 1 && quantity <= maxQuantity;
+  // Stock per region is a soft, last-synced mirror of RocketPass's own
+  // inventory (see `item-ordering.ts`'s doc comment) — it can show *some*
+  // stock while still being less than what the customer is trying to buy.
+  // `createItemOrder` already refuses this server-side (`OUT_OF_STOCK`), but
+  // catching it here too means the customer sees it before entering payment
+  // details, not after — confirmed needed per Jose's own report of this case.
+  const stockAvailable = kind === 'gift' && region ? (stockByRegion[region] ?? 0) : null;
+  const insufficientStock = stockAvailable !== null && quantity > stockAvailable;
+  const canContinue =
+    found && regionValid && quantity >= 1 && quantity <= maxQuantity && !insufficientStock;
 
   const confirmStep = () => {
     setStep('confirmacion');
@@ -181,7 +192,6 @@ export function CheckoutArticulo({
     fd.set('sku', sku);
     fd.set('targetUid', targetUidRef.current);
     fd.set('targetNickname', targetNicknameRef.current);
-    fd.set('region', regionRef.current ?? '');
     fd.set('quantity', String(quantityRef.current));
     fd.set('whatsapp', whatsapp);
 
@@ -238,85 +248,101 @@ export function CheckoutArticulo({
       {cancelledNotice && <div className="alert warn">{cancelledNotice}</div>}
 
       {step === 'datos' && (
-        <section className="paso">
+        <section className={`paso${found ? ' confirmado' : ''}`}>
           <h2>
             <span className="n" aria-hidden="true">
               1
             </span>
             Datos de la entrega
           </h2>
-          <p className="ayuda">
-            Revisa bien tu ID — no podemos verificarlo contra el juego antes de cobrar, así que un
-            ID equivocado no se puede corregir después.
-          </p>
+          <p className="ayuda">Lo encuentras en tu perfil dentro del juego, debajo de tu nombre.</p>
 
-          <label className="field">
-            <span>Tu ID de Free Fire</span>
-            <input
-              inputMode="numeric"
-              pattern="\d*"
-              placeholder="Ej. 123456789"
-              value={targetUid}
-              onChange={(e) => setTargetUid(e.target.value.replace(/\D/g, ''))}
-              autoFocus
-            />
-          </label>
+          <form action={validateAction}>
+            <label className="field">
+              <span>Tu ID de Free Fire</span>
+              <input
+                name="playerId"
+                inputMode="numeric"
+                pattern="\d*"
+                placeholder="Ej. 123456789"
+                defaultValue={validation.playerId ?? ''}
+                required
+                autoFocus
+                disabled={validating}
+              />
+            </label>
 
-          <label className="field">
-            <span>Tu nombre en el juego (opcional)</span>
-            <input
-              placeholder="Para confirmar que es tu cuenta"
-              value={targetNickname}
-              onChange={(e) => setTargetNickname(e.target.value)}
-            />
-          </label>
-
-          {kind === 'gift' && regions.length > 0 && (
-            <div className="field">
-              <span>Región de tu cuenta</span>
-              <div className="pagos" style={{ marginTop: 6 }}>
-                {regions.map((r) => {
-                  const stock = stockByRegion[r] ?? 0;
-                  return (
-                    <button
-                      key={r}
-                      type="button"
-                      className={`pago tarjeta${region === r ? ' is-selected' : ''}`}
-                      disabled={stock <= 0}
-                      onClick={() => setRegion(r)}
-                      style={{ cursor: stock <= 0 ? 'not-allowed' : 'pointer', opacity: stock <= 0 ? 0.5 : 1 }}
-                    >
-                      <div className="head">
-                        <h3>{REGION_LABEL[r] ?? r}</h3>
-                      </div>
-                      <p className="hint">{stock > 0 ? `${stock} disponibles` : 'Sin stock'}</p>
-                    </button>
-                  );
-                })}
+            {validation.message && (
+              <div className={validation.status === 'error' ? 'alert bad' : 'alert warn'}>
+                {validation.message}
               </div>
+            )}
+
+            {found ? (
+              <div className="eres">
+                <p>¿Eres tú?</p>
+                {validation.avatarUrl && (
+                  <img
+                    src={validation.avatarUrl}
+                    alt=""
+                    width={56}
+                    height={56}
+                    style={{ borderRadius: '50%', display: 'block', margin: '0 auto 8px' }}
+                  />
+                )}
+                <b>{validation.nickname ?? 'Cuenta verificada'}</b>
+                {(validation.level != null || region) && (
+                  <p className="hint center" style={{ marginTop: 2 }}>
+                    {validation.level != null ? `Nivel ${validation.level}` : null}
+                    {validation.level != null && region ? ' · ' : null}
+                    {region ? `Región: ${REGION_LABEL[region] ?? region}` : null}
+                  </p>
+                )}
+                <div className="fila">
+                  <button type="submit" className="btn-ghost" disabled={validating}>
+                    No, cambiar ID
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 12 }}>
+                <button className="btn-primary" type="submit" disabled={validating}>
+                  {validating ? 'Buscando…' : 'Buscar mi cuenta'}
+                </button>
+              </div>
+            )}
+          </form>
+
+          {found && (
+            <label className="field">
+              <span>Cantidad</span>
+              <input
+                type="number"
+                min={1}
+                max={maxQuantity}
+                value={quantity}
+                onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, Number(e.target.value) || 1)))}
+              />
+            </label>
+          )}
+
+          {found && insufficientStock && (
+            <div className="alert warn">
+              Solo quedan {stockAvailable} disponibles en esta región. Reduce la cantidad para continuar.
             </div>
           )}
 
-          <label className="field">
-            <span>Cantidad</span>
-            <input
-              type="number"
-              min={1}
-              max={maxQuantity}
-              value={quantity}
-              onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, Number(e.target.value) || 1)))}
-            />
-          </label>
-
-          <button
-            className="btn-primary"
-            type="button"
-            disabled={!canContinue}
-            onClick={confirmStep}
-            style={{ marginTop: 12 }}
-          >
-            Continuar →
-          </button>
+          {found && (
+            <button
+              className="btn-primary"
+              type="button"
+              disabled={!canContinue}
+              onClick={confirmStep}
+              style={{ marginTop: 12 }}
+            >
+              Continuar →
+            </button>
+          )}
         </section>
       )}
 
@@ -444,7 +470,6 @@ export function CheckoutArticulo({
                     fd.set('sku', sku);
                     fd.set('targetUid', targetUidRef.current);
                     fd.set('targetNickname', targetNicknameRef.current);
-                    fd.set('region', regionRef.current ?? '');
                     fd.set('quantity', String(quantityRef.current));
                     fd.set('whatsapp', mpCardWhatsappRef.current.trim());
                     fd.set('cardToken', token);
@@ -522,7 +547,6 @@ export function CheckoutArticulo({
               <input type="hidden" name="sku" value={sku} />
               <input type="hidden" name="targetUid" value={targetUid} />
               <input type="hidden" name="targetNickname" value={targetNickname} />
-              <input type="hidden" name="region" value={region ?? ''} />
               <input type="hidden" name="quantity" value={quantity} />
 
               <label className="field">

@@ -8,11 +8,39 @@
 
 import 'server-only';
 import type { Alerter, AlertLevel } from '@levelup/engine';
+import { RocketPassClient } from '@levelup/rocketpass';
 
 export const ROCKETPASS = 'rocketpass';
 
 export function getRocketPassWebhookSecret(): string | null {
   return process.env.ROCKETPASS_WEBHOOK_SECRET?.trim() || null;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __webRocketPass: RocketPassClient | null | undefined;
+}
+
+function build(): RocketPassClient | null {
+  const apiKey = process.env.ROCKETPASS_API_KEY?.trim();
+  if (!apiKey) return null;
+  const baseUrl = process.env.ROCKETPASS_BASE_URL?.trim() || undefined;
+  return new RocketPassClient({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
+}
+
+/**
+ * Same singleton-if-configured pattern as `lib/mercadopago.ts`'s
+ * `getMercadoPago()` — null when `ROCKETPASS_API_KEY` isn't set, so a caller
+ * can fall back to the item-checkout page's old behavior instead of crashing.
+ * `docker-compose.prod.yml` shares one `.env` across every service, so the
+ * same key already configured for `apps/worker`'s catalog sync/fulfillment
+ * is available here too, no separate provisioning needed.
+ */
+export function getRocketPassClient(): RocketPassClient | null {
+  if (globalThis.__webRocketPass !== undefined) return globalThis.__webRocketPass;
+  const built = build();
+  if (process.env.NODE_ENV !== 'production') globalThis.__webRocketPass = built;
+  return built;
 }
 
 const LEVEL_EMOJI: Record<AlertLevel, string> = { info: 'ℹ️', warn: '⚠️', critical: '🚨' };

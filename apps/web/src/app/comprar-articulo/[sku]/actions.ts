@@ -10,8 +10,10 @@ import {
   getArsRate,
 } from '@levelup/db';
 import { createItemOrder, rejectPayment, type CreateItemOrderFailure } from '@levelup/engine';
+import type { RocketPassRegion } from '@levelup/rocketpass';
 import type { ChargeState, PaymentInstructions } from '@levelup/payments';
-import { getDb, paymentAttemptLimiter, callerIp } from '../../../lib/server';
+import { getDb, paymentAttemptLimiter, callerIp, validationLimiter } from '../../../lib/server';
+import { getRocketPassClient } from '../../../lib/rocketpass';
 import { getCustomerSession } from '../../../lib/customer-session';
 import { siteUrl } from '../../../lib/site';
 import { applyStripeReport, getStripe, SESSION_GRACE_MS, STRIPE } from '../../../lib/stripe';
@@ -26,14 +28,119 @@ export interface CheckoutState {
   orderPageUrl?: string;
 }
 
+// ── step 1: who is this player? ───────────────────────────────────────────────
+//
+// RocketPass's own `GET /players/{uid}` (confirmed against the live API
+// 2026-11-26, see `packages/rocketpass/src/types.ts`'s `PlayerLookup` doc
+// comment) does what the combo checkout's generic diamond-provider lookup
+// never could for this page: it returns the account's real RocketPass
+// region regardless of what's asked for, not just a nickname. So the region
+// picker that used to be a manual, error-prone choice is gone entirely —
+// verifying the ID is now also how the region gets decided, closing both of
+// Jose's reports at once ("no id validator") and ("auto-detect the region").
+
+export interface ValidateState {
+  status: 'idle' | 'found' | 'not_found' | 'error';
+  playerId?: string;
+  nickname?: string | null;
+  level?: number | null;
+  avatarUrl?: string | null;
+  /** The account's real RocketPass region — only meaningful for `kind === 'gift'`. */
+  region?: RocketPassRegion | null;
+  message?: string;
+}
+
+/** Item-checkout counterpart of the combo checkout's `validatePlayer` — see that function's own doc comment. */
+export async function validateItemPlayer(
+  _prev: ValidateState,
+  formData: FormData,
+): Promise<ValidateState> {
+  const playerId = String(formData.get('playerId') ?? '').trim();
+
+  if (!/^\d{6,15}$/.test(playerId)) {
+    return { status: 'error', message: 'El ID debe tener entre 6 y 15 números.' };
+  }
+
+  const decision = validationLimiter.check(await callerIp());
+  if (!decision.allowed) {
+    return {
+      status: 'error',
+      message: `Demasiados intentos. Espera ${Math.ceil(decision.retryAfterMs / 1000)} segundos.`,
+    };
+  }
+
+  const rocketPass = getRocketPassClient();
+  if (!rocketPass) {
+    return { status: 'error', message: 'No podemos verificar tu ID en este momento. Intenta más tarde.' };
+  }
+
+  try {
+    const player = await rocketPass.getPlayer(playerId);
+    if (!player.valid || !player.found) {
+      return {
+        status: 'not_found',
+        playerId,
+        message: player.error ?? 'No encontramos ese ID. Revísalo e intenta de nuevo.',
+      };
+    }
+    return {
+      status: 'found',
+      playerId,
+      nickname: player.nickname,
+      level: player.level,
+      avatarUrl: player.avatarUrl,
+      region: player.region,
+    };
+  } catch (err) {
+    console.error('[comprar-articulo] RocketPass player lookup failed', err);
+    return { status: 'error', message: 'No pudimos contactar al servidor de Free Fire. Intenta en un momento.' };
+  }
+}
+
+type ConfirmResult =
+  | { ok: true; nickname: string | null; region: RocketPassRegion | null }
+  | { ok: false; message: string };
+
 /**
- * Spanish for each way `createItemOrder` can refuse.
- *
- * There is no "¿Eres tú, X?" step here, unlike the combo checkout — RocketPass's
- * own API has no validate-uid endpoint (confirmed against `packages/rocketpass`),
- * only the order-time check this failure maps from. The page itself asks the
- * customer to double-check their Free Fire ID for exactly that reason.
+ * Re-confirm the player server-side, same discipline as the combo checkout's
+ * own `confirmPlayer` — a server action is a public endpoint, so the
+ * Verificar step above is a UX gate, not a security one. Every `payWithItem*`
+ * action below calls this before creating an order, and uses its nickname
+ * AND region (never client-supplied) as what the order is actually built from
+ * — `createItemOrder` ignores `region` for anything but a `gift` item, so
+ * passing it unconditionally here is harmless for a membership order.
  */
+async function confirmItemPlayer(playerId: string): Promise<ConfirmResult> {
+  if (!/^\d{6,15}$/.test(playerId)) {
+    return { ok: false, message: 'El ID de jugador no es válido.' };
+  }
+
+  const decision = validationLimiter.check(await callerIp());
+  if (!decision.allowed) {
+    return {
+      ok: false,
+      message: `Demasiados intentos. Espera ${Math.ceil(decision.retryAfterMs / 1000)} segundos.`,
+    };
+  }
+
+  const rocketPass = getRocketPassClient();
+  if (!rocketPass) {
+    return { ok: false, message: 'No podemos verificar tu ID en este momento.' };
+  }
+
+  try {
+    const player = await rocketPass.getPlayer(playerId);
+    if (!player.valid || !player.found) {
+      return { ok: false, message: player.error ?? 'No encontramos ese ID de Free Fire. Revísalo por favor.' };
+    }
+    return { ok: true, nickname: player.nickname, region: player.region };
+  } catch (err) {
+    console.error('[comprar-articulo] player re-validation failed', err);
+    return { ok: false, message: 'No pudimos verificar tu cuenta ahora mismo. Intenta en un momento.' };
+  }
+}
+
+/** Spanish for each way `createItemOrder` can refuse. */
 function explain(failure: CreateItemOrderFailure): string {
   switch (failure.code) {
     case 'ITEM_NOT_FOUND':
@@ -87,14 +194,15 @@ export async function payWithItemStripeCard(
 
   const sku = String(formData.get('sku') ?? '');
   const targetUid = String(formData.get('targetUid') ?? '').trim();
-  const targetNickname = String(formData.get('targetNickname') ?? '').trim() || null;
-  const region = String(formData.get('region') ?? '').trim() || null;
   const quantity = Number(formData.get('quantity') ?? 1);
   const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
 
   if (!whatsapp) {
     return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
   }
+
+  const confirmed = await confirmItemPlayer(targetUid);
+  if (!confirmed.ok) return { error: confirmed.message };
 
   const db = getDb();
 
@@ -113,9 +221,9 @@ export async function payWithItemStripeCard(
       {
         sku,
         quantity,
-        region,
+        region: confirmed.region,
         targetUid,
-        targetNickname,
+        targetNickname: confirmed.nickname,
         contactWhatsapp: whatsapp,
         paymentMethod: 'card',
         source: 'storefront',
@@ -247,14 +355,15 @@ export async function payWithItemMercadoPagoCardCheckoutPro(
 
   const sku = String(formData.get('sku') ?? '');
   const targetUid = String(formData.get('targetUid') ?? '').trim();
-  const targetNickname = String(formData.get('targetNickname') ?? '').trim() || null;
-  const region = String(formData.get('region') ?? '').trim() || null;
   const quantity = Number(formData.get('quantity') ?? 1);
   const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
 
   if (!whatsapp) {
     return { error: 'Ingresa tu número de WhatsApp para poder contactarte si hace falta.' };
   }
+
+  const confirmed = await confirmItemPlayer(targetUid);
+  if (!confirmed.ok) return { error: confirmed.message };
 
   const db = getDb();
   const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
@@ -270,9 +379,9 @@ export async function payWithItemMercadoPagoCardCheckoutPro(
       {
         sku,
         quantity,
-        region,
+        region: confirmed.region,
         targetUid,
-        targetNickname,
+        targetNickname: confirmed.nickname,
         contactWhatsapp: whatsapp,
         paymentMethod: 'card',
         source: 'storefront',
@@ -356,8 +465,6 @@ export async function payWithItemMercadoPagoCard(
 
   const sku = String(formData.get('sku') ?? '');
   const targetUid = String(formData.get('targetUid') ?? '').trim();
-  const targetNickname = String(formData.get('targetNickname') ?? '').trim() || null;
-  const region = String(formData.get('region') ?? '').trim() || null;
   const quantity = Number(formData.get('quantity') ?? 1);
   const whatsapp = String(formData.get('whatsapp') ?? '').trim() || null;
   const deviceSessionId = String(formData.get('deviceSessionId') ?? '').trim() || null;
@@ -385,6 +492,9 @@ export async function payWithItemMercadoPagoCard(
     return { error: `Demasiados intentos. Espera ${Math.ceil(rateDecision.retryAfterMs / 1000)} segundos.` };
   }
 
+  const confirmed = await confirmItemPlayer(targetUid);
+  if (!confirmed.ok) return { error: confirmed.message };
+
   const db = getDb();
   const resumable = await findResumableItemOrder(db, { playerId: targetUid, sku });
 
@@ -399,9 +509,9 @@ export async function payWithItemMercadoPagoCard(
       {
         sku,
         quantity,
-        region,
+        region: confirmed.region,
         targetUid,
-        targetNickname,
+        targetNickname: confirmed.nickname,
         contactWhatsapp: whatsapp,
         paymentMethod: 'card',
         source: 'storefront',
